@@ -1,0 +1,45 @@
+name: Bug Report
+  description: Report a bug
+  title: "[BUG] "
+  labels: ["bug"]
+  body:
+    - type: textarea
+      id: environment
+      attributes:
+        label: Environment
+        placeholder: |
+          - OS:
+          - Arch:
+          - Termua Version
+      validations:
+        required: true
+
+    - type: dropdown
+      id: terminal_backend
+      attributes:
+        label: Terminal Backend
+        options:
+          - not applicable
+          - Alacritty
+          - Wezterm
+      validations:
+        required: true
+
+    - type: dropdown
+      id: ssh_backend
+      attributes:
+        label: SSH Backend
+        options:
+          - not applicable
+          - ssh2
+          - libssh-rs
+      validations:
+        required: true
+
+    - type: textarea
+      id: summary
+      attributes:
+        label: Description
+        placeholder: Briefly describe the issue, steps to reproduce, paste error logs or attach screenshots/recordings
+      validations:
+        required: true
