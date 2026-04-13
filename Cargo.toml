@@ -1,0 +1,148 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/alacritty_terminal",
+    "crates/gpui_common",
+    "crates/gpui_dock",
+    "crates/gpui_sftp",
+    "crates/gpui_term",
+    "crates/gpui_transfer",
+    "crates/termua_relay",
+    "crates/termua_zeroclaw",
+    "crates/wezterm-ssh",
+    "crates/menubar",
+    "termua",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "AGPL-3"
+authors = ["iamazy <iamazy.me@outlook.com>"]
+documentation = "https://github.com/iamazy/termua"
+homepage = "https://github.com/iamazy/termua"
+repository = "https://github.com/iamazy/termua"
+categories = ["terminal", "gpui"]
+keywords = ["terminal", "gpui"]
+
+[workspace.dependencies]
+alacritty_terminal = { path = "crates/alacritty_terminal" }
+gpui_common = { path = "crates/gpui_common" }
+termua_zeroclaw = { path = "crates/termua_zeroclaw" }
+termua_relay = { path = "crates/termua_relay" }
+anyhow = "1"
+async-tungstenite = "0.34"
+atomic-write-file = "0.3"
+base64 = "0.22"
+bitflags = "2"
+camino = "1"
+core-text = "=21.0.0"
+dirs-next = "2.0"
+env_logger = "0.11"
+filedescriptor = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+filenamegen = "0.2.6"
+futures = "0.3"
+gethostname = "0.5"
+hex = { version = "0.4", features = ["std"] }
+gpui = { git = "https://github.com/iamazy/zed", branch = "main" }
+gpui-component = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
+gpui-component-assets = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
+home = "0.5"
+itertools = "0.14"
+libc = "0.2"
+libssh-rs = "0.3.6"
+log = "0.4"
+miow = "0.6"
+notify-rust = "4"
+parking_lot = "0.12"
+passfd = "0.1.6"
+portable-pty = { package = "portable-pty", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+piper = "0.2"
+polling = "3"
+regex = "1"
+regex-automata = "0.4"
+rusqlite = { version = "0.37", features = ["bundled"] }
+rust-i18n = "3.1.5"
+rust-embed = "8"
+rustix = { version = "1", default-features = false }
+rustix-openpty = "0.2"
+schemars = "1"
+serde = "1"
+serde_json = "1"
+serde_json_lenient = "0.2"
+sha2 = "0.10"
+signal-hook = "0.4"
+socket2 = "0.5"
+secret-service = "5"
+ssh2 = { version = "0.9.5", features = ["openssl-on-win32"] }
+smallvec = "1"
+smol = "2"
+sysinfo = "0.37"
+time = "0.3"
+thiserror = "2"
+unicode-width = "0.2"
+url = "2"
+urlencoding = "2"
+vte = { version = "0.15", default-features = false }
+async_ossl = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+wezterm-uds = { package = "wezterm-uds", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+windows = "0.62"
+windows-sys = "0.62"
+
+[patch.crates-io]
+gpui-component-macros = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release-fast]
+inherits = "release"
+debug = "full"
+lto = false
+codegen-units = 16
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+# This is not a style lint, see https://github.com/rust-lang/rust-clippy/pull/15454
+# Remove when the lint gets promoted to `suspicious`.
+declare_interior_mutable_const = "deny"
+
+redundant_clone = "deny"
+disallowed_methods = "deny"
+
+# We currently do not restrict any style rules
+# to keep iteration fast during development.
+#
+# If CI enforces additional style rules later, we can tighten this block.
+#
+# In the future we could improve this by either making sure
+# the app can surface clippy errors in diagnostics (in addition to
+# rust-analyzer), or by having CI fix style nits automatically.
+style = { level = "allow", priority = -1 }
+
+# Individual rules that have violations in the codebase:
+type_complexity = "allow"
+let_underscore_future = "allow"
+
+# Motivation: We use `vec![a..b]` a lot when dealing with ranges in text, so
+# warning on this rule produces a lot of noise.
+single_range_in_vec_init = "allow"
+
+# in Rust it can be very tedious to reduce argument count without
+# running afoul of the borrow checker.
+too_many_arguments = "allow"
+
+# We often have large enum variants yet we rarely actually bother with splitting them up.
+large_enum_variant = "allow"
+
+# Boolean expressions can be hard to read, requiring only the minimal form gets in the way
+nonminimal_bool = "allow"

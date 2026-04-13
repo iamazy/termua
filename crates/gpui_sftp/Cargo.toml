@@ -1,0 +1,30 @@
+[package]
+name = "gpui_sftp"
+license = "AGPL-3"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[dependencies]
+camino.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+gpui_common.workspace = true
+gpui_transfer = { path = "../gpui_transfer" }
+home.workspace = true
+smol.workspace = true
+time.workspace = true
+
+# wezterm sftp session handle
+wezterm_ssh = { package = "wezterm-ssh", path = "../wezterm-ssh", features = ["vendored-openssl"] }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

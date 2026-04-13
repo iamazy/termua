@@ -1,0 +1,499 @@
+{
+  "name": "Gentle Pack",
+  "author": "termua (generated)",
+  "themes": [
+    {
+      "name": "Mist Dark",
+      "mode": "dark",
+      "shadow": true,
+      "is_default": true,
+      "colors": {
+        "background": "#11151bff",
+        "foreground": "#cfd7e3ff",
+        "muted.background": "#171d27ff",
+        "muted.foreground": "#93a3b7ff",
+        "border": "#293445ff",
+
+        "primary.background": "#8aa8ffff",
+        "primary.hover.background": "#96b2ffff",
+        "primary.active.background": "#7899ffff",
+        "primary.foreground": "#0b1020ff",
+
+        "secondary.background": "#1b2330ff",
+        "secondary.hover.background": "#212b3aff",
+        "secondary.active.background": "#283449ff",
+        "secondary.foreground": "#cfd7e3ff",
+
+        "accent.background": "#1d2a3aff",
+        "accent.foreground": "#eaf2ffff",
+
+        "input.border": "#2b3a52ff",
+        "caret": "#8aa8ffff",
+        "ring": "#8aa8ffff",
+        "selection.background": "#8aa8ff33",
+
+        "tab_bar.background": "#151b24ff",
+        "tab_bar.segmented.background": "#151b24ff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#93a3b7ff",
+        "tab.active.background": "#11151bff",
+        "tab.active.foreground": "#cfd7e3ff",
+
+        "sidebar.background": "#131a25ff",
+        "sidebar.foreground": "#cfd7e3ff",
+        "sidebar.border": "#293445ff",
+        "sidebar.accent.background": "#1a2230ff",
+        "sidebar.accent.foreground": "#cfd7e3ff",
+
+        "list.background": "#11151bff",
+        "list.head.background": "#11151bff",
+        "list.hover.background": "#171d27ff",
+        "list.active.background": "#8aa8ff1f",
+        "list.active.border": "#8aa8ffff",
+
+        "popover.background": "#0f141cff",
+        "popover.foreground": "#cfd7e3ff",
+
+        "title_bar.background": "#151b24ff",
+        "title_bar.border": "#293445ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#9aa6b233",
+        "scrollbar.thumb.hover.background": "#9aa6b266",
+
+        "overlay": "#00000033"
+      }
+    },
+    {
+      "name": "Mist Light",
+      "mode": "light",
+      "shadow": true,
+      "is_default": true,
+      "colors": {
+        "background": "#f6f7fbff",
+        "foreground": "#1e2430ff",
+        "muted.background": "#eaedf6ff",
+        "muted.foreground": "#5a6577ff",
+        "border": "#c7cfddff",
+
+        "primary.background": "#2b7a95ff",
+        "primary.hover.background": "#3186a3ff",
+        "primary.active.background": "#256f88ff",
+        "primary.foreground": "#ffffffff",
+
+        "secondary.background": "#eaedf6ff",
+        "secondary.hover.background": "#e1e6f2ff",
+        "secondary.active.background": "#d7deeeff",
+        "secondary.foreground": "#1e2430ff",
+
+        "accent.background": "#dff3f7ff",
+        "accent.foreground": "#1e2430ff",
+
+        "input.border": "#c7cfddff",
+        "caret": "#2b7a95ff",
+        "ring": "#2b7a95ff",
+        "selection.background": "#2b7a9533",
+
+        "tab_bar.background": "#eaedf6ff",
+        "tab_bar.segmented.background": "#eaedf6ff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#5a6577ff",
+        "tab.active.background": "#f6f7fbff",
+        "tab.active.foreground": "#1e2430ff",
+
+        "sidebar.background": "#eef1f8ff",
+        "sidebar.foreground": "#1e2430ff",
+        "sidebar.border": "#c7cfddff",
+        "sidebar.accent.background": "#e3e8f4ff",
+        "sidebar.accent.foreground": "#1e2430ff",
+
+        "list.background": "#f6f7fbff",
+        "list.head.background": "#f6f7fbff",
+        "list.hover.background": "#eaedf6ff",
+        "list.active.background": "#2b7a9526",
+        "list.active.border": "#2b7a95ff",
+
+        "popover.background": "#ffffffff",
+        "popover.foreground": "#1e2430ff",
+
+        "title_bar.background": "#eaedf6ff",
+        "title_bar.border": "#c7cfddff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#a9b3c433",
+        "scrollbar.thumb.hover.background": "#a9b3c466",
+
+        "overlay": "#00000026"
+      }
+    },
+
+    {
+      "name": "Dune Dark",
+      "mode": "dark",
+      "shadow": true,
+      "colors": {
+        "background": "#14110dff",
+        "foreground": "#e6ddd4ff",
+        "muted.background": "#1c1712ff",
+        "muted.foreground": "#b2a39aff",
+        "border": "#3a2f25ff",
+
+        "primary.background": "#e6a96bff",
+        "primary.hover.background": "#efb67aff",
+        "primary.active.background": "#d99c5eff",
+        "primary.foreground": "#20150bff",
+
+        "secondary.background": "#241d16ff",
+        "secondary.hover.background": "#2c241cff",
+        "secondary.active.background": "#352b22ff",
+        "secondary.foreground": "#e6ddd4ff",
+
+        "accent.background": "#2b1f14ff",
+        "accent.foreground": "#fff2e6ff",
+
+        "input.border": "#3a2f25ff",
+        "caret": "#e6a96bff",
+        "ring": "#e6a96bff",
+        "selection.background": "#e6a96b33",
+
+        "tab_bar.background": "#1c1712ff",
+        "tab_bar.segmented.background": "#1c1712ff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#b2a39aff",
+        "tab.active.background": "#14110dff",
+        "tab.active.foreground": "#e6ddd4ff",
+
+        "sidebar.background": "#19140fff",
+        "sidebar.foreground": "#e6ddd4ff",
+        "sidebar.border": "#3a2f25ff",
+        "sidebar.accent.background": "#241d16ff",
+        "sidebar.accent.foreground": "#e6ddd4ff",
+
+        "list.background": "#14110dff",
+        "list.head.background": "#14110dff",
+        "list.hover.background": "#1c1712ff",
+        "list.active.background": "#e6a96b1f",
+        "list.active.border": "#e6a96bff",
+
+        "popover.background": "#120f0cff",
+        "popover.foreground": "#e6ddd4ff",
+
+        "title_bar.background": "#1c1712ff",
+        "title_bar.border": "#3a2f25ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#b2a39a33",
+        "scrollbar.thumb.hover.background": "#b2a39a66",
+
+        "overlay": "#00000033"
+      }
+    },
+    {
+      "name": "Dune Light",
+      "mode": "light",
+      "shadow": true,
+      "colors": {
+        "background": "#fbf7f0ff",
+        "foreground": "#2a2320ff",
+        "muted.background": "#f0e7dcff",
+        "muted.foreground": "#6a5f57ff",
+        "border": "#d7c8b8ff",
+
+        "primary.background": "#c26a15ff",
+        "primary.hover.background": "#cf7520ff",
+        "primary.active.background": "#b95f0dff",
+        "primary.foreground": "#ffffffff",
+
+        "secondary.background": "#f0e7dcff",
+        "secondary.hover.background": "#e7ddcfff",
+        "secondary.active.background": "#ddcfbeff",
+        "secondary.foreground": "#2a2320ff",
+
+        "accent.background": "#f7e6d3ff",
+        "accent.foreground": "#2a2320ff",
+
+        "input.border": "#d7c8b8ff",
+        "caret": "#c26a15ff",
+        "ring": "#c26a15ff",
+        "selection.background": "#c26a1533",
+
+        "tab_bar.background": "#f0e7dcff",
+        "tab_bar.segmented.background": "#f0e7dcff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#6a5f57ff",
+        "tab.active.background": "#fbf7f0ff",
+        "tab.active.foreground": "#2a2320ff",
+
+        "sidebar.background": "#f6efe5ff",
+        "sidebar.foreground": "#2a2320ff",
+        "sidebar.border": "#d7c8b8ff",
+        "sidebar.accent.background": "#eadfd2ff",
+        "sidebar.accent.foreground": "#2a2320ff",
+
+        "list.background": "#fbf7f0ff",
+        "list.head.background": "#fbf7f0ff",
+        "list.hover.background": "#f0e7dcff",
+        "list.active.background": "#c26a1526",
+        "list.active.border": "#c26a15ff",
+
+        "popover.background": "#ffffffff",
+        "popover.foreground": "#2a2320ff",
+
+        "title_bar.background": "#f0e7dcff",
+        "title_bar.border": "#d7c8b8ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#b9aa9a33",
+        "scrollbar.thumb.hover.background": "#b9aa9a66",
+
+        "overlay": "#00000026"
+      }
+    },
+
+    {
+      "name": "Pine Dark",
+      "mode": "dark",
+      "shadow": true,
+      "colors": {
+        "background": "#0f1512ff",
+        "foreground": "#d6e3dbff",
+        "muted.background": "#16201bff",
+        "muted.foreground": "#98b0a3ff",
+        "border": "#2b3a33ff",
+
+        "primary.background": "#49c18fff",
+        "primary.hover.background": "#58caa0ff",
+        "primary.active.background": "#3bb982ff",
+        "primary.foreground": "#081e15ff",
+
+        "secondary.background": "#1b2a22ff",
+        "secondary.hover.background": "#203227ff",
+        "secondary.active.background": "#273a2eff",
+        "secondary.foreground": "#d6e3dbff",
+
+        "accent.background": "#173226ff",
+        "accent.foreground": "#e7fff4ff",
+
+        "input.border": "#2b3a33ff",
+        "caret": "#49c18fff",
+        "ring": "#49c18fff",
+        "selection.background": "#49c18f33",
+
+        "tab_bar.background": "#16201bff",
+        "tab_bar.segmented.background": "#16201bff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#98b0a3ff",
+        "tab.active.background": "#0f1512ff",
+        "tab.active.foreground": "#d6e3dbff",
+
+        "sidebar.background": "#121c17ff",
+        "sidebar.foreground": "#d6e3dbff",
+        "sidebar.border": "#2b3a33ff",
+        "sidebar.accent.background": "#1b2a22ff",
+        "sidebar.accent.foreground": "#d6e3dbff",
+
+        "list.background": "#0f1512ff",
+        "list.head.background": "#0f1512ff",
+        "list.hover.background": "#16201bff",
+        "list.active.background": "#49c18f1f",
+        "list.active.border": "#49c18fff",
+
+        "popover.background": "#0d1210ff",
+        "popover.foreground": "#d6e3dbff",
+
+        "title_bar.background": "#16201bff",
+        "title_bar.border": "#2b3a33ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#98b0a333",
+        "scrollbar.thumb.hover.background": "#98b0a366",
+
+        "overlay": "#00000033"
+      }
+    },
+    {
+      "name": "Pine Light",
+      "mode": "light",
+      "shadow": true,
+      "colors": {
+        "background": "#f3faf6ff",
+        "foreground": "#1f2a24ff",
+        "muted.background": "#e4f2ebff",
+        "muted.foreground": "#5e6f66ff",
+        "border": "#c4dbd0ff",
+
+        "primary.background": "#1a8f61ff",
+        "primary.hover.background": "#209a6bff",
+        "primary.active.background": "#168457ff",
+        "primary.foreground": "#ffffffff",
+
+        "secondary.background": "#e4f2ebff",
+        "secondary.hover.background": "#dbeadeff",
+        "secondary.active.background": "#d1e3d7ff",
+        "secondary.foreground": "#1f2a24ff",
+
+        "accent.background": "#d7f3e6ff",
+        "accent.foreground": "#1f2a24ff",
+
+        "input.border": "#c4dbd0ff",
+        "caret": "#1a8f61ff",
+        "ring": "#1a8f61ff",
+        "selection.background": "#1a8f6133",
+
+        "tab_bar.background": "#e4f2ebff",
+        "tab_bar.segmented.background": "#e4f2ebff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#5e6f66ff",
+        "tab.active.background": "#f3faf6ff",
+        "tab.active.foreground": "#1f2a24ff",
+
+        "sidebar.background": "#eef7f2ff",
+        "sidebar.foreground": "#1f2a24ff",
+        "sidebar.border": "#c4dbd0ff",
+        "sidebar.accent.background": "#deefe7ff",
+        "sidebar.accent.foreground": "#1f2a24ff",
+
+        "list.background": "#f3faf6ff",
+        "list.head.background": "#f3faf6ff",
+        "list.hover.background": "#e4f2ebff",
+        "list.active.background": "#1a8f6126",
+        "list.active.border": "#1a8f61ff",
+
+        "popover.background": "#ffffffff",
+        "popover.foreground": "#1f2a24ff",
+
+        "title_bar.background": "#e4f2ebff",
+        "title_bar.border": "#c4dbd0ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#9db8ab33",
+        "scrollbar.thumb.hover.background": "#9db8ab66",
+
+        "overlay": "#00000026"
+      }
+    },
+
+    {
+      "name": "Lavender Dark",
+      "mode": "dark",
+      "shadow": true,
+      "colors": {
+        "background": "#13121aff",
+        "foreground": "#e1ddefff",
+        "muted.background": "#1b1826ff",
+        "muted.foreground": "#b1a6c7ff",
+        "border": "#342f45ff",
+
+        "primary.background": "#b19cffff",
+        "primary.hover.background": "#beaaffff",
+        "primary.active.background": "#a38cffff",
+        "primary.foreground": "#1b1025ff",
+
+        "secondary.background": "#231f30ff",
+        "secondary.hover.background": "#2a2540ff",
+        "secondary.active.background": "#312b4aff",
+        "secondary.foreground": "#e1ddefff",
+
+        "accent.background": "#261b3aff",
+        "accent.foreground": "#f3e9ffff",
+
+        "input.border": "#342f45ff",
+        "caret": "#b19cffff",
+        "ring": "#b19cffff",
+        "selection.background": "#b19cff33",
+
+        "tab_bar.background": "#1b1826ff",
+        "tab_bar.segmented.background": "#1b1826ff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#b1a6c7ff",
+        "tab.active.background": "#13121aff",
+        "tab.active.foreground": "#e1ddefff",
+
+        "sidebar.background": "#171525ff",
+        "sidebar.foreground": "#e1ddefff",
+        "sidebar.border": "#342f45ff",
+        "sidebar.accent.background": "#231f30ff",
+        "sidebar.accent.foreground": "#e1ddefff",
+
+        "list.background": "#13121aff",
+        "list.head.background": "#13121aff",
+        "list.hover.background": "#1b1826ff",
+        "list.active.background": "#b19cff1f",
+        "list.active.border": "#b19cffff",
+
+        "popover.background": "#120f1aff",
+        "popover.foreground": "#e1ddefff",
+
+        "title_bar.background": "#1b1826ff",
+        "title_bar.border": "#342f45ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#b1a6c733",
+        "scrollbar.thumb.hover.background": "#b1a6c766",
+
+        "overlay": "#00000033"
+      }
+    },
+    {
+      "name": "Lavender Light",
+      "mode": "light",
+      "shadow": true,
+      "colors": {
+        "background": "#faf7ffff",
+        "foreground": "#272033ff",
+        "muted.background": "#eee7fbff",
+        "muted.foreground": "#6a607aff",
+        "border": "#d7cde8ff",
+
+        "primary.background": "#7a4de0ff",
+        "primary.hover.background": "#8659eaff",
+        "primary.active.background": "#6f43d5ff",
+        "primary.foreground": "#ffffffff",
+
+        "secondary.background": "#eee7fbff",
+        "secondary.hover.background": "#e6def7ff",
+        "secondary.active.background": "#ddd4f0ff",
+        "secondary.foreground": "#272033ff",
+
+        "accent.background": "#efe6ffff",
+        "accent.foreground": "#272033ff",
+
+        "input.border": "#d7cde8ff",
+        "caret": "#7a4de0ff",
+        "ring": "#7a4de0ff",
+        "selection.background": "#7a4de033",
+
+        "tab_bar.background": "#eee7fbff",
+        "tab_bar.segmented.background": "#eee7fbff",
+        "tab.background": "#00000000",
+        "tab.foreground": "#6a607aff",
+        "tab.active.background": "#faf7ffff",
+        "tab.active.foreground": "#272033ff",
+
+        "sidebar.background": "#f4f0ffff",
+        "sidebar.foreground": "#272033ff",
+        "sidebar.border": "#d7cde8ff",
+        "sidebar.accent.background": "#e7def8ff",
+        "sidebar.accent.foreground": "#272033ff",
+
+        "list.background": "#faf7ffff",
+        "list.head.background": "#faf7ffff",
+        "list.hover.background": "#eee7fbff",
+        "list.active.background": "#7a4de026",
+        "list.active.border": "#7a4de0ff",
+
+        "popover.background": "#ffffffff",
+        "popover.foreground": "#272033ff",
+
+        "title_bar.background": "#eee7fbff",
+        "title_bar.border": "#d7cde8ff",
+
+        "scrollbar.background": "#00000000",
+        "scrollbar.thumb.background": "#a8a0ba33",
+        "scrollbar.thumb.hover.background": "#a8a0ba66",
+
+        "overlay": "#00000026"
+      }
+    }
+  ]
+}

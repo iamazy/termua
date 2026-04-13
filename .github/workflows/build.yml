@@ -1,0 +1,89 @@
+name: Cross-Platform Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cross-build:
+    name: Build ${{ matrix.arch }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            name: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          # Linux aarch64
+          - os: ubuntu-latest
+            name: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+          # Windows x86_64
+          - os: windows-latest
+            name: windows
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+          # Windows aarch64
+          - os: windows-latest
+            name: windows
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+          # macOS x86_64
+          - os: macos-latest
+            name: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+          # macOS aarch64
+          - os: macos-latest
+            name: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross (Linux only)
+        if: runner.os == 'Linux'
+        run: cargo install cross --locked
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }}
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v1
+
+      - name: Check code format
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        if: runner.os == 'Linux'
+        run: cross build --target ${{ matrix.target }} --release
+
+      - name: Build (Windows/macOS native)
+        if: runner.os != 'Linux'
+        run: cargo build --target ${{ matrix.target }} --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: |
+            target/${{ matrix.target }}/release/termua*
+            !target/${{ matrix.target }}/release/*.d
+            !target/${{ matrix.target }}/release/*.pdb
+          name: termua-${{ matrix.name }}-${{ matrix.arch }}
+          compression-level: 9

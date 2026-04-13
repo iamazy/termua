@@ -1,0 +1,482 @@
+Dock:
+  Unnamed: "未命名"
+  Zoom In: "放大"
+  Zoom Out: "缩小"
+  Close: "关闭"
+  Close Others: "关闭其他"
+  Close All: "全部关闭"
+  Collapse: "折叠"
+  Expand: "展开"
+
+Menu:
+  App:
+    Name: "Termua"
+    OpenSettings: "打开设置"
+    Quit: "退出"
+  Session:
+    Name: "会话"
+    NewSession: "新建会话"
+    NewWindow: "新建窗口"
+    JoinSharing: "加入共享…"
+  Recorder:
+    Name: "录制"
+    Play: "播放"
+  Run:
+    Name: "运行"
+    MultiExecute: "批量执行"
+
+NewSession:
+  WindowTitle:
+    New: "新建会话"
+    Edit: "编辑会话"
+  Tabs:
+    Shell: "Shell"
+    Ssh: "SSH"
+    Serial: "串口"
+  Button:
+    Save: "保存"
+    Connect: "连接"
+    Cancel: "取消"
+  Placeholder:
+    Label: "标签"
+    Group: "（分组）a>b>c"
+    SshUser: "root"
+    SshHost: "hostname"
+    SshPort: "22"
+    SshPassword: "密码"
+    ProxyCommand: "nc -x 127.0.0.1:1080 %h %p"
+    ProxyWorkdir: "${HomeDir}"
+    SerialBaud: "9600"
+    EnvVar: "变量名"
+    EnvValue: "值"
+    JumpHost: "跳板机"
+    JumpUser: "用户"
+    JumpPort: "22"
+  Field:
+    Shell: "Shell："
+    Type: "类型："
+    Label: "标签："
+    Group: "分组："
+    Term: "Term："
+    Charset: "字符集："
+    Host: "主机："
+    Port: "端口："
+  Nav:
+    Session: "会话"
+    Ssh:
+      Name: "SSH"
+      Connection: "连接"
+      Proxy: "代理"
+    Serial:
+      Name: "串口"
+      Connection: "连接"
+      Frame: "帧"
+  Ssh:
+    AuthHint: "使用 ~/.ssh/config 以及你的 SSH key/agent。"
+    ProxyHint: "SSH Config 使用 ~/.ssh/config；None 将禁用 ProxyCommand。"
+    Field:
+      AuthType: "认证方式："
+      Password: "密码："
+      Sftp: "SFTP："
+    Error:
+      HostNoUserAtInConfigMode: "SSH 配置模式下 Host 不能包含 user@。"
+      PortRange: "端口必须为 1-65535。"
+    ConnectionSettings:
+      TcpNoDelay: "禁用 Nagle 算法（**TCP_NODELAY** 选项）"
+      TcpKeepalive: "启用 TCP keepalive（**SO_KEEPALIVE** 选项）"
+    Proxy:
+      Field:
+        ProxyType: "代理类型："
+        Command: "命令："
+        WorkingDirectory: "工作目录："
+        EnvironmentVariables: "环境变量："
+        JumpChain: "跳板链："
+      JumpServerNote: "JumpServer 使用系统 ssh，并设置 BatchMode=yes（不会有交互式提示）。"
+  Serial:
+    Field:
+      Port: "端口："
+      Baud: "波特率："
+    Frame:
+      DataBits: "数据位："
+      Parity: "校验："
+      StopBits: "停止位："
+      FlowControl: "流控："
+    Tooltip:
+      Refreshing: "刷新中..."
+      RefreshPorts: "刷新端口"
+  Select:
+    SshAuth:
+      Password: "密码"
+      Config: "SSH 配置"
+    SshProxy:
+      Inherit: "SSH 配置"
+      Disabled: "无"
+      Command: "代理命令"
+      JumpServer: "跳板机"
+    SerialParity:
+      None: "无"
+      Even: "偶校验"
+      Odd: "奇校验"
+    SerialFlow:
+      None: "无"
+      Software: "XON/XOFF"
+      Hardware: "RTS/CTS"
+
+LockScreen:
+  Title: "已锁屏"
+  Placeholder:
+    Password: "系统密码"
+  Error:
+    IncorrectPassword: "密码错误"
+
+ThemeEditor:
+  NamePlaceholder: "主题名称（例如：我的主题）"
+  Mode: "模式"
+  Dark: "深色"
+  Hint: "编辑主题颜色（仅预览）。"
+
+Footbar:
+  Tooltip:
+    Sessions: "会话"
+    MultiExecute: "批量执行"
+    Messages: "通知"
+    Assistant: "助手"
+    Lock: "锁屏"
+    LockUnsupported: "锁屏（不支持）"
+    LockDisabled: "锁屏（已禁用）"
+  Issues:
+    Label: "问题反馈"
+    Tooltip: "打开 Termua Issues"
+
+Transfers:
+  Cancel: "取消"
+  Canceling: "正在取消..."
+
+SessionsSidebar:
+  Placeholder:
+    Search: "搜索会话..."
+  Status:
+    Connecting: "连接中..."
+  Empty: "暂无会话。"
+  Context:
+    Edit: "编辑"
+    Delete: "删除"
+    NewSession: "新建会话"
+
+Notifications:
+  Title: "通知"
+  Tooltip:
+    Copy: "复制"
+
+Assistant:
+  Title: "助手"
+  Placeholder:
+    Ask: "提问..."
+  Button:
+    Run: "运行"
+  Label:
+    Target: "目标："
+    Command: "命令："
+  Tooltip:
+    Resend: "重发"
+    Copy: "复制"
+    Delete: "删除"
+  Status:
+    Thinking: "思考中..."
+  Role:
+    You: "你"
+    Assistant: "助手"
+    Context: "上下文"
+  Message:
+    Disabled: "助手已禁用（设置 → 助手 → 启用）。"
+    Cancelled: "已取消请求（尽力而为）。"
+    NoTargetTerminalSelected: "未选择目标终端。"
+    TerminalRegistryUnavailable: "终端注册表不可用。"
+    TargetTerminalUnavailable: "目标终端已不可用。"
+    SentCommand: "已发送命令到 %{target}。"
+  Target:
+    None: "无目标"
+    Fallback: "终端 %{id}"
+  Menu:
+    FollowActiveTab: "跟随当前标签页"
+    NoTarget: "无目标"
+  Dialog:
+    RunInTerminalTitle: "在终端中运行"
+    RunInTerminalOk: "运行"
+    RunInTerminalCancel: "取消"
+
+MainWindow:
+  QuitConfirm:
+    Title: "退出 Termua？"
+    Body: "当前还有打开的标签页，仍要退出吗？"
+    Button:
+      Quit: "退出"
+      Cancel: "取消"
+  ContextMenu:
+    OpenSftp: "打开 SFTP"
+    CopyCommandBlockOutput: "复制命令块输出"
+    CopyCommandBlockId: "复制命令块 ID"
+
+Menubar:
+  FoldMenuFallback: "菜单"
+
+SshHostVerify:
+  Title: "SSH 主机验证"
+  Label:
+    Target: "目标："
+    Message: "消息："
+    Note: "说明："
+  NoteText: "只有在你确实要连接到该服务器且指纹与你信任的指纹一致时才应信任该主机密钥。否则请拒绝，以避免可能的中间人攻击。"
+  Button:
+    TrustContinue: "信任并继续"
+    Reject: "拒绝"
+
+SshHostKeyMismatch:
+  Title: "SSH 主机密钥不匹配"
+  Label:
+    Target: "目标："
+    Server: "服务器："
+    Reason: "原因："
+    GotFingerprint: "获取到的指纹："
+    KnownHosts: "known_hosts："
+    ManualFix: "手动修复命令："
+    Note: "说明："
+  NoteText: "主机密钥不匹配可能表示服务器重装/轮换了密钥，或存在中间人攻击。只有在你信任该服务器时，才删除旧条目并重试。"
+  Button:
+    Retry: "重试"
+    RemoveRetry: "删除旧密钥并重试"
+  Error:
+    MissingKnownHostsPath: "缺少 known_hosts 路径，无法自动修复。"
+    FailedUpdateKnownHosts: "更新 known_hosts 失败：%{err}"
+
+Settings:
+  WindowTitle: "设置"
+  Button:
+    Save: "保存"
+    Cancel: "取消"
+    Reload: "重新加载"
+    Clear: "清空"
+  Theme:
+    NewTheme: "新建主题"
+  Unsupported: "不支持"
+  Select:
+    Default: "默认"
+  Search:
+    Placeholder: "搜索设置..."
+    ResultsHeading: "搜索结果（%{count}）"
+    NoMatches: "无匹配项。"
+  Hint:
+    KeyBindings: "点击字段并按下快捷键设置，Backspace/Delete 清空。"
+    Logging: "修改后需重启生效。"
+    Assistant: "配置内置助手（ZeroClaw）。API Key 存储在系统钥匙串中。"
+    LockScreen: "配置 Termua 锁屏。超时使用固定预设。"
+  Section:
+    Appearance: "外观"
+    Terminal: "终端"
+    Recording: "录制"
+    Logging: "日志"
+    Assistant: "助手"
+    Security: "安全"
+  Appearance:
+    Theme: "主题"
+    Language: "语言"
+  Terminal:
+    Terminal: "终端"
+    Behavior: "行为"
+    Sftp: "SFTP"
+    Suggestions: "建议"
+    Cursor: "光标"
+    Font: "字体"
+    KeyBindings: "快捷键"
+    Rendering: "渲染"
+    Sharing: "共享"
+  Sharing:
+    RelayUrlPlaceholder: "ws://127.0.0.1:7231/ws"
+  Recording:
+    CastRecording: "Cast 录制"
+  Logging:
+    General: "通用"
+    Logging: "日志"
+    PathPlaceholder: "termua.log（相对于配置目录）"
+  Assistant:
+    ZeroClaw: "ZeroClaw"
+    Assistant: "助手"
+    TemperaturePlaceholder: "0.7（留空=默认）"
+    ApiUrlPlaceholder: "https://api.example.com"
+    ApiPathPlaceholder: "/chat/completions"
+    TimeoutPlaceholder: "120（留空=默认）"
+    ExtraHeadersPlaceholder: "Header-Name: value"
+    ApiKeyPlaceholder: "API key（存储在钥匙串）"
+    DisableZeroClawTitle: "禁用 ZeroClaw"
+    DisableZeroClawPrompt: "是否也停止 ZeroClaw 守护进程？（可能会重启 gateway。）"
+    DisableZeroClawStopDaemon: "停止守护进程"
+    DisableZeroClawKeepRunning: "保持运行"
+  Security:
+    LockScreen: "锁屏"
+  ThemeMode:
+    System: "系统"
+    Light: "浅色"
+    Dark: "深色"
+  Language:
+    English: "English"
+    ZhCn: "简体中文"
+  KeyBindingsUi:
+    PressKeys: "按下按键..."
+    DefaultLabel: "默认：%{label}"
+    Warning:
+      InvalidShortcut: "无效的快捷键。点击字段并按下快捷键，或使用 Backspace/Delete 清空。"
+      ConflictsWith: "快捷键与 %{others} 冲突。"
+  Meta:
+    lock_screen:
+      enabled:
+        Title: "启用"
+        Description: "启用 Termua 的锁屏功能。"
+      timeout_secs:
+        Title: "空闲后锁定"
+        Description: "在空闲一段时间后自动锁定。"
+    appearance:
+      theme:
+        Title: "主题"
+        Description: "选择 系统/浅色/深色 主题模式。"
+      light_theme:
+        Title: "浅色主题"
+        Description: "选择浅色主题配色。"
+      dark_theme:
+        Title: "深色主题"
+        Description: "选择深色主题配色。"
+      language:
+        Title: "语言"
+        Description: "选择应用界面语言。"
+    terminal:
+      default_backend:
+        Title: "默认后端"
+        Description: "选择默认的终端后端。"
+      ssh_backend:
+        Title: "SSH 后端"
+        Description: "选择用于 SSH 终端和 SFTP 的 SSH 后端（ssh2/libssh）。"
+      font_family:
+        Title: "字体名称"
+        Description: "终端文本的字体名称。"
+      font_size:
+        Title: "字体大小"
+        Description: "字体大小（像素）。"
+      ligatures:
+        Title: "连字"
+        Description: "为终端文本启用字体连字。"
+      cursor_shape:
+        Title: "光标形状"
+        Description: "渲染光标时使用的形状。"
+      blinking:
+        Title: "光标闪烁"
+        Description: "控制光标是否闪烁。"
+      show_scrollbar:
+        Title: "显示滚动条"
+        Description: "是否渲染滚动条。"
+      show_line_numbers:
+        Title: "显示行号"
+        Description: "是否渲染行号。"
+      option_as_meta:
+        Title: "Option/Alt 作为 Meta"
+        Description: "将 Option/Alt 作为 Meta 键用于终端输入。"
+      copy_on_select:
+        Title: "选择即复制"
+        Description: "选择文本时自动复制到剪贴板。"
+      sftp_upload_max_concurrency:
+        Title: "SFTP 上传并发数"
+        Description: "通过 SFTP 并发上传文件的最大数量。"
+      suggestions_enabled:
+        Title: "命令建议"
+        Description: "在类似 Shell 的上下文中显示行内命令建议。"
+      suggestions_max_items:
+        Title: "建议最大数量"
+        Description: "显示建议的最大数量。"
+      suggestions_json_dir:
+        Title: "建议 JSON 目录"
+        Description: "从 suggestions.d 目录中的 JSON 文件加载建议。"
+        Hint: "建议 JSON 目录：%{path}"
+      keybindings:
+        copy:
+          Title: "复制"
+          Description: "终端中的复制动作快捷键。"
+        paste:
+          Title: "粘贴"
+          Description: "终端中的粘贴动作快捷键。"
+        select_all:
+          Title: "全选"
+          Description: "终端中的全选动作快捷键。"
+        clear:
+          Title: "清空"
+          Description: "终端中的清空动作快捷键。"
+        search:
+          Title: "搜索"
+          Description: "打开终端搜索的快捷键。"
+        search_next:
+          Title: "搜索下一个"
+          Description: "在终端搜索中查找下一个匹配项的快捷键。"
+        search_previous:
+          Title: "搜索上一个"
+          Description: "在终端搜索中查找上一个匹配项的快捷键。"
+        increase_font_size:
+          Title: "增大字号"
+          Description: "增大终端字号的快捷键。"
+        decrease_font_size:
+          Title: "减小字号"
+          Description: "减小终端字号的快捷键。"
+        reset_font_size:
+          Title: "重置字号"
+          Description: "重置终端字号的快捷键。"
+    sharing:
+      enabled:
+        Title: "启用"
+        Description: "启用通过中继器进行终端共享。"
+      relay_url:
+        Title: "中继器 URL"
+        Description: "中继器服务器的 WebSocket 地址。"
+      local_relay:
+        Title: "本地中继器"
+        Description: "启动/停止本地中继器进程（仅测试）。"
+    recording:
+      include_input_by_default:
+        Title: "默认包含输入"
+        Description: "录制 cast 时是否包含输入事件。"
+      playback_speed:
+        Title: "播放速度"
+        Description: "打开 cast 文件时默认使用的播放速度。"
+    logging:
+      level:
+        Title: "日志级别"
+        Description: "日志详细程度（需重启）。"
+      path:
+        Title: "日志路径"
+        Description: "可选的日志文件路径（需重启）。"
+    assistant:
+      enabled:
+        Title: "启用"
+        Description: "启用内置助手（ZeroClaw）。"
+      status:
+        Title: "ZeroClaw 状态"
+        Description: "检查本地 ZeroClaw 服务是否在运行。"
+      provider:
+        Title: "提供方"
+        Description: "LLM 提供方名称（zeroclaw provider id）。留空=使用 zeroclaw 默认值。"
+      model:
+        Title: "模型"
+        Description: "模型名称。留空=使用 zeroclaw 默认值。"
+      temperature:
+        Title: "温度"
+        Description: "可选的温度覆盖。留空=使用 zeroclaw 默认值。"
+      api_url:
+        Title: "API URL"
+        Description: "可选的自定义 base URL。留空=使用提供方默认值。"
+      api_path:
+        Title: "API 路径"
+        Description: "可选的 OpenAI 兼容 API 路径后缀。留空=使用提供方默认值。"
+      provider_timeout_secs:
+        Title: "超时（秒）"
+        Description: "可选的请求超时时间（秒）。留空=使用提供方默认值。"
+      extra_headers:
+        Title: "额外请求头"
+        Description: "可选的用于请求提供方 API 的额外 HTTP headers。"
+      api_key:
+        Title: "API key"
+        Description: "存储在系统钥匙串中（不在 settings.json 中）。"

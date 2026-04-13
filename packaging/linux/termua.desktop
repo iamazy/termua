@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=termua
+Comment=termua terminal
+Exec=termua
+Icon=termua
+Terminal=false
+Categories=System;TerminalEmulator;

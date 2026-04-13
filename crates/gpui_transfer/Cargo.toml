@@ -1,0 +1,18 @@
+[package]
+name = "gpui_transfer"
+license = "AGPL-3"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[dependencies]
+gpui.workspace = true
+
+[lints]
+workspace = true
+

@@ -1,0 +1,16 @@
+[package]
+name = "termua_zeroclaw"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3"
+
+[dependencies]
+anyhow.workspace = true
+
+tokio = { version = "1.50", features = ["rt", "time", "io-util", "net", "sync", "fs"] }
+zeroclaw = { package = "zeroclawlabs", version = "0.5.7", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+ureq = { version = "2.12", default-features = true, features = ["tls", "json"] }
+sysinfo.workspace = true

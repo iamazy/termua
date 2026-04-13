@@ -1,0 +1,78 @@
+[package]
+name = "termua"
+edition.workspace = true
+version.workspace = true
+description = "A terminal app built with GPUI"
+license.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-tungstenite = { workspace = true, features = ["smol-runtime"] }
+atomic-write-file.workspace = true
+env_logger.workspace = true
+futures.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+gpui_common.workspace = true
+termua_zeroclaw.workspace = true
+log.workspace = true
+gpui_dock = { path = "../crates/gpui_dock" }
+gpui_term = { path = "../crates/gpui_term" }
+gpui_sftp = { path = "../crates/gpui_sftp" }
+gpui_transfer = { path = "../crates/gpui_transfer" }
+menubar = { path = "../crates/menubar" }
+termua_relay.workspace = true
+smol.workspace = true
+rust-embed.workspace = true
+rustix.workspace = true
+wezterm_ssh = { package = "wezterm-ssh", path = "../crates/wezterm-ssh", features = ["vendored-openssl"] }
+home.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_lenient.workspace = true
+rusqlite.workspace = true
+libc.workspace = true
+rust-i18n.workspace = true
+rand = "0.9"
+url.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32", "Win32_Foundation", "Win32_Security", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_System", "Win32_System_Registry", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { workspace = true, features = ["crypto-openssl"] }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[package.metadata.deb]
+maintainer = "iamazy <iamazy.me@outlook.com>"
+depends = "$auto"
+section = "utils"
+priority = "optional"
+assets = [
+    ["../target/release/termua", "usr/bin/termua", "755"],
+    ["../packaging/linux/termua.desktop", "usr/share/applications/termua.desktop", "644"],
+    ["../assets/logo/termua.svg", "usr/share/icons/hicolor/scalable/apps/termua.svg", "644"],
+    ["../README.md", "usr/share/doc/termua/README.md", "644"],
+    ["../LICENSE-AGPL", "usr/share/doc/termua/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "../target/release/termua", dest = "/usr/bin/termua", mode = "0755" },
+    { source = "../packaging/linux/termua.desktop", dest = "/usr/share/applications/termua.desktop", mode = "0644" },
+    { source = "../assets/logo/termua.svg", dest = "/usr/share/icons/hicolor/scalable/apps/termua.svg", mode = "0644" },
+    { source = "../README.md", dest = "/usr/share/doc/termua/README.md", mode = "0644" },
+    { source = "../LICENSE-AGPL", dest = "/usr/share/licenses/termua/LICENSE", mode = "0644" },
+]

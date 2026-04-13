@@ -1,0 +1,482 @@
+Dock:
+  Unnamed: "Unnamed"
+  Zoom In: "Zoom In"
+  Zoom Out: "Zoom Out"
+  Close: "Close"
+  Close Others: "Close Others"
+  Close All: "Close All"
+  Collapse: "Collapse"
+  Expand: "Expand"
+
+Menu:
+  App:
+    Name: "Termua"
+    OpenSettings: "Open Settings"
+    Quit: "Quit"
+  Session:
+    Name: "Session"
+    NewSession: "New Session"
+    NewWindow: "New Window"
+    JoinSharing: "Join Sharing…"
+  Recorder:
+    Name: "Recorder"
+    Play: "Play"
+  Run:
+    Name: "Run"
+    MultiExecute: "Multi Execute"
+
+NewSession:
+  WindowTitle:
+    New: "New Session"
+    Edit: "Edit Session"
+  Tabs:
+    Shell: "Shell"
+    Ssh: "SSH"
+    Serial: "Serial"
+  Button:
+    Save: "Save"
+    Connect: "Connect"
+    Cancel: "Cancel"
+  Placeholder:
+    Label: "Label"
+    Group: "[nesting groups] a>b>c"
+    SshUser: "root"
+    SshHost: "hostname"
+    SshPort: "22"
+    SshPassword: "Password"
+    ProxyCommand: "nc -x 127.0.0.1:1080 %h %p"
+    ProxyWorkdir: "${HomeDir}"
+    SerialBaud: "9600"
+    EnvVar: "VARIABLE"
+    EnvValue: "value"
+    JumpHost: "jump host"
+    JumpUser: "user"
+    JumpPort: "22"
+  Field:
+    Shell: "Shell:"
+    Type: "Type:"
+    Label: "Label:"
+    Group: "Group:"
+    Term: "Term:"
+    Charset: "Charset:"
+    Host: "Host:"
+    Port: "Port:"
+  Nav:
+    Session: "Session"
+    Ssh:
+      Name: "SSH"
+      Connection: "Connection"
+      Proxy: "Proxy"
+    Serial:
+      Name: "Serial"
+      Connection: "Connection"
+      Frame: "Frame"
+  Ssh:
+    AuthHint: "Uses ~/.ssh/config and your SSH keys/agent."
+    ProxyHint: "SSH Config uses ~/.ssh/config. None disables ProxyCommand."
+    Field:
+      AuthType: "Auth Type:"
+      Password: "Password:"
+      Sftp: "SFTP:"
+    Error:
+      HostNoUserAtInConfigMode: "Host must not include user@ in SSH Config mode."
+      PortRange: "Port must be 1-65535."
+    ConnectionSettings:
+      TcpNoDelay: "Disable Nagle's algorithm (**TCP_NODELAY** option)"
+      TcpKeepalive: "Enable TCP keepalives (**SO_KEEPALIVE** option)"
+    Proxy:
+      Field:
+        ProxyType: "Proxy Type:"
+        Command: "Command:"
+        WorkingDirectory: "Working directory:"
+        EnvironmentVariables: "Environment variables:"
+        JumpChain: "Jump chain:"
+      JumpServerNote: "JumpServer uses system ssh with BatchMode=yes (no interactive prompts)."
+  Serial:
+    Field:
+      Port: "Port:"
+      Baud: "Baud:"
+    Frame:
+      DataBits: "Data bits:"
+      Parity: "Parity:"
+      StopBits: "Stop bits:"
+      FlowControl: "Flow control:"
+    Tooltip:
+      Refreshing: "Refreshing..."
+      RefreshPorts: "Refresh ports"
+  Select:
+    SshAuth:
+      Password: "Password"
+      Config: "SSH Config"
+    SshProxy:
+      Inherit: "SSH Config"
+      Disabled: "None"
+      Command: "Proxy command"
+      JumpServer: "JumpServer"
+    SerialParity:
+      None: "None"
+      Even: "Even"
+      Odd: "Odd"
+    SerialFlow:
+      None: "None"
+      Software: "XON/XOFF"
+      Hardware: "RTS/CTS"
+
+LockScreen:
+  Title: "Screen Locked"
+  Placeholder:
+    Password: "System password"
+  Error:
+    IncorrectPassword: "Incorrect password"
+
+ThemeEditor:
+  NamePlaceholder: "Theme name (e.g. My Theme)"
+  Mode: "Mode"
+  Dark: "Dark"
+  Hint: "Edit theme colors (preview only)."
+
+Footbar:
+  Tooltip:
+    Sessions: "Sessions"
+    MultiExecute: "Multi Execute"
+    Messages: "Messages"
+    Assistant: "Assistant"
+    Lock: "Lock"
+    LockUnsupported: "Lock (unsupported)"
+    LockDisabled: "Lock (disabled)"
+  Issues:
+    Label: "Termua Issues"
+    Tooltip: "Open Termua Issues"
+
+Transfers:
+  Cancel: "Cancel"
+  Canceling: "Canceling..."
+
+SessionsSidebar:
+  Placeholder:
+    Search: "Search sessions..."
+  Status:
+    Connecting: "connecting..."
+  Empty: "No sessions yet."
+  Context:
+    Edit: "Edit"
+    Delete: "Delete"
+    NewSession: "New Session"
+
+Notifications:
+  Title: "Notifications"
+  Tooltip:
+    Copy: "Copy"
+
+Assistant:
+  Title: "Assistant"
+  Placeholder:
+    Ask: "Ask..."
+  Button:
+    Run: "Run"
+  Label:
+    Target: "Target:"
+    Command: "Command:"
+  Tooltip:
+    Resend: "Resend"
+    Copy: "Copy"
+    Delete: "Delete"
+  Status:
+    Thinking: "Thinking..."
+  Role:
+    You: "You"
+    Assistant: "Assistant"
+    Context: "Context"
+  Message:
+    Disabled: "Assistant is disabled (Settings → Assistant → Enabled)."
+    Cancelled: "Request cancelled (best-effort)."
+    NoTargetTerminalSelected: "No target terminal selected."
+    TerminalRegistryUnavailable: "Terminal registry is unavailable."
+    TargetTerminalUnavailable: "Target terminal is no longer available."
+    SentCommand: "Sent command to %{target}."
+  Target:
+    None: "No target"
+    Fallback: "terminal %{id}"
+  Menu:
+    FollowActiveTab: "Follow active tab"
+    NoTarget: "No target"
+  Dialog:
+    RunInTerminalTitle: "Run in Terminal"
+    RunInTerminalOk: "Run"
+    RunInTerminalCancel: "Cancel"
+
+MainWindow:
+  QuitConfirm:
+    Title: "Quit Termua?"
+    Body: "There are still open tabs. Quit anyway?"
+    Button:
+      Quit: "Quit"
+      Cancel: "Cancel"
+  ContextMenu:
+    OpenSftp: "Open SFTP"
+    CopyCommandBlockOutput: "Copy command block output"
+    CopyCommandBlockId: "Copy command block id"
+
+Menubar:
+  FoldMenuFallback: "Menu"
+
+SshHostVerify:
+  Title: "SSH Host Verification"
+  Label:
+    Target: "Target:"
+    Message: "Message:"
+    Note: "Note:"
+  NoteText: "Only trust this host key if you expected to connect to this server and the fingerprint matches what you trust. Otherwise, reject to avoid a possible man-in-the-middle attack."
+  Button:
+    TrustContinue: "Trust & Continue"
+    Reject: "Reject"
+
+SshHostKeyMismatch:
+  Title: "SSH Host Key Mismatch"
+  Label:
+    Target: "Target:"
+    Server: "Server:"
+    Reason: "Reason:"
+    GotFingerprint: "Got fingerprint:"
+    KnownHosts: "known_hosts:"
+    ManualFix: "Manual fix command:"
+    Note: "Note:"
+  NoteText: "host key mismatches can mean the server was reinstalled/rotated keys, or a man-in-the-middle attack. Only remove the old entry and retry if you trust the server."
+  Button:
+    Retry: "Retry"
+    RemoveRetry: "Remove old key & Retry"
+  Error:
+    MissingKnownHostsPath: "known_hosts path missing; can't auto-fix."
+    FailedUpdateKnownHosts: "Failed to update known_hosts: %{err}"
+
+Settings:
+  WindowTitle: "Settings"
+  Button:
+    Save: "Save"
+    Cancel: "Cancel"
+    Reload: "Reload"
+    Clear: "Clear"
+  Theme:
+    NewTheme: "New Theme"
+  Unsupported: "Unsupported"
+  Select:
+    Default: "Default"
+  Search:
+    Placeholder: "Search settings..."
+    ResultsHeading: "Search Results (%{count})"
+    NoMatches: "No matches."
+  Hint:
+    KeyBindings: "Click a field and press a shortcut to set. Backspace/Delete clears."
+    Logging: "Changes take effect after restart."
+    Assistant: "Configure the embedded assistant (ZeroClaw). API key is stored in the OS keychain."
+    LockScreen: "Configure Termua's lock screen. Timeout uses fixed presets"
+  Section:
+    Appearance: "Appearance"
+    Terminal: "Terminal"
+    Recording: "Recording"
+    Logging: "Logging"
+    Assistant: "Assistant"
+    Security: "Security"
+  Appearance:
+    Theme: "Theme"
+    Language: "Language"
+  Terminal:
+    Terminal: "Terminal"
+    Behavior: "Behavior"
+    Sftp: "SFTP"
+    Suggestions: "Suggestions"
+    Cursor: "Cursor"
+    Font: "Font"
+    KeyBindings: "Key Bindings"
+    Rendering: "Rendering"
+    Sharing: "Sharing"
+  Sharing:
+    RelayUrlPlaceholder: "ws://127.0.0.1:7231/ws"
+  Recording:
+    CastRecording: "Cast Recording"
+  Logging:
+    General: "General"
+    Logging: "Logging"
+    PathPlaceholder: "termua.log (relative to config dir)"
+  Assistant:
+    ZeroClaw: "ZeroClaw"
+    Assistant: "Assistant"
+    TemperaturePlaceholder: "0.7 (empty = default)"
+    ApiUrlPlaceholder: "https://api.example.com"
+    ApiPathPlaceholder: "/chat/completions"
+    TimeoutPlaceholder: "120 (empty = default)"
+    ExtraHeadersPlaceholder: "Header-Name: value"
+    ApiKeyPlaceholder: "API key (stored in keychain)"
+    DisableZeroClawTitle: "Disable ZeroClaw"
+    DisableZeroClawPrompt: "Do you also want to stop the ZeroClaw daemon? (It may restart the gateway.)"
+    DisableZeroClawStopDaemon: "Stop daemon"
+    DisableZeroClawKeepRunning: "Keep running"
+  Security:
+    LockScreen: "Lock screen"
+  ThemeMode:
+    System: "System"
+    Light: "Light"
+    Dark: "Dark"
+  Language:
+    English: "English"
+    ZhCn: "Simplified Chinese"
+  KeyBindingsUi:
+    PressKeys: "Press keys..."
+    DefaultLabel: "Default: %{label}"
+    Warning:
+      InvalidShortcut: "Invalid shortcut. Click the field and press a shortcut, or Backspace/Delete to clear."
+      ConflictsWith: "Shortcut conflicts with %{others}."
+  Meta:
+    lock_screen:
+      enabled:
+        Title: "Enabled"
+        Description: "Enable Termua's lock screen feature."
+      timeout_secs:
+        Title: "Lock after"
+        Description: "Automatically lock after being idle for the selected duration."
+    appearance:
+      theme:
+        Title: "Theme"
+        Description: "Choose System/Light/Dark theme mode."
+      light_theme:
+        Title: "Light theme"
+        Description: "Choose the light theme colors."
+      dark_theme:
+        Title: "Dark theme"
+        Description: "Choose the dark theme colors."
+      language:
+        Title: "Language"
+        Description: "Choose the application UI language."
+    terminal:
+      default_backend:
+        Title: "Default backend"
+        Description: "Choose the default terminal backend."
+      ssh_backend:
+        Title: "SSH Backend"
+        Description: "Choose the SSH backend (ssh2/libssh) used for SSH terminals and SFTP."
+      font_family:
+        Title: "Font family"
+        Description: "Font family for terminal text."
+      font_size:
+        Title: "Font size"
+        Description: "Font size in pixels."
+      ligatures:
+        Title: "Ligatures"
+        Description: "Enable font ligatures for terminal text."
+      cursor_shape:
+        Title: "Cursor shape"
+        Description: "Shape used to render the cursor."
+      blinking:
+        Title: "Cursor blinking"
+        Description: "Controls whether the cursor blinks."
+      show_scrollbar:
+        Title: "Show scrollbar"
+        Description: "Whether to render the scrollbar."
+      show_line_numbers:
+        Title: "Show line numbers"
+        Description: "Whether to render line numbers."
+      option_as_meta:
+        Title: "Option as Meta"
+        Description: "Treat Option/Alt as Meta for terminal input."
+      copy_on_select:
+        Title: "Copy on select"
+        Description: "Copy selection to clipboard when selecting text."
+      sftp_upload_max_concurrency:
+        Title: "SFTP upload concurrency"
+        Description: "Maximum number of files to upload concurrently via SFTP."
+      suggestions_enabled:
+        Title: "Suggestions"
+        Description: "Show inline command suggestions in shell-like contexts."
+      suggestions_max_items:
+        Title: "Suggestions max items"
+        Description: "Maximum number of suggestions to show."
+      suggestions_json_dir:
+        Title: "Suggestions JSON dir"
+        Description: "Load suggestions from JSON files in the suggestions.d directory."
+        Hint: "Suggestions JSON dir: %{path}"
+      keybindings:
+        copy:
+          Title: "Copy"
+          Description: "Keybinding for Copy action in the terminal."
+        paste:
+          Title: "Paste"
+          Description: "Keybinding for Paste action in the terminal."
+        select_all:
+          Title: "Select all"
+          Description: "Keybinding for Select All action in the terminal."
+        clear:
+          Title: "Clear"
+          Description: "Keybinding for Clear action in the terminal."
+        search:
+          Title: "Search"
+          Description: "Keybinding to open terminal search."
+        search_next:
+          Title: "Search next"
+          Description: "Keybinding for searching next match in terminal search."
+        search_previous:
+          Title: "Search previous"
+          Description: "Keybinding for searching previous match in terminal search."
+        increase_font_size:
+          Title: "Increase font size"
+          Description: "Keybinding to increase terminal font size."
+        decrease_font_size:
+          Title: "Decrease font size"
+          Description: "Keybinding to decrease terminal font size."
+        reset_font_size:
+          Title: "Reset font size"
+          Description: "Keybinding to reset terminal font size."
+    sharing:
+      enabled:
+        Title: "Enabled"
+        Description: "Enable terminal sharing via a relay server."
+      relay_url:
+        Title: "Relay URL"
+        Description: "WebSocket URL of the relay server."
+      local_relay:
+        Title: "Local relay"
+        Description: "Start/stop a local relay process (test only)."
+    recording:
+      include_input_by_default:
+        Title: "Include input by default"
+        Description: "Whether to include input events when recording casts."
+      playback_speed:
+        Title: "Playback speed"
+        Description: "Default playback speed used when opening cast files."
+    logging:
+      level:
+        Title: "Log level"
+        Description: "Verbosity of logs (requires restart)."
+      path:
+        Title: "Log path"
+        Description: "Optional log file path (requires restart)."
+    assistant:
+      enabled:
+        Title: "Enabled"
+        Description: "Enable the embedded assistant (ZeroClaw)."
+      status:
+        Title: "ZeroClaw status"
+        Description: "Checks whether the local ZeroClaw service is running."
+      provider:
+        Title: "Provider"
+        Description: "LLM provider name (zeroclaw provider id). Empty = use zeroclaw default."
+      model:
+        Title: "Model"
+        Description: "Model name. Empty = use zeroclaw default."
+      temperature:
+        Title: "Temperature"
+        Description: "Optional temperature override. Empty = use zeroclaw default."
+      api_url:
+        Title: "API URL"
+        Description: "Optional custom base URL. Empty = provider default."
+      api_path:
+        Title: "API path"
+        Description: "Optional OpenAI-compatible API path suffix. Empty = provider default."
+      provider_timeout_secs:
+        Title: "Timeout (seconds)"
+        Description: "Optional provider request timeout in seconds. Empty = provider default."
+      extra_headers:
+        Title: "Extra headers"
+        Description: "Optional extra HTTP headers for provider API requests."
+      api_key:
+        Title: "API key"
+        Description: "Stored in the OS keychain (not in settings.json)."

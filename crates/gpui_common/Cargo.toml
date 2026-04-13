@@ -1,0 +1,22 @@
+[package]
+name = "gpui_common"
+license = "AGPL-3"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+rust-embed.workspace = true
+smol.workspace = true
+
+[lints]
+workspace = true
