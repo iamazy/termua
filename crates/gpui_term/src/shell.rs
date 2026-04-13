@@ -74,6 +74,17 @@ pub fn shell_display_name(program: &str) -> String {
     }
 }
 
+fn powershell_integration_args(bypass_execution_policy: bool) -> Vec<String> {
+    let mut args = vec!["-NoLogo".to_string(), "-NoExit".to_string()];
+    if bypass_execution_policy {
+        args.push("-ExecutionPolicy".to_string());
+        args.push("Bypass".to_string());
+    }
+    args.push("-Command".to_string());
+    args.push(". \"$env:TERMUA_PWSH_INIT\"".to_string());
+    args
+}
+
 pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, String>) -> Vec<String> {
     match shell_kind(program) {
         ShellKind::Bash => env
@@ -126,14 +137,7 @@ pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, Strin
             .get(TERMUA_PWSH_INIT_ENV_KEY)
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
-            .map(|_init| {
-                vec![
-                    "-NoLogo".to_string(),
-                    "-NoExit".to_string(),
-                    "-Command".to_string(),
-                    ". \"$env:TERMUA_PWSH_INIT\"".to_string(),
-                ]
-            })
+            .map(|_init| powershell_integration_args(cfg!(windows)))
             .unwrap_or_default(),
         ShellKind::Zsh | ShellKind::Other => Vec::new(),
     }
@@ -349,9 +353,19 @@ mod tests {
         );
         assert_eq!(
             shell_integration_args_for_env("pwsh", &env),
+            powershell_integration_args(cfg!(windows))
+        );
+    }
+
+    #[test]
+    fn powershell_integration_args_can_enable_execution_policy_bypass() {
+        assert_eq!(
+            powershell_integration_args(true),
             vec![
                 "-NoLogo".to_string(),
                 "-NoExit".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
                 "-Command".to_string(),
                 ". \"$env:TERMUA_PWSH_INIT\"".to_string(),
             ]

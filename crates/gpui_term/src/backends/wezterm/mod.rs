@@ -3375,15 +3375,18 @@ mod tests {
             .map(|s| s.to_string_lossy().to_string())
             .collect();
 
+        let mut expected = vec!["pwsh", "-NoLogo", "-NoExit"];
+        if cfg!(windows) {
+            expected.extend(["-ExecutionPolicy", "Bypass"]);
+        }
+        expected.extend(["-Command", ". \"$env:TERMUA_PWSH_INIT\""]);
+
         assert_eq!(
             argv,
-            vec![
-                "pwsh",
-                "-NoLogo",
-                "-NoExit",
-                "-Command",
-                ". \"$env:TERMUA_PWSH_INIT\""
-            ]
+            expected
+                .into_iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
         );
     }
 
