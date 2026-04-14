@@ -183,7 +183,7 @@ pub(crate) fn maybe_inject_local_powershell_osc133(
     let Some(shell_program) = selected_shell_program_for_env(&env) else {
         return env;
     };
-    if !is_powershell_program(&shell_program) {
+    if !is_pwsh_program(&shell_program) {
         return env;
     }
 
@@ -224,8 +224,17 @@ fn is_nu_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Nu)
 }
 
-fn is_powershell_program(program: &str) -> bool {
-    matches!(shell_kind(program), ShellKind::PowerShell)
+fn is_pwsh_program(program: &str) -> bool {
+    let program = program.trim();
+    if program.is_empty() {
+        return false;
+    }
+
+    std::path::Path::new(program)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(program)
+        == "pwsh"
 }
 
 fn shell_runtime_dir() -> anyhow::Result<std::path::PathBuf> {
@@ -480,11 +489,11 @@ mod tests {
     }
 
     #[test]
-    fn detects_powershell_program_by_basename() {
-        assert!(is_powershell_program("pwsh"));
-        assert!(is_powershell_program("powershell"));
-        assert!(is_powershell_program("/snap/bin/pwsh"));
-        assert!(!is_powershell_program("bash"));
+    fn detects_pwsh_program_by_basename() {
+        assert!(is_pwsh_program("pwsh"));
+        assert!(is_pwsh_program("/snap/bin/pwsh"));
+        assert!(!is_pwsh_program("powershell"));
+        assert!(!is_pwsh_program("bash"));
     }
 
     #[cfg(unix)]
@@ -622,6 +631,16 @@ mod tests {
             std::path::Path::new(init_path).exists(),
             "powershell init should exist"
         );
+    }
+
+    #[test]
+    fn windows_powershell_does_not_inject_pwsh_init() {
+        let mut env = HashMap::new();
+        env.insert("SHELL".to_string(), "powershell".to_string());
+
+        let env = maybe_inject_local_shell_osc133(env, 7);
+        assert_eq!(env.get("TERMUA_SHELL").map(String::as_str), None);
+        assert_eq!(env.get("TERMUA_PWSH_INIT").map(String::as_str), None);
     }
 
     #[cfg(unix)]

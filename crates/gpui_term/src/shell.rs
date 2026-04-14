@@ -74,6 +74,17 @@ pub fn shell_display_name(program: &str) -> String {
     }
 }
 
+fn powershell_integration_args(bypass_execution_policy: bool) -> Vec<String> {
+    let mut args = vec!["-NoLogo".to_string(), "-NoExit".to_string()];
+    if bypass_execution_policy {
+        args.push("-ExecutionPolicy".to_string());
+        args.push("Bypass".to_string());
+    }
+    args.push("-Command".to_string());
+    args.push(". \"$env:TERMUA_PWSH_INIT\"".to_string());
+    args
+}
+
 pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, String>) -> Vec<String> {
     match shell_kind(program) {
         ShellKind::Bash => env
@@ -126,23 +137,20 @@ pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, Strin
             .get(TERMUA_PWSH_INIT_ENV_KEY)
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
-            .map(|_init| {
-                vec![
-                    "-NoLogo".to_string(),
-                    "-NoExit".to_string(),
-                    "-Command".to_string(),
-                    ". \"$env:TERMUA_PWSH_INIT\"".to_string(),
-                ]
-            })
+            .map(|_init| powershell_integration_args(cfg!(windows)))
             .unwrap_or_default(),
         ShellKind::Zsh | ShellKind::Other => Vec::new(),
     }
 }
 
-pub fn shell_program_candidates_for_current_platform() -> &'static [&'static str] {
+fn shell_program_candidates_for_windows() -> &'static [&'static str] {
+    &["pwsh", "powershell", "cmd"]
+}
+
+pub fn shell_program_candidates() -> &'static [&'static str] {
     if cfg!(windows) {
-        // Windows: prefer built-in Windows PowerShell, then PowerShell 7+, then cmd.
-        &["powershell", "pwsh", "cmd"]
+        // Windows: prefer PowerShell 7+ when available, then Windows PowerShell, then cmd.
+        shell_program_candidates_for_windows()
     } else if cfg!(target_os = "macos") {
         // macOS: default user shell is zsh on modern macOS.
         &["zsh", "bash", "fish", "nu", "pwsh", "sh"]
@@ -152,7 +160,7 @@ pub fn shell_program_candidates_for_current_platform() -> &'static [&'static str
     }
 }
 
-pub fn fallback_shell_program_for_current_platform() -> &'static str {
+pub fn fallback_shell_program() -> &'static str {
     if cfg!(windows) {
         "powershell"
     } else if cfg!(target_os = "macos") {
@@ -167,21 +175,41 @@ pub fn fallback_shell_program_for_current_platform() -> &'static str {
 pub fn shell_program_items_for_program_exists(
     mut program_exists: impl FnMut(&str) -> bool,
 ) -> Vec<String> {
+    shell_program_items_for_candidates(
+        shell_program_candidates(),
+        fallback_shell_program(),
+        &mut program_exists,
+    )
+}
+
+fn shell_program_items_for_candidates(
+    candidates: &[&str],
+    fallback: &str,
+    mut program_exists: impl FnMut(&str) -> bool,
+) -> Vec<String> {
     let mut items = Vec::new();
-    for candidate in shell_program_candidates_for_current_platform() {
-        if program_exists(candidate) {
+
+    let pwsh_exists = candidates.contains(&"pwsh") && program_exists("pwsh");
+    for candidate in candidates {
+        if *candidate == "pwsh" {
+            if pwsh_exists {
+                items.push((*candidate).to_string());
+            }
+        } else if *candidate == "powershell" && pwsh_exists {
+            continue;
+        } else if program_exists(candidate) {
             items.push((*candidate).to_string());
         }
     }
 
     if items.is_empty() {
-        items.push(fallback_shell_program_for_current_platform().to_string());
+        items.push(fallback.to_string());
     }
 
     items
 }
 
-pub fn shell_program_items_for_current_system() -> Vec<String> {
+pub fn shell_program_items() -> Vec<String> {
     shell_program_items_for_program_exists(program_exists_on_path)
 }
 
@@ -296,6 +324,7 @@ mod tests {
         assert_eq!(shell_display_name("/bin/bash"), "bash");
         assert_eq!(shell_display_name("nu"), "nushell");
         assert_eq!(shell_display_name("pwsh"), "powershell");
+        assert_eq!(shell_display_name("powershell"), "powershell");
         assert_eq!(shell_display_name("/opt/bin/fish"), "fish");
         assert_eq!(shell_display_name("xonsh"), "xonsh");
     }
@@ -349,9 +378,19 @@ mod tests {
         );
         assert_eq!(
             shell_integration_args_for_env("pwsh", &env),
+            powershell_integration_args(cfg!(windows))
+        );
+    }
+
+    #[test]
+    fn powershell_integration_args_can_enable_execution_policy_bypass() {
+        assert_eq!(
+            powershell_integration_args(true),
             vec![
                 "-NoLogo".to_string(),
                 "-NoExit".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
                 "-Command".to_string(),
                 ". \"$env:TERMUA_PWSH_INIT\"".to_string(),
             ]
@@ -360,7 +399,7 @@ mod tests {
 
     #[test]
     fn shell_program_items_for_program_exists_filters_candidates() {
-        let candidates = shell_program_candidates_for_current_platform();
+        let candidates = shell_program_candidates();
         let keep_a = candidates.first().copied().unwrap();
         let keep_b = candidates.last().copied().unwrap();
 
@@ -370,16 +409,46 @@ mod tests {
 
     #[test]
     fn platform_shell_candidates_are_ordered_by_preference() {
-        let candidates = shell_program_candidates_for_current_platform();
+        let candidates = shell_program_candidates();
 
         #[cfg(windows)]
-        assert_eq!(candidates.first().copied(), Some("powershell"));
+        assert_eq!(candidates.first().copied(), Some("pwsh"));
 
         #[cfg(target_os = "macos")]
         assert_eq!(candidates.first().copied(), Some("zsh"));
 
         #[cfg(all(not(windows), not(target_os = "macos")))]
         assert_eq!(candidates.first().copied(), Some("bash"));
+    }
+
+    #[test]
+    fn windows_shell_candidates_prefer_pwsh_over_powershell() {
+        assert_eq!(
+            shell_program_candidates_for_windows(),
+            &["pwsh", "powershell", "cmd"]
+        );
+    }
+
+    #[test]
+    fn windows_shell_program_items_hide_powershell_when_pwsh_exists() {
+        let items = shell_program_items_for_candidates(
+            shell_program_candidates_for_windows(),
+            fallback_shell_program(),
+            |name| matches!(name, "pwsh" | "powershell" | "cmd"),
+        );
+
+        assert_eq!(items, vec!["pwsh".to_string(), "cmd".to_string()]);
+    }
+
+    #[test]
+    fn windows_shell_program_items_use_powershell_when_pwsh_is_missing() {
+        let items = shell_program_items_for_candidates(
+            shell_program_candidates_for_windows(),
+            fallback_shell_program(),
+            |name| matches!(name, "powershell" | "cmd"),
+        );
+
+        assert_eq!(items, vec!["powershell".to_string(), "cmd".to_string()]);
     }
 
     #[test]
