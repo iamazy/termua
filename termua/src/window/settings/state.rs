@@ -720,8 +720,15 @@ impl SelectItem for PlaybackSpeedSelectItem {
 
 fn ssh_backend_label(backend: SshBackend) -> &'static str {
     match backend {
-        SshBackend::Ssh2 => "ssh2 (libssh2)",
-        SshBackend::Libssh => "libssh (libssh-rs)",
+        SshBackend::Ssh2 => "ssh2",
+        SshBackend::Libssh => "libssh",
+    }
+}
+
+pub(super) fn ssh_backend_docs_url(backend: SshBackend) -> &'static str {
+    match backend {
+        SshBackend::Ssh2 => "https://docs.rs/ssh2/latest/ssh2/",
+        SshBackend::Libssh => "https://docs.rs/libssh-rs/latest/libssh_rs/",
     }
 }
 

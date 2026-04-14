@@ -89,7 +89,7 @@ static ALL_SETTINGS_META: &[SettingMeta] = &[
     SettingMeta {
         id: "terminal.ssh_backend",
         title: "SSH Backend",
-        description: "Choose the SSH backend (ssh2/libssh) used for SSH terminals and SFTP.",
+        description: "Used for SSH terminals and SFTP.",
         keywords: &["terminal", "ssh", "backend", "ssh2", "libssh", "sftp"],
         section: SettingsNavSection::Terminal,
         page: SettingsPage::Terminal,
