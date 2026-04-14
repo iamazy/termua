@@ -1368,7 +1368,6 @@ impl TerminalBackend for AlacrittyBackend {
         {
             cx.emit(Event::NewNavigationTarget(target));
         }
-        cx.notify();
     }
 
     fn select_word_at_event_position(&mut self, e: &MouseDownEvent) {
