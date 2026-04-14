@@ -222,6 +222,7 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
   $wixDir = Split-Path -Parent $wxsFiles[0].FullName
   $destIco = Join-Path $wixDir "termua.ico"
   Copy-Item -Force $icoPath $destIco
+  $iconSource = (Resolve-Path $destIco).Path
 
   foreach ($file in $wxsFiles) {
     $content = Get-Content -Raw -Path $file.FullName
@@ -233,16 +234,17 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
     if (-not $hasIcon -or -not $hasArp) {
       $insertion = ""
       if (-not $hasIcon) {
-        $insertion += "    <Icon Id=`"termuaIcon`" SourceFile=`"termua.ico`" />`r`n"
+        $insertion += '    <Icon Id="termuaIcon" SourceFile="' + $iconSource + '" />' + "`r`n"
       }
       if (-not $hasArp) {
-        $insertion += "    <Property Id=`"ARPPRODUCTICON`" Value=`"termuaIcon`" />`r`n"
+        $insertion += '    <Property Id="ARPPRODUCTICON" Value="termuaIcon" />' + "`r`n"
       }
 
+      $iconReplacement = '$1' + "`r`n" + $insertion
       $content = [regex]::Replace(
         $content,
-        "(<Product\\b[^>]*>\\s*)",
-        "`$1`r`n$insertion",
+        '(<Product\b[^>]*>)',
+        $iconReplacement,
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
       )
     }

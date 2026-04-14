@@ -36,6 +36,33 @@ try {
     throw "Expected Ensure-TermuaIco to ignore svg fallback and return null. Got: $resolved"
   }
   Write-Host "PASS: Ensure-TermuaIco ignores svg fallback"
+
+  New-Item -ItemType Directory -Force -Path (Join-Path $tmpRoot "wix") | Out-Null
+  $wxsPath = Join-Path $tmpRoot "wix\main.wxs"
+  @'
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="termua" Language="1033" Version="0.1.0" Manufacturer="termua" UpgradeCode="PUT-GUID-HERE">
+  </Product>
+</Wix>
+'@ | Set-Content -Path $wxsPath -NoNewline
+
+  [System.IO.File]::WriteAllBytes($repoIco, [byte[]](0, 1, 2, 3))
+  Ensure-WixIcon $tmpRoot $repoIco
+
+  $copiedIco = Join-Path $tmpRoot "wix\termua.ico"
+  if (-not (Test-Path $copiedIco)) {
+    throw "Expected Ensure-WixIcon to copy icon into wix directory. Missing: $copiedIco"
+  }
+
+  $updated = Get-Content -Raw -Path $wxsPath
+  $expectedIconPath = [regex]::Escape((Resolve-Path $copiedIco).Path)
+  if ($updated -notmatch ('<Icon Id="termuaIcon" SourceFile="' + $expectedIconPath + '" />')) {
+    throw "Expected Ensure-WixIcon to reference copied icon by full path. Got:`n$updated"
+  }
+  if ($updated -notmatch '<Property Id="ARPPRODUCTICON" Value="termuaIcon" />') {
+    throw "Expected Ensure-WixIcon to set ARPPRODUCTICON. Got:`n$updated"
+  }
+  Write-Host "PASS: Ensure-WixIcon injects bindable icon path"
 } finally {
   Remove-Item -Recurse -Force $tmpRoot -ErrorAction SilentlyContinue
 }
