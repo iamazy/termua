@@ -279,10 +279,15 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
       continue
     }
 
+    $relayReplacement =
+      '$1' +
+      "`r`n" +
+      '              <File Id="termuaRelayExeFile" Name="termua-relay.exe" DiskId="1" Source="$(var.CargoTargetBinDir)\termua-relay.exe" Checksum="yes" />'
+
     $content = [regex]::Replace(
       $content,
       '(<File\b[^>]*Name=(["' + "'" + '])termua\.exe\2[^>]*/>)',
-      '`$1`r`n              <File Id="termuaRelayExeFile" Name="termua-relay.exe" DiskId="1" Source="$(var.CargoTargetBinDir)\termua-relay.exe" Checksum="yes" />',
+      $relayReplacement,
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
 

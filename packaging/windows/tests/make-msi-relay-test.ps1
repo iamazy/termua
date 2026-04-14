@@ -43,6 +43,12 @@ try {
   if ($updated -notmatch 'Source="\$\(var\.CargoTargetBinDir\)\\termua-relay\.exe"') {
     throw "Expected relay file Source to use `$(var.CargoTargetBinDir)\\termua-relay.exe`. Got:`n$updated"
   }
+  if ($updated -notmatch 'Name="termua\.exe"[^>]*/>\r?\n\s+<File Id="termuaRelayExeFile"') {
+    throw "Expected relay file insertion to use a real newline after termua.exe. Got:`n$updated"
+  }
+  if ($updated.Contains('`$1') -or $updated.Contains('`r`n')) {
+    throw "Expected relay file insertion to avoid literal PowerShell escape fragments. Got:`n$updated"
+  }
   if ($updated -match [regex]::Escape($relayExe)) {
     throw "Expected relay file Source to avoid absolute path. Got:`n$updated"
   }
