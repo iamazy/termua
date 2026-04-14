@@ -51,6 +51,7 @@ esac
 target="${TARGET:-$default_target}"
 
 bin="${BIN:-target/$target/release/termua}"
+relay_bin="${RELAY_BIN:-target/$target/release/termua-relay}"
 out_appimage="${OUT_APPIMAGE:-target/appimage/$arch/termua-${arch}.AppImage}"
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -63,13 +64,18 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$bin" ]]; then
-  echo "==> Building termua (release)"
+if [[ ! -f "$bin" || ! -f "$relay_bin" ]]; then
+  echo "==> Building termua + termua-relay (release)"
   cargo build -p termua --release --target "$target"
-  if [[ ! -f "$bin" ]]; then
-    echo "missing binary after build: $bin" >&2
-    exit 1
-  fi
+  cargo build -p termua_relay --release --target "$target"
+fi
+if [[ ! -f "$bin" ]]; then
+  echo "missing binary after build: $bin" >&2
+  exit 1
+fi
+if [[ ! -f "$relay_bin" ]]; then
+  echo "missing relay binary after build: $relay_bin" >&2
+  exit 1
 fi
 
 work="$(mktemp -d)"
@@ -78,7 +84,9 @@ trap 'rm -rf "$work"' EXIT
 appdir="$work/AppDir"
 mkdir -p "$appdir/usr/bin"
 cp "$bin" "$appdir/usr/bin/termua"
+cp "$relay_bin" "$appdir/usr/bin/termua-relay"
 chmod +x "$appdir/usr/bin/termua"
+chmod +x "$appdir/usr/bin/termua-relay"
 
 # Desktop integration (appimagetool expects these at the root of AppDir)
 cp packaging/linux/termua.desktop "$appdir/termua.desktop"

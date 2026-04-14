@@ -262,6 +262,38 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
   }
 }
 
+function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
+  $relayExe = Join-Path $repoRoot "target\$target\release\termua-relay.exe"
+  if (-not (Test-Path $relayExe)) {
+    throw "missing relay binary after build: $relayExe"
+  }
+
+  $wxsFiles = Find-WxsFiles $repoRoot
+  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
+
+  $relaySource = (Resolve-Path $relayExe).Path.Replace('\', '\\')
+  foreach ($file in $wxsFiles) {
+    $content = Get-Content -Raw -Path $file.FullName
+    $original = $content
+
+    if ($content -match 'Name="termua-relay\.exe"' -or $content -match "Name='termua-relay\.exe'") {
+      continue
+    }
+
+    $content = [regex]::Replace(
+      $content,
+      '(<File\b[^>]*Name=(["' + "'" + '])termua\.exe\2[^>]*/>)',
+      "`$1`r`n              <File Id=`"termuaRelayExeFile`" Name=`"termua-relay.exe`" DiskId=`"1`" Source=`"$relaySource`" Checksum=`"yes`" />",
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+
+    if ($content -ne $original) {
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    }
+  }
+}
+
 if ($env:OS -notlike "*Windows*") {
   Write-Error "This script is intended to run on Windows."
 }
@@ -327,9 +359,11 @@ if ([string]::IsNullOrWhiteSpace($outDir)) {
   $outDir = "target\\msi\\$arch"
 }
 
-Write-Host "==> Building termua (release)"
+Write-Host "==> Building termua + termua-relay (release)"
 & cargo build -p termua --release --target $target
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
+& cargo build -p termua_relay --release --target $target
+if ($LASTEXITCODE -ne 0) { throw "cargo build termua_relay failed ($LASTEXITCODE)" }
 
 if ((Find-WxsFiles $repoRoot).Count -eq 0) {
   Write-Host "==> Initializing WiX sources (cargo wix init)"
@@ -345,6 +379,7 @@ $icoPath = Ensure-TermuaIco $repoRoot $arch
 if ($icoPath) {
   Ensure-WixIcon $repoRoot $icoPath
 }
+Ensure-WixRelayBinary $repoRoot $target
 
 Write-Host "==> Packaging MSI (cargo wix)"
 & cargo wix --package termua --no-build --target $target

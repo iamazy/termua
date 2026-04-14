@@ -59,6 +59,7 @@ target="${TARGET:-$default_target}"
 out_dmg="${OUT_DMG:-target/dmg/$arch/termua-${arch}.dmg}"
 
 bin="${BIN:-target/$target/release/termua}"
+relay_bin="${RELAY_BIN:-target/$target/release/termua-relay}"
 icon_icns="${ICON_ICNS:-}"
 app_bundle="${APP_BUNDLE:-}"
 
@@ -104,12 +105,17 @@ else
     exit 1
   fi
 
-  if [[ ! -f "$bin" ]]; then
-    echo "==> Building termua (release)"
+  if [[ ! -f "$bin" || ! -f "$relay_bin" ]]; then
+    echo "==> Building termua + termua-relay (release)"
     cargo build -p termua --release --target "$target"
+    cargo build -p termua_relay --release --target "$target"
   fi
   if [[ ! -f "$bin" ]]; then
     echo "missing binary after build: $bin" >&2
+    exit 1
+  fi
+  if [[ ! -f "$relay_bin" ]]; then
+    echo "missing relay binary after build: $relay_bin" >&2
     exit 1
   fi
 
@@ -120,7 +126,9 @@ else
   mkdir -p "$macos_dir" "$resources_dir"
 
   cp "$bin" "$macos_dir/termua"
+  cp "$relay_bin" "$macos_dir/termua-relay"
   chmod +x "$macos_dir/termua"
+  chmod +x "$macos_dir/termua-relay"
 
   icon_key=""
   if [[ -n "$icon_icns" ]]; then

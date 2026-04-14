@@ -79,11 +79,13 @@ if ! command -v cargo-generate-rpm >/dev/null 2>&1; then
   fi
 fi
 
-echo "==> Building termua (release)"
+echo "==> Building termua + termua-relay (release)"
 if [[ "$explicit_target" -eq 1 ]]; then
   cargo build -p termua --release --target "$target"
+  cargo build -p termua_relay --release --target "$target"
 else
   cargo build -p termua --release
+  cargo build -p termua_relay --release
 fi
 
 echo "==> Packaging .rpm (cargo generate-rpm)"
@@ -102,19 +104,32 @@ if [[ "$explicit_target" -eq 1 ]]; then
     else
       rm -f target/release/termua
     fi
+    if [[ -f "$work/termua-relay.bak" ]]; then
+      mkdir -p target/release
+      mv -f "$work/termua-relay.bak" target/release/termua-relay
+    else
+      rm -f target/release/termua-relay
+    fi
     rm -rf "$work"
     cleanup_package_out_dir
   }
   trap cleanup EXIT
 
   built_bin="target/$target/release/termua"
+  built_relay_bin="target/$target/release/termua-relay"
   expected_bin="target/release/termua"
+  expected_relay_bin="target/release/termua-relay"
   mkdir -p target/release
   if [[ -f "$expected_bin" ]]; then
     mv -f "$expected_bin" "$work/termua.bak"
   fi
+  if [[ -f "$expected_relay_bin" ]]; then
+    mv -f "$expected_relay_bin" "$work/termua-relay.bak"
+  fi
   cp "$built_bin" "$expected_bin"
+  cp "$built_relay_bin" "$expected_relay_bin"
   chmod +x "$expected_bin"
+  chmod +x "$expected_relay_bin"
 
   cargo generate-rpm -p termua --target "$target" --output "$package_out_dir"
 else
