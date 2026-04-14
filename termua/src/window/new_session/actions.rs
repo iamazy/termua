@@ -1094,7 +1094,7 @@ impl NewSessionWindow {
         let program = session
             .shell_program
             .as_deref()
-            .unwrap_or(gpui_term::shell::fallback_shell_program_for_current_platform());
+            .unwrap_or(gpui_term::shell::fallback_shell_program());
         self.shell.set_program(program, window, cx);
 
         // The shell program may auto-sync the label; restore the persisted label/group.

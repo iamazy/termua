@@ -143,10 +143,14 @@ pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, Strin
     }
 }
 
-pub fn shell_program_candidates_for_current_platform() -> &'static [&'static str] {
+fn shell_program_candidates_for_windows() -> &'static [&'static str] {
+    &["pwsh", "powershell", "cmd"]
+}
+
+pub fn shell_program_candidates() -> &'static [&'static str] {
     if cfg!(windows) {
-        // Windows: prefer built-in Windows PowerShell, then PowerShell 7+, then cmd.
-        &["powershell", "pwsh", "cmd"]
+        // Windows: prefer PowerShell 7+ when available, then Windows PowerShell, then cmd.
+        shell_program_candidates_for_windows()
     } else if cfg!(target_os = "macos") {
         // macOS: default user shell is zsh on modern macOS.
         &["zsh", "bash", "fish", "nu", "pwsh", "sh"]
@@ -156,7 +160,7 @@ pub fn shell_program_candidates_for_current_platform() -> &'static [&'static str
     }
 }
 
-pub fn fallback_shell_program_for_current_platform() -> &'static str {
+pub fn fallback_shell_program() -> &'static str {
     if cfg!(windows) {
         "powershell"
     } else if cfg!(target_os = "macos") {
@@ -172,20 +176,20 @@ pub fn shell_program_items_for_program_exists(
     mut program_exists: impl FnMut(&str) -> bool,
 ) -> Vec<String> {
     let mut items = Vec::new();
-    for candidate in shell_program_candidates_for_current_platform() {
+    for candidate in shell_program_candidates() {
         if program_exists(candidate) {
             items.push((*candidate).to_string());
         }
     }
 
     if items.is_empty() {
-        items.push(fallback_shell_program_for_current_platform().to_string());
+        items.push(fallback_shell_program().to_string());
     }
 
     items
 }
 
-pub fn shell_program_items_for_current_system() -> Vec<String> {
+pub fn shell_program_items() -> Vec<String> {
     shell_program_items_for_program_exists(program_exists_on_path)
 }
 
@@ -374,7 +378,7 @@ mod tests {
 
     #[test]
     fn shell_program_items_for_program_exists_filters_candidates() {
-        let candidates = shell_program_candidates_for_current_platform();
+        let candidates = shell_program_candidates();
         let keep_a = candidates.first().copied().unwrap();
         let keep_b = candidates.last().copied().unwrap();
 
@@ -384,16 +388,24 @@ mod tests {
 
     #[test]
     fn platform_shell_candidates_are_ordered_by_preference() {
-        let candidates = shell_program_candidates_for_current_platform();
+        let candidates = shell_program_candidates();
 
         #[cfg(windows)]
-        assert_eq!(candidates.first().copied(), Some("powershell"));
+        assert_eq!(candidates.first().copied(), Some("pwsh"));
 
         #[cfg(target_os = "macos")]
         assert_eq!(candidates.first().copied(), Some("zsh"));
 
         #[cfg(all(not(windows), not(target_os = "macos")))]
         assert_eq!(candidates.first().copied(), Some("bash"));
+    }
+
+    #[test]
+    fn windows_shell_candidates_prefer_pwsh_over_powershell() {
+        assert_eq!(
+            shell_program_candidates_for_windows(),
+            &["pwsh", "powershell", "cmd"]
+        );
     }
 
     #[test]

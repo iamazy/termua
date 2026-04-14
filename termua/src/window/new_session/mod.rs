@@ -786,7 +786,7 @@ impl SessionCommonState {
 
 impl ShellSessionState {
     fn program_default_value() -> SharedString {
-        gpui_term::shell::fallback_shell_program_for_current_platform().into()
+        gpui_term::shell::fallback_shell_program().into()
     }
 
     fn new(
@@ -801,7 +801,7 @@ impl ShellSessionState {
             "termua-new-session-shell-type-icon",
         );
 
-        let program_options = gpui_term::shell::shell_program_items_for_current_system()
+        let program_options = gpui_term::shell::shell_program_items()
             .into_iter()
             .map(|p| ShellProgramSelectItem::new(SharedString::from(p)))
             .collect::<Vec<_>>();
