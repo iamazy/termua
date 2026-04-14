@@ -19,8 +19,7 @@ use super::{
     search_settings,
     state::page_spec,
 };
-use crate::window::theme_editor::ThemeEditor;
-use crate::window::settings::state::ssh_backend_docs_url;
+use crate::window::{settings::state::ssh_backend_docs_url, theme_editor::ThemeEditor};
 
 impl SettingsWindow {
     fn render_terminal_ssh_backend_description(
@@ -44,7 +43,9 @@ impl SettingsWindow {
         h_flex()
             .items_center()
             .gap_4()
-            .debug_selector(|| "termua-settings-terminal-ssh-backend-description-inline".to_string())
+            .debug_selector(|| {
+                "termua-settings-terminal-ssh-backend-description-inline".to_string()
+            })
             .child(div().flex_1().min_w_0().child(description))
             .child(
                 div()
@@ -55,14 +56,12 @@ impl SettingsWindow {
                     })
                     .text_left()
                     .child(
-                        div()
-                            .debug_selector(move || selector.to_string())
-                            .child(
-                                Link::new(link_id)
-                                    .href(ssh_backend_docs_url(backend))
-                                    .text_xs()
-                                    .child(label),
-                            ),
+                        div().debug_selector(move || selector.to_string()).child(
+                            Link::new(link_id)
+                                .href(ssh_backend_docs_url(backend))
+                                .text_xs()
+                                .child(label),
+                        ),
                     ),
             )
     }
