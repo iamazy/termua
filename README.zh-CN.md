@@ -130,6 +130,10 @@ termua-relay --listen 127.0.0.1:7231
 - [Wezterm](https://github.com/wezterm/wezterm): A GPU-accelerated cross-platform terminal emulator and
   multiplexer and implemented in Rust
 
+### 贡献 🌳
+
+欢迎贡献！如果你觉得这个项目有用，请给仓库点个🌟 —— 这有助于让更多人发现它。
+
 ### License 🚨
 
 <a href="./LICENSE-AGPL"><img src="https://img.shields.io/badge/license-AGPL%203-blue.svg" alt="License" /></a>
