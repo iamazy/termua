@@ -85,6 +85,10 @@ else
 fi
 
 echo "==> Packaging .deb (cargo deb)"
+package_out_dir="$(mktemp -d)"
+cleanup_package_out_dir() {
+  rm -rf "$package_out_dir"
+}
 if [[ "$explicit_target" -eq 1 ]]; then
   work="$(mktemp -d)"
   cleanup() {
@@ -95,6 +99,7 @@ if [[ "$explicit_target" -eq 1 ]]; then
       rm -f target/release/termua
     fi
     rm -rf "$work"
+    cleanup_package_out_dir
   }
   trap cleanup EXIT
 
@@ -109,14 +114,15 @@ if [[ "$explicit_target" -eq 1 ]]; then
   cp "$built_bin" "$expected_bin"
   chmod +x "$expected_bin"
 
-  cargo deb -p termua --no-build --target "$target"
+  cargo deb -p termua --no-build --target "$target" --output "$package_out_dir"
 else
-  cargo deb -p termua --no-build
+  trap cleanup_package_out_dir EXIT
+  cargo deb -p termua --no-build --output "$package_out_dir"
 fi
 
-deb_path="$(ls -1t target/debian/*.deb 2>/dev/null | head -n 1 || true)"
+deb_path="$(ls -1t "$package_out_dir"/*.deb 2>/dev/null | head -n 1 || true)"
 if [[ -z "${deb_path}" || ! -f "${deb_path}" ]]; then
-  echo "failed to locate built .deb in target/debian" >&2
+  echo "failed to locate built .deb in $package_out_dir" >&2
   exit 1
 fi
 
