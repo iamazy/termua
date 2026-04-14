@@ -3,6 +3,7 @@ name = "termua"
 edition.workspace = true
 version.workspace = true
 description = "A terminal app built with GPUI"
+build = "build.rs"
 license.workspace = true
 authors.workspace = true
 documentation.workspace = true
@@ -51,6 +52,9 @@ secret-service = { workspace = true, features = ["crypto-openssl"] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+
+[build-dependencies]
+embed-resource = "3"
 
 [lints]
 workspace = true

@@ -16,9 +16,8 @@ $ErrorActionPreference = "Stop"
   powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
 .ICON
-  # Optional: generate and use installer icons from termua.svg
-  # $env:ICON_SVG="assets\\logo\\termua.svg"
-  # $env:ICON_ICO="target\\icons\\x86_64\\termua.ico"
+  # Optional: override the installer icon explicitly
+  # $env:ICON_ICO="assets\\logo\\termua.ico"
 
 .ARCH / .TARGET
   $env:ARCH="x86_64"   # or "aarch64"
@@ -192,42 +191,25 @@ function Find-WxsFiles([string] $repoRoot) {
 }
 
 function Ensure-TermuaIco([string] $repoRoot, [string] $arch) {
-  $svg = $env:ICON_SVG
-  if ([string]::IsNullOrWhiteSpace($svg)) {
-    $svg = Join-Path $repoRoot "assets\\logo\\termua.svg"
-  }
-  if (-not (Test-Path $svg)) {
-    return $null
-  }
+  $repoIco = Join-Path $repoRoot "assets\\logo\\termua.ico"
 
   $ico = $env:ICON_ICO
-  if ([string]::IsNullOrWhiteSpace($ico)) {
-    $ico = Join-Path $repoRoot ("target\\icons\\{0}\\termua.ico" -f $arch)
+  if (-not [string]::IsNullOrWhiteSpace($ico)) {
+    if (Test-Path $ico) {
+      return (Resolve-Path $ico).Path
+    }
+    Write-Host "warning: ICON_ICO not found: $ico"
   }
+
+  if (Test-Path $repoIco) {
+    return (Resolve-Path $repoIco).Path
+  }
+
+  $ico = Join-Path $repoRoot ("target\\icons\\{0}\\termua.ico" -f $arch)
   if (Test-Path $ico) {
     return (Resolve-Path $ico).Path
   }
-
-  if (-not (Get-Command "magick" -ErrorAction SilentlyContinue)) {
-    Write-Host "note: termua.svg icon found but ImageMagick (magick) is not in PATH; skipping MSI icon generation."
-    Write-Host "      Install ImageMagick and ensure 'magick' is available, then re-run."
-    Write-Host "      Suggested: winget install ImageMagick.ImageMagick"
-    return $null
-  }
-
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ico) | Out-Null
-
-  Write-Host "==> Generating .ico from: $svg"
-  & magick $svg -background none -define icon:auto-resize=256,128,64,48,32,16 $ico
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host "warning: failed to generate .ico from svg; continuing without MSI icons."
-    return $null
-  }
-  if (-not (Test-Path $ico)) {
-    Write-Host "warning: magick completed but .ico not found: $ico"
-    return $null
-  }
-  return (Resolve-Path $ico).Path
+  return $null
 }
 
 function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
