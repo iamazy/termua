@@ -175,15 +175,35 @@ pub fn fallback_shell_program() -> &'static str {
 pub fn shell_program_items_for_program_exists(
     mut program_exists: impl FnMut(&str) -> bool,
 ) -> Vec<String> {
+    shell_program_items_for_candidates(
+        shell_program_candidates(),
+        fallback_shell_program(),
+        &mut program_exists,
+    )
+}
+
+fn shell_program_items_for_candidates(
+    candidates: &[&str],
+    fallback: &str,
+    mut program_exists: impl FnMut(&str) -> bool,
+) -> Vec<String> {
     let mut items = Vec::new();
-    for candidate in shell_program_candidates() {
-        if program_exists(candidate) {
+
+    let pwsh_exists = candidates.contains(&"pwsh") && program_exists("pwsh");
+    for candidate in candidates {
+        if *candidate == "pwsh" {
+            if pwsh_exists {
+                items.push((*candidate).to_string());
+            }
+        } else if *candidate == "powershell" && pwsh_exists {
+            continue;
+        } else if program_exists(candidate) {
             items.push((*candidate).to_string());
         }
     }
 
     if items.is_empty() {
-        items.push(fallback_shell_program().to_string());
+        items.push(fallback.to_string());
     }
 
     items
@@ -304,6 +324,7 @@ mod tests {
         assert_eq!(shell_display_name("/bin/bash"), "bash");
         assert_eq!(shell_display_name("nu"), "nushell");
         assert_eq!(shell_display_name("pwsh"), "powershell");
+        assert_eq!(shell_display_name("powershell"), "powershell");
         assert_eq!(shell_display_name("/opt/bin/fish"), "fish");
         assert_eq!(shell_display_name("xonsh"), "xonsh");
     }
@@ -406,6 +427,28 @@ mod tests {
             shell_program_candidates_for_windows(),
             &["pwsh", "powershell", "cmd"]
         );
+    }
+
+    #[test]
+    fn windows_shell_program_items_hide_powershell_when_pwsh_exists() {
+        let items = shell_program_items_for_candidates(
+            shell_program_candidates_for_windows(),
+            fallback_shell_program(),
+            |name| matches!(name, "pwsh" | "powershell" | "cmd"),
+        );
+
+        assert_eq!(items, vec!["pwsh".to_string(), "cmd".to_string()]);
+    }
+
+    #[test]
+    fn windows_shell_program_items_use_powershell_when_pwsh_is_missing() {
+        let items = shell_program_items_for_candidates(
+            shell_program_candidates_for_windows(),
+            fallback_shell_program(),
+            |name| matches!(name, "powershell" | "cmd"),
+        );
+
+        assert_eq!(items, vec!["powershell".to_string(), "cmd".to_string()]);
     }
 
     #[test]

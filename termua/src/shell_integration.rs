@@ -489,14 +489,6 @@ mod tests {
     }
 
     #[test]
-    fn detects_powershell_program_by_basename() {
-        assert!(is_powershell_program("pwsh"));
-        assert!(is_powershell_program("powershell"));
-        assert!(is_powershell_program("/snap/bin/pwsh"));
-        assert!(!is_powershell_program("bash"));
-    }
-
-    #[test]
     fn detects_pwsh_program_by_basename() {
         assert!(is_pwsh_program("pwsh"));
         assert!(is_pwsh_program("/snap/bin/pwsh"));

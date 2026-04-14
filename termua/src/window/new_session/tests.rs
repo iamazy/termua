@@ -1412,7 +1412,7 @@ fn shell_program_select_item_shows_full_name_and_shell_icons() {
 
     let sh = ShellProgramSelectItem::new("sh".into());
     assert_eq!(sh.title().as_ref(), "sh");
-    assert_eq!(sh.icon_path(), Some(TermuaIcon::Terminal));
+    assert_eq!(sh.icon_path(), Some(TermuaIcon::Sh));
 
     let zsh = ShellProgramSelectItem::new("zsh".into());
     assert_eq!(zsh.title().as_ref(), "zsh");
