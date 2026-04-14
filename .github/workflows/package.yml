@@ -1,0 +1,167 @@
+name: Cross-Platform Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            name: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            name: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+          - runner: windows-latest
+            name: windows
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            name: windows
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+          - runner: macos-15-intel
+            name: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+          - runner: macos-latest
+            name: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: package-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl dpkg rpm
+
+      - name: Build release binary
+        run: cargo build -p termua --release --target ${{ matrix.target }}
+
+      - name: Package Linux artifacts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/linux/make-appimage.sh
+          ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/linux/make-deb.sh
+          ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/linux/make-rpm.sh
+
+      - name: Zip Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p target/artifact-zips/${{ matrix.arch }}
+          for f in target/appimage/${{ matrix.arch }}/*.AppImage target/deb/${{ matrix.arch }}/*.deb target/rpm/${{ matrix.arch }}/*.rpm; do
+            [ -e "$f" ] || continue
+            base="$(basename "$f")"
+            zip -j "target/artifact-zips/${{ matrix.arch }}/${base}.zip" "$f"
+          done
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/macos/make-dmg.sh
+
+      - name: Zip macOS packages
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p target/artifact-zips/${{ matrix.arch }}
+          for f in target/dmg/${{ matrix.arch }}/*.dmg; do
+            [ -e "$f" ] || continue
+            base="$(basename "$f")"
+            zip -j "target/artifact-zips/${{ matrix.arch }}/${base}.zip" "$f"
+          done
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:ARCH = "${{ matrix.arch }}"
+          $env:TARGET = "${{ matrix.target }}"
+          $env:TERMUA_AUTO_INSTALL_WIX = "1"
+          powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+
+      - name: Zip Windows packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "target/artifact-zips/${{ matrix.arch }}" | Out-Null
+          Get-ChildItem "target/msi/${{ matrix.arch }}/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+            Compress-Archive -Path $_.FullName -DestinationPath "target/artifact-zips/${{ matrix.arch }}/$($_.Name).zip" -Force
+          }
+
+      - name: Upload Linux AppImage artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: termua-linux-${{ matrix.arch }}-appimage
+          compression-level: 0
+          if-no-files-found: error
+          path: target/artifact-zips/${{ matrix.arch }}/*AppImage.zip
+
+      - name: Upload Linux deb artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: termua-linux-${{ matrix.arch }}-deb
+          compression-level: 0
+          if-no-files-found: error
+          path: target/artifact-zips/${{ matrix.arch }}/*.deb.zip
+
+      - name: Upload Linux rpm artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: termua-linux-${{ matrix.arch }}-rpm
+          compression-level: 0
+          if-no-files-found: error
+          path: target/artifact-zips/${{ matrix.arch }}/*.rpm.zip
+
+      - name: Upload macOS dmg artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: termua-macos-${{ matrix.arch }}-dmg
+          compression-level: 0
+          if-no-files-found: error
+          path: target/artifact-zips/${{ matrix.arch }}/*.dmg.zip
+
+      - name: Upload Windows msi artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: termua-windows-${{ matrix.arch }}-msi
+          compression-level: 0
+          if-no-files-found: error
+          path: target/artifact-zips/${{ matrix.arch }}/*.msi.zip
