@@ -271,7 +271,6 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
   $wxsFiles = Find-WxsFiles $repoRoot
   if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
 
-  $relaySource = (Resolve-Path $relayExe).Path.Replace('\', '\\')
   foreach ($file in $wxsFiles) {
     $content = Get-Content -Raw -Path $file.FullName
     $original = $content
@@ -283,7 +282,7 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
     $content = [regex]::Replace(
       $content,
       '(<File\b[^>]*Name=(["' + "'" + '])termua\.exe\2[^>]*/>)',
-      "`$1`r`n              <File Id=`"termuaRelayExeFile`" Name=`"termua-relay.exe`" DiskId=`"1`" Source=`"$relaySource`" Checksum=`"yes`" />",
+      '`$1`r`n              <File Id="termuaRelayExeFile" Name="termua-relay.exe" DiskId="1" Source="$(var.CargoTargetBinDir)\termua-relay.exe" Checksum="yes" />',
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
 
