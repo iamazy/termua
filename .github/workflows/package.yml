@@ -63,6 +63,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl dpkg rpm
+          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
 
       - name: Build release binary
         run: cargo build -p termua --release --target ${{ matrix.target }}
