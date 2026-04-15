@@ -6,7 +6,7 @@ use gpui_term::{SshOptions, TerminalType};
 use crate::store::{SerialFlowControl, SerialParity, SerialStopBits};
 
 #[derive(Clone, Debug)]
-pub(crate) struct SerialTerminalParams {
+pub(crate) struct SerialParams {
     pub(crate) name: String,
     pub(crate) port: String,
     pub(crate) baud: u32,
@@ -68,7 +68,7 @@ pub(crate) enum PendingCommand {
     },
     OpenSerialTerminal {
         backend_type: TerminalType,
-        params: SerialTerminalParams,
+        params: SerialParams,
         session_id: Option<i64>,
     },
     ReloadSessionsSidebar,

@@ -5,7 +5,7 @@ use super::{
     NewSessionWindow, Protocol, SshAuthType, TermBackend, new_proxy_env_row_state,
     new_proxy_jump_row_state, set_input_value, ssh,
 };
-use crate::{SerialTerminalParams, env::build_local_terminal_env, store::SshProxyMode};
+use crate::{SerialParams, env::build_local_terminal_env, store::SshProxyMode};
 
 struct SshFormValues {
     backend: TermBackend,
@@ -978,7 +978,7 @@ impl NewSessionWindow {
         cx.global_mut::<crate::TermuaAppState>().pending_command(
             crate::PendingCommand::OpenSerialTerminal {
                 backend_type,
-                params: SerialTerminalParams {
+                params: SerialParams {
                     name: label,
                     port: port.trim().to_string(),
                     baud,

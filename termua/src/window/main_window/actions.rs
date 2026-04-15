@@ -35,7 +35,7 @@ use smol::Timer;
 
 use super::TermuaWindow;
 use crate::{
-    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, SerialTerminalParams, TermuaAppState,
+    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, SerialParams, TermuaAppState,
     env::{build_local_terminal_env, cast_player_child_env},
     lock_screen, notification,
     panel::{PanelKind, SshErrorPanel, TerminalPanel, terminal_panel_tab_name},
@@ -1906,7 +1906,7 @@ impl TermuaWindow {
     fn add_serial_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
-        params: SerialTerminalParams,
+        params: SerialParams,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2748,7 +2748,7 @@ impl TermuaWindow {
 
         self.add_serial_terminal_with_params(
             backend_type,
-            SerialTerminalParams {
+            SerialParams {
                 name: session.label,
                 port,
                 baud,
