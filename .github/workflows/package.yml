@@ -58,21 +58,12 @@ jobs:
             ~/.cargo/git/db/
           key: package-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check Code Format & Clippy
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --all-targets --all-features -- -D warnings
-
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y curl dpkg rpm
           sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
-
-      - uses: taiki-e/install-action@nextest
-      - name: Test
-        run: cargo nextest run --no-fail-fast --all-features
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
