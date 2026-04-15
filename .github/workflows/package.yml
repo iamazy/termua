@@ -7,6 +7,23 @@ on:
     branches: [main]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo
+      - uses: taiki-e/install-action@nextest
+      - name: Test
+        run: cargo nextest run --no-fail-fast --all-features
   package:
     name: Package ${{ matrix.name }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -58,6 +75,11 @@ jobs:
             ~/.cargo/git/db/
           key: package-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Check Code Format & Clippy
+        run: |
+          cargo +nightly fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
         run: |
@@ -76,33 +98,11 @@ jobs:
           ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/linux/make-deb.sh
           ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/linux/make-rpm.sh
 
-      - name: Zip Linux packages
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          mkdir -p target/artifact-zips/${{ matrix.arch }}
-          for f in target/appimage/${{ matrix.arch }}/*.AppImage target/deb/${{ matrix.arch }}/*.deb target/rpm/${{ matrix.arch }}/*.rpm; do
-            [ -e "$f" ] || continue
-            base="$(basename "$f")"
-            zip -j "target/artifact-zips/${{ matrix.arch }}/${base}.zip" "$f"
-          done
-
       - name: Package macOS artifact
         if: runner.os == 'macOS'
         shell: bash
         run: |
           ARCH=${{ matrix.arch }} TARGET=${{ matrix.target }} packaging/macos/make-dmg.sh
-
-      - name: Zip macOS packages
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          mkdir -p target/artifact-zips/${{ matrix.arch }}
-          for f in target/dmg/${{ matrix.arch }}/*.dmg; do
-            [ -e "$f" ] || continue
-            base="$(basename "$f")"
-            zip -j "target/artifact-zips/${{ matrix.arch }}/${base}.zip" "$f"
-          done
 
       - name: Package Windows artifact
         if: runner.os == 'Windows'
@@ -113,15 +113,6 @@ jobs:
           $env:TERMUA_AUTO_INSTALL_WIX = "1"
           powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
-      - name: Zip Windows packages
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "target/artifact-zips/${{ matrix.arch }}" | Out-Null
-          Get-ChildItem "target/msi/${{ matrix.arch }}/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-            Compress-Archive -Path $_.FullName -DestinationPath "target/artifact-zips/${{ matrix.arch }}/$($_.Name).zip" -Force
-          }
-
       - name: Upload Linux AppImage artifact
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -129,7 +120,7 @@ jobs:
           name: termua-linux-${{ matrix.arch }}-appimage
           compression-level: 0
           if-no-files-found: error
-          path: target/artifact-zips/${{ matrix.arch }}/*AppImage.zip
+          path: target/appimage/${{ matrix.arch }}/*.AppImage
 
       - name: Upload Linux deb artifact
         if: runner.os == 'Linux'
@@ -138,7 +129,7 @@ jobs:
           name: termua-linux-${{ matrix.arch }}-deb
           compression-level: 0
           if-no-files-found: error
-          path: target/artifact-zips/${{ matrix.arch }}/*.deb.zip
+          path: target/deb/${{ matrix.arch }}/*.deb
 
       - name: Upload Linux rpm artifact
         if: runner.os == 'Linux'
@@ -147,7 +138,7 @@ jobs:
           name: termua-linux-${{ matrix.arch }}-rpm
           compression-level: 0
           if-no-files-found: error
-          path: target/artifact-zips/${{ matrix.arch }}/*.rpm.zip
+          path: target/rpm/${{ matrix.arch }}/*.rpm
 
       - name: Upload macOS dmg artifact
         if: runner.os == 'macOS'
@@ -156,7 +147,7 @@ jobs:
           name: termua-macos-${{ matrix.arch }}-dmg
           compression-level: 0
           if-no-files-found: error
-          path: target/artifact-zips/${{ matrix.arch }}/*.dmg.zip
+          path: target/dmg/${{ matrix.arch }}/*.dmg
 
       - name: Upload Windows msi artifact
         if: runner.os == 'Windows'
@@ -165,4 +156,4 @@ jobs:
           name: termua-windows-${{ matrix.arch }}-msi
           compression-level: 0
           if-no-files-found: error
-          path: target/artifact-zips/${{ matrix.arch }}/*.msi.zip
+          path: target/msi/${{ matrix.arch }}/*.msi

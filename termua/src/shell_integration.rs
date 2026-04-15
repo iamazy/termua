@@ -6,7 +6,9 @@ use gpui_term::shell::{
     pick_shell_program_from_env_or_else, shell_kind,
 };
 
+#[cfg(unix)]
 const OSC133_BASH: &str = include_str!("../../assets/shell/termua-osc133.bash");
+#[cfg(unix)]
 const OSC133_ZSH: &str = include_str!("../../assets/shell/termua-osc133.zsh");
 const OSC133_FISH: &str = include_str!("../../assets/shell/termua-osc133.fish");
 const OSC133_NU: &str = include_str!("../../assets/shell/termua-osc133.nu");
@@ -208,10 +210,12 @@ fn selected_shell_program_for_env(env: &HashMap<String, String>) -> Option<Strin
     pick_shell_program_from_env_or_else(env, || std::env::var("SHELL").ok())
 }
 
+#[cfg(unix)]
 fn is_bash_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Bash)
 }
 
+#[cfg(unix)]
 fn is_zsh_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Zsh)
 }
@@ -653,6 +657,7 @@ mod tests {
         assert!(OSC133_ZSH.contains("local exit_status=$?"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn osc133_shell_scripts_emit_prompt_markers() {
         for script in [OSC133_BASH, OSC133_ZSH, OSC133_FISH, OSC133_NU, OSC133_PWSH] {

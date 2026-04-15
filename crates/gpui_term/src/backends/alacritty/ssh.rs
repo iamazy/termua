@@ -228,7 +228,7 @@ impl EventedPty for Pty {
         {
             use std::os::windows::process::ExitStatusExt;
 
-            let code = take_cached_exit_code(&self.child_exit_code)?;
+            let code = self.child_exit_code.lock().take()?;
             return Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))));
         }
 
@@ -434,18 +434,5 @@ impl Pty {
                 sftp,
             ))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn take_cached_exit_code_returns_code_once() {
-        let slot = Mutex::new(Some(23));
-
-        assert_eq!(take_cached_exit_code(&slot), Some(23));
-        assert_eq!(take_cached_exit_code(&slot), None);
     }
 }
