@@ -1501,7 +1501,13 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         .unwrap()
         .clone()
         .expect("expected view to be captured");
-    let expected_label = win.update(|_window, app| view.read(app).shell.program.to_string());
+    let (expected_label, expected_shell_program) = win.update(|_window, app| {
+        let view = view.read(app);
+        (
+            view.shell.common.label_input.read(app).value().to_string(),
+            view.shell.program.to_string(),
+        )
+    });
 
     win.update(|_window, app| {
         view.read(app)
@@ -1518,6 +1524,10 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].group_path, "local");
     assert_eq!(sessions[0].label, expected_label);
+    assert_eq!(
+        sessions[0].shell_program.as_deref(),
+        Some(expected_shell_program.as_str())
+    );
 }
 
 #[gpui::test]
