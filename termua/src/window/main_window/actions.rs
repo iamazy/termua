@@ -1994,8 +1994,7 @@ impl TermuaWindow {
             }
         };
 
-        let panel =
-            self.build_serial_terminal_panel_from_builder(builder, params.name, opts, window, cx);
+        let panel = self.build_serial_panel_from_builder(builder, params.name, opts, window, cx);
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
                 Arc::new(panel) as Arc<dyn PanelView>,
@@ -2493,7 +2492,7 @@ impl TermuaWindow {
     ) {
         match result {
             Ok(builder) => {
-                let panel = self.build_ssh_terminal_panel_from_builder(
+                let panel = self.build_ssh_panel_from_builder(
                     builder,
                     params.name,
                     params.opts,
@@ -2835,7 +2834,7 @@ impl TermuaWindow {
         cx.new(|_| TerminalPanel::new(id, kind, tab_label, tab_tooltip, terminal_view))
     }
 
-    fn build_ssh_terminal_panel_from_builder(
+    fn build_ssh_panel_from_builder(
         &mut self,
         builder: TerminalBuilder,
         name: String,
@@ -2861,7 +2860,7 @@ impl TermuaWindow {
         )
     }
 
-    fn build_serial_terminal_panel_from_builder(
+    fn build_serial_panel_from_builder(
         &mut self,
         builder: TerminalBuilder,
         name: String,
