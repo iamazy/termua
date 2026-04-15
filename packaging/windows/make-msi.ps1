@@ -9,11 +9,13 @@ $ErrorActionPreference = "Stop"
   - WiX Toolset (candle.exe + light.exe in PATH)
 
 .USAGE
+  pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+  # or Windows PowerShell:
   powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
   # Custom output directory
   $env:OUT_DIR="target\\msi"
-  powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+  pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
 .ICON
   # Optional: override the installer icon explicitly
@@ -228,23 +230,39 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
     $content = Get-Content -Raw -Path $file.FullName
     $original = $content
 
-    $hasIcon = $content -match '<Icon\s+Id="termuaIcon"\b'
-    $hasArp = $content -match '<Property\s+Id="ARPPRODUCTICON"\b'
+    $iconPattern = "<Icon\b(?=[^>]*\bId\s*=\s*[""'']termuaIcon[""''])[^>]*/>\s*"
+    $arpPattern = "<Property\b(?=[^>]*\bId\s*=\s*[""'']ARPPRODUCTICON[""''])[^>]*/>\s*"
+    $metadata = (
+      '    <Icon Id="termuaIcon" SourceFile="' + $iconSource + '" />' + "`r`n" +
+      '    <Property Id="ARPPRODUCTICON" Value="termuaIcon" />' + "`r`n"
+    )
 
-    if (-not $hasIcon -or -not $hasArp) {
-      $insertion = ""
-      if (-not $hasIcon) {
-        $insertion += '    <Icon Id="termuaIcon" SourceFile="' + $iconSource + '" />' + "`r`n"
-      }
-      if (-not $hasArp) {
-        $insertion += '    <Property Id="ARPPRODUCTICON" Value="termuaIcon" />' + "`r`n"
-      }
+    $content = [regex]::Replace(
+      $content,
+      $iconPattern,
+      "",
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    $content = [regex]::Replace(
+      $content,
+      $arpPattern,
+      "",
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
 
-      $iconReplacement = '$1' + "`r`n" + $insertion
+    $insertionReplacement = '$1' + "`r`n" + $metadata
+    if ($content -match '<Package\b[^>]*/>') {
+      $content = [regex]::Replace(
+        $content,
+        '(<Package\b[^>]*/>)',
+        $insertionReplacement,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    } else {
       $content = [regex]::Replace(
         $content,
         '(<Product\b[^>]*>)',
-        $iconReplacement,
+        $insertionReplacement,
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
       )
     }
@@ -277,21 +295,49 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
     $content = Get-Content -Raw -Path $file.FullName
     $original = $content
 
-    if ($content -match 'Name="termua-relay\.exe"' -or $content -match "Name='termua-relay\.exe'") {
+    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
+    $relayFilePattern = "<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*"
+    $relayComponentPattern = "\s*<Component\b[^>]*Id\s*=\s*[""'']RelayExecutable[""''][^>]*>.*?<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*</Component>\s*"
+    $relayComponentRefPattern = "<ComponentRef\s+Id\s*=\s*[""'']RelayExecutable[""'']\s*/>\s*"
+
+    $content = [regex]::Replace($content, $relayComponentPattern, "", $regexOptions)
+    $content = [regex]::Replace($content, $relayFilePattern, "", $regexOptions)
+    $content = [regex]::Replace($content, $relayComponentRefPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $relayComponent =
+      '          <Component Id="RelayExecutable" Guid="*">' + "`r`n" +
+      '            <File Id="termuaRelayExeFile" Name="termua-relay.exe" Source="$(var.CargoTargetBinDir)\termua-relay.exe" KeyPath="yes" Checksum="yes" />' + "`r`n" +
+      '          </Component>'
+
+    $mainComponentMatch = [regex]::Match(
+      $content,
+      '<Component\b[^>]*\bId\s*=\s*["' + "'" + '](?<id>[^"' + "'" + ']+)["' + "'" + '][^>]*>(?:(?!<Component\b).)*?<File\b[^>]*\bName\s*=\s*["' + "'" + ']termua\.exe["' + "'" + '][^>]*/>(?:(?!<Component\b).)*?</Component>',
+      $regexOptions
+    )
+    if (-not $mainComponentMatch.Success) {
       continue
     }
 
-    $relayReplacement =
-      '$1' +
-      "`r`n" +
-      '              <File Id="termuaRelayExeFile" Name="termua-relay.exe" DiskId="1" Source="$(var.CargoTargetBinDir)\termua-relay.exe" Checksum="yes" />'
+    $mainComponentId = $mainComponentMatch.Groups['id'].Value
+    $insertAt = $mainComponentMatch.Index + $mainComponentMatch.Length
+    $content = $content.Insert($insertAt, "`r`n" + $relayComponent)
 
-    $content = [regex]::Replace(
+    $mainComponentRefMatch = [regex]::Match(
       $content,
-      '(<File\b[^>]*Name=(["' + "'" + '])termua\.exe\2[^>]*/>)',
-      $relayReplacement,
+      '<ComponentRef\b[^>]*\bId\s*=\s*["' + "'" + ']' + [regex]::Escape($mainComponentId) + '["' + "'" + '][^>]*/>',
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
+    if ($mainComponentRefMatch.Success) {
+      $refInsertAt = $mainComponentRefMatch.Index + $mainComponentRefMatch.Length
+      $content = $content.Insert($refInsertAt, "`r`n" + '            <ComponentRef Id="RelayExecutable" />')
+    } elseif ($content -match '</Feature>') {
+      $content = [regex]::Replace(
+        $content,
+        '(</Feature>)',
+        '            <ComponentRef Id="RelayExecutable" />' + "`r`n" + '$1',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    }
 
     if ($content -ne $original) {
       $utf8NoBom = New-Object System.Text.UTF8Encoding($false)

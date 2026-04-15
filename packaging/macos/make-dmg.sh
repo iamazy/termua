@@ -19,6 +19,8 @@ set -euo pipefail
 #   ICON_SVG=assets/logo/termua.svg         # Used to generate .icns if ICON_ICNS is not set
 #
 # Notes:
+#   - This script follows a simple "stage app bundle + /Applications symlink,
+#     then hdiutil create -srcfolder" flow similar to Zed's `script/bundle-mac`.
 #   - This script does NOT codesign or notarize. For distribution outside local
 #     usage, you likely want codesigning + notarization.
 
@@ -79,17 +81,6 @@ trap 'rm -rf "$work"' EXIT
 
 stage="$work/stage"
 mkdir -p "$stage"
-rw_dmg="$work/${app_name}-${arch}-rw.dmg"
-mounted_device=""
-mounted_volume=""
-
-detach_rw_dmg() {
-  if [[ -n "$mounted_device" ]]; then
-    hdiutil detach "$mounted_device" >/dev/null || true
-    mounted_device=""
-    mounted_volume=""
-  fi
-}
 
 if [[ -z "$icon_icns" ]]; then
   icon_svg="${ICON_SVG:-assets/logo/termua.svg}"
@@ -187,45 +178,13 @@ ln -s /Applications "$stage/Applications"
 
 mkdir -p "$(dirname "$out_dmg")"
 rm -f "$out_dmg"
-rm -f "$rw_dmg"
 
-echo "==> Building writable DMG"
+echo "==> Creating final DMG"
 hdiutil create \
   -volname "$volname" \
   -srcfolder "$stage" \
   -ov \
-  -format UDRW \
-  "$rw_dmg" >/dev/null
-
-if [[ -n "$icon_icns" && -f "$icon_icns" ]]; then
-  if xcrun --find SetFile >/dev/null 2>&1; then
-    echo "==> Setting DMG volume icon"
-    attach_output="$(
-      hdiutil attach -readwrite -noverify -noautoopen "$rw_dmg"
-    )"
-    mounted_device="$(
-      printf '%s\n' "$attach_output" | awk '/^\/dev\// { print $1; exit }'
-    )"
-    mounted_volume="$(
-      printf '%s\n' "$attach_output" | awk 'match($0, /\/Volumes\/.*/) { print substr($0, RSTART, RLENGTH); exit }'
-    )"
-    if [[ -z "$mounted_device" || -z "$mounted_volume" ]]; then
-      detach_rw_dmg
-      echo "warning: failed to determine mounted DMG volume for custom icon; continuing without volume icon" >&2
-    else
-      trap 'detach_rw_dmg; rm -rf "$work"' EXIT
-      cp "$icon_icns" "$mounted_volume/.VolumeIcon.icns"
-      xcrun SetFile -a C "$mounted_volume"
-      xcrun SetFile -a V "$mounted_volume/.VolumeIcon.icns"
-      detach_rw_dmg
-      trap 'rm -rf "$work"' EXIT
-    fi
-  else
-    echo "warning: SetFile not available; continuing without DMG volume icon" >&2
-  fi
-fi
-
-echo "==> Converting DMG"
-hdiutil convert "$rw_dmg" -ov -format UDZO -o "$out_dmg" >/dev/null
+  -format UDZO \
+  "$out_dmg" >/dev/null
 
 echo "==> Wrote: $out_dmg"
