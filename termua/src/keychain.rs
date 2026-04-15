@@ -506,7 +506,7 @@ mod linux_backend {
                 .context("search secret service items")
         })?;
 
-        for item in items.unlocked.into_iter().chain(items.locked.into_iter()) {
+        for item in items.unlocked.into_iter().chain(items.locked) {
             if item.is_locked().unwrap_or(false) {
                 let _ = item.unlock();
             }
