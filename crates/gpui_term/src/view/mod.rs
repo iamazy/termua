@@ -1772,13 +1772,11 @@ impl TerminalView {
             if keystroke.key == "tab"
                 && TerminalSettings::global(cx).suggestions_enabled
                 && self.suggestions.open
+                && let Some(prompt) = self.prompt_context(cx)
+                && self.suggestions_eligible_for_content(&prompt.content, cx)
+                && self.accept_selected_suggestion(&prompt.content, prompt.cursor_line_id, cx)
             {
-                if let Some(prompt) = self.prompt_context(cx)
-                    && self.suggestions_eligible_for_content(&prompt.content, cx)
-                    && self.accept_selected_suggestion(&prompt.content, prompt.cursor_line_id, cx)
-                {
-                    return;
-                }
+                return;
             }
 
             let (processed, vi_mode_enabled) = self.terminal.update(cx, |term, cx| {

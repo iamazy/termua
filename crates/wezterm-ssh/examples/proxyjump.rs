@@ -54,8 +54,8 @@ fn main() -> anyhow::Result<()> {
     let mut jump_chain: Option<String> = None;
     let mut connect = false;
 
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
+    let args = std::env::args().skip(1);
+    for arg in args {
         match arg.as_str() {
             "--connect" => connect = true,
             "-h" | "--help" => usage(),

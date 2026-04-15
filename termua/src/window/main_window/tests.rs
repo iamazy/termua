@@ -249,10 +249,7 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        {
-            let root = root.clone();
-            move |_, _| div().size_full().child(root)
-        },
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -355,10 +352,7 @@ fn menu_quit_with_open_tabs_opens_confirmation_dialog_without_panicking(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        {
-            let root = root.clone();
-            move |_, _| div().size_full().child(root)
-        },
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -806,7 +800,6 @@ fn terminal_toast_events_are_recorded_in_message_center(cx: &mut gpui::TestAppCo
         .as_ref()
         .expect("expected TermuaWindow view to be captured")
         .clone();
-    let root_for_draw = root.clone();
 
     let (terminal, terminal_view_for_draw) = window_cx.update(|window, app| {
         let recording_active = Arc::new(AtomicBool::new(false));
@@ -826,12 +819,7 @@ fn terminal_toast_events_are_recorded_in_message_center(cx: &mut gpui::TestAppCo
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| {
-            div()
-                .size_full()
-                .child(root_for_draw)
-                .child(terminal_view_for_draw)
-        },
+        move |_, _| div().size_full().child(root).child(terminal_view_for_draw),
     );
     window_cx.run_until_parked();
 

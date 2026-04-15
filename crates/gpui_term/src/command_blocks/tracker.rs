@@ -175,8 +175,8 @@ fn find_command_span(
 
     for idx in start_idx..lines.len() {
         let mut combined = String::new();
-        for end in idx..lines.len() {
-            combined.push_str(lines[end].1.trim_end());
+        for (end, (_, line)) in lines.iter().enumerate().skip(idx) {
+            combined.push_str(line.trim_end());
             if combined == command {
                 return Some((idx, end));
             }

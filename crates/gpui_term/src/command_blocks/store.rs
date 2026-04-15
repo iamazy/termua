@@ -52,6 +52,10 @@ impl CommandBlockStore {
         self.blocks.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut CommandBlock> {
         self.blocks.iter_mut()
     }

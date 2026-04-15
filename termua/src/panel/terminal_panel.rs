@@ -670,8 +670,7 @@ mod tests {
         touch(&b_path);
         touch(&a_path);
 
-        let paths =
-            collect_dropped_upload_paths(&[dir_path.clone(), b_path.clone(), a_path.clone()]);
+        let paths = collect_dropped_upload_paths(&[dir_path, b_path.clone(), a_path.clone()]);
 
         assert_eq!(paths, vec![b_path, a_path]);
 
