@@ -51,7 +51,6 @@ gethostname.workspace = true
 hex = { workspace = true, features = ["std"] }
 libc.workspace = true
 libssh-rs = {workspace=true, features=["vendored"], optional = true}
-#libssh-rs = {path="../../libssh-rs/libssh-rs", features=["vendored"], optional = true}
 log.workspace = true
 portable-pty.workspace = true
 regex.workspace = true

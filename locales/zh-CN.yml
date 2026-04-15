@@ -353,7 +353,7 @@ Settings:
         Description: "选择默认的终端后端。"
       ssh_backend:
         Title: "SSH 后端"
-        Description: "选择用于 SSH 终端和 SFTP 的 SSH 后端（ssh2/libssh）。"
+        Description: "用于 SSH 终端和 SFTP 的 SSH 后端。"
       font_family:
         Title: "字体名称"
         Description: "终端文本的字体名称。"

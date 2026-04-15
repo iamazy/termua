@@ -124,6 +124,10 @@ You can download the binary from the [artifacts page](https://github.com/iamazy/
 - [Alacritty](https://github.com/alacritty/alacritty): A cross-platform, OpenGL terminal emulator.
 - [WezTerm](https://github.com/wezterm/wezterm): A GPU-accelerated cross-platform terminal emulator and multiplexer implemented in Rust.
 
+### Contributing 🌳
+
+Contributions welcome! If you find this useful, please 🌟 the repo — it helps others discover it.
+
 ### License 🚨
 
 <a href="./LICENSE-AGPL"><img src="https://img.shields.io/badge/license-AGPL%203-blue.svg" alt="License" /></a>

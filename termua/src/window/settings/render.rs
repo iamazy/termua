@@ -7,6 +7,7 @@ use gpui_component::{
     ActiveTheme, IconName, Sizable, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
+    link::Link,
     scroll::{Scrollbar, ScrollbarShow},
     v_flex,
 };
@@ -18,9 +19,53 @@ use super::{
     search_settings,
     state::page_spec,
 };
-use crate::window::theme_editor::ThemeEditor;
+use crate::window::{settings::state::ssh_backend_docs_url, theme_editor::ThemeEditor};
 
 impl SettingsWindow {
+    fn render_terminal_ssh_backend_description(
+        &self,
+        description: impl IntoElement,
+    ) -> impl IntoElement {
+        let backend = self.settings.terminal.ssh_backend;
+        let (selector, link_id, label) = match backend {
+            gpui_term::SshBackend::Ssh2 => (
+                "termua-settings-terminal-ssh-backend-link-ssh2",
+                "settings-terminal-ssh-backend-link-ssh2",
+                "docs.rs/ssh2",
+            ),
+            gpui_term::SshBackend::Libssh => (
+                "termua-settings-terminal-ssh-backend-link-libssh",
+                "settings-terminal-ssh-backend-link-libssh",
+                "docs.rs/libssh-rs",
+            ),
+        };
+
+        h_flex()
+            .items_center()
+            .gap_4()
+            .debug_selector(|| {
+                "termua-settings-terminal-ssh-backend-description-inline".to_string()
+            })
+            .child(div().flex_1().min_w_0().child(description))
+            .child(
+                div()
+                    .w(px(240.))
+                    .flex_shrink_0()
+                    .debug_selector(|| {
+                        "termua-settings-terminal-ssh-backend-link-column".to_string()
+                    })
+                    .text_left()
+                    .child(
+                        div().debug_selector(move || selector.to_string()).child(
+                            Link::new(link_id)
+                                .href(ssh_backend_docs_url(backend))
+                                .text_xs()
+                                .child(label),
+                        ),
+                    ),
+            )
+    }
+
     fn open_new_theme_sheet(window: &mut Window, app: &mut gpui::App) {
         let original_theme = gpui_component::Theme::global(app).clone();
         let editor = app.new(|cx| ThemeEditor::new(window, cx));
@@ -198,6 +243,17 @@ impl SettingsWindow {
                                 })
                                 .child(hint),
                         ),
+                        control,
+                        warning,
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            } else if meta.id == "terminal.ssh_backend" {
+                rows.push(
+                    self.render_setting_row_with_warning(
+                        title_for_meta(meta),
+                        self.render_terminal_ssh_backend_description(meta.localized_description()),
                         control,
                         warning,
                         cx,

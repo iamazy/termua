@@ -3,6 +3,7 @@ name = "termua"
 edition.workspace = true
 version.workspace = true
 description = "A terminal app built with GPUI"
+build = "build.rs"
 license.workspace = true
 authors.workspace = true
 documentation.workspace = true
@@ -52,6 +53,9 @@ secret-service = { workspace = true, features = ["crypto-openssl"] }
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 
+[build-dependencies]
+embed-resource = "3"
+
 [lints]
 workspace = true
 
@@ -62,6 +66,7 @@ section = "utils"
 priority = "optional"
 assets = [
     ["../target/release/termua", "usr/bin/termua", "755"],
+    ["../target/release/termua-relay", "usr/bin/termua-relay", "755"],
     ["../packaging/linux/termua.desktop", "usr/share/applications/termua.desktop", "644"],
     ["../assets/logo/termua.svg", "usr/share/icons/hicolor/scalable/apps/termua.svg", "644"],
     ["../README.md", "usr/share/doc/termua/README.md", "644"],
@@ -71,6 +76,7 @@ assets = [
 [package.metadata.generate-rpm]
 assets = [
     { source = "../target/release/termua", dest = "/usr/bin/termua", mode = "0755" },
+    { source = "../target/release/termua-relay", dest = "/usr/bin/termua-relay", mode = "0755" },
     { source = "../packaging/linux/termua.desktop", dest = "/usr/share/applications/termua.desktop", mode = "0644" },
     { source = "../assets/logo/termua.svg", dest = "/usr/share/icons/hicolor/scalable/apps/termua.svg", mode = "0644" },
     { source = "../README.md", dest = "/usr/share/doc/termua/README.md", mode = "0644" },

@@ -214,8 +214,8 @@ MainWindow:
       Cancel: "Cancel"
   ContextMenu:
     OpenSftp: "Open SFTP"
-    CopyCommandBlockOutput: "Copy command block output"
-    CopyCommandBlockId: "Copy command block id"
+    CopyCommandBlockOutput: "Copy Command Block Output"
+    CopyCommandBlockId: "Copy Command Block Id"
 
 Menubar:
   FoldMenuFallback: "Menu"
@@ -353,7 +353,7 @@ Settings:
         Description: "Choose the default terminal backend."
       ssh_backend:
         Title: "SSH Backend"
-        Description: "Choose the SSH backend (ssh2/libssh) used for SSH terminals and SFTP."
+        Description: "Used for SSH terminals and SFTP."
       font_family:
         Title: "Font family"
         Description: "Font family for terminal text."

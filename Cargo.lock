@@ -7260,6 +7260,7 @@ dependencies = [
  "anyhow",
  "async-tungstenite",
  "atomic-write-file",
+ "embed-resource",
  "env_logger",
  "futures",
  "gpui",

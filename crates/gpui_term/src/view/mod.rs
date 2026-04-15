@@ -2692,7 +2692,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
-        let debug_toasts = log::log_enabled!(log::Level::Debug);
+        let debug_toasts = cfg!(debug_assertions);
 
         let CommandBlockHitLayoutState {
             bounds,
@@ -4081,5 +4081,15 @@ mod tests {
         assert!(detail.contains("stable_row=42"));
         assert!(detail.contains("last_block.start=10"));
         assert!(detail.contains("last_block.end=Some(20)"));
+    }
+
+    #[test]
+    fn command_block_debug_toasts_are_gated_by_debug_assertions() {
+        let src = include_str!("mod.rs");
+        let gate = "let debug_toasts = cfg!(debug_assertions);";
+        assert!(
+            src.contains(gate),
+            "expected command block selection to gate debug toasts on debug assertions"
+        );
     }
 }

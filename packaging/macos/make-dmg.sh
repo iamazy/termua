@@ -79,15 +79,43 @@ trap 'rm -rf "$work"' EXIT
 stage="$work/stage"
 mkdir -p "$stage"
 
+apply_icon_to_bundle() {
+  local bundle_root="$1"
+  local contents_dir="$bundle_root/Contents"
+  local resources_dir="$contents_dir/Resources"
+  local plist_path="$contents_dir/Info.plist"
+
+  if [[ -z "$icon_icns" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$icon_icns" ]]; then
+    echo "warning: ICON_ICNS not found: $icon_icns (skipping icon)" >&2
+    return 0
+  fi
+
+  mkdir -p "$resources_dir"
+  cp "$icon_icns" "$resources_dir/${app_name}.icns"
+
+  if [[ -f "$plist_path" ]] && [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$plist_path" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${app_name}.icns" "$plist_path" >/dev/null
+  fi
+}
+
 if [[ -z "$icon_icns" ]]; then
-  icon_svg="${ICON_SVG:-assets/logo/termua.svg}"
-  if [[ -f "$icon_svg" ]]; then
-    generated_icns="target/icons/${arch}/termua.icns"
-    echo "==> Generating .icns from: $icon_svg"
-    if packaging/macos/build-icns.sh "$icon_svg" "$generated_icns" >/dev/null; then
-      icon_icns="$generated_icns"
-    else
-      echo "warning: failed to generate .icns (continuing without icon)" >&2
+  cached_icns="target/icons/${arch}/termua.icns"
+  if [[ -f "$cached_icns" ]]; then
+    icon_icns="$cached_icns"
+  else
+    icon_svg="${ICON_SVG:-assets/logo/termua.svg}"
+    if [[ -f "$icon_svg" ]]; then
+      generated_icns="$cached_icns"
+      echo "==> Generating .icns from: $icon_svg"
+      if packaging/macos/build-icns.sh "$icon_svg" "$generated_icns" >/dev/null; then
+        icon_icns="$generated_icns"
+      else
+        echo "warning: failed to generate .icns (continuing without icon)" >&2
+      fi
     fi
   fi
 fi
@@ -98,6 +126,7 @@ if [[ -n "$app_bundle" ]]; then
     exit 1
   fi
   cp -R "$app_bundle" "$stage/${app_name}.app"
+  apply_icon_to_bundle "$stage/${app_name}.app"
 else
   if ! command -v cargo >/dev/null 2>&1; then
     echo "missing cargo; install Rust toolchain first" >&2
@@ -122,17 +151,18 @@ else
   cp "$bin" "$macos_dir/termua"
   chmod +x "$macos_dir/termua"
 
-  icon_key=""
+  icon_file=""
   if [[ -n "$icon_icns" ]]; then
     if [[ -f "$icon_icns" ]]; then
       cp "$icon_icns" "$resources_dir/${app_name}.icns"
-      icon_key="    <key>CFBundleIconFile</key>\n    <string>${app_name}.icns</string>\n"
+      icon_file="${app_name}.icns"
     else
       echo "warning: ICON_ICNS not found: $icon_icns (skipping icon)" >&2
     fi
   fi
 
-  cat >"$contents/Info.plist" <<EOF
+  {
+    cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -153,13 +183,22 @@ else
     <string>${workspace_version}</string>
     <key>CFBundleVersion</key>
     <string>${workspace_version}</string>
-${icon_key}    <key>LSMinimumSystemVersion</key>
+EOF
+    if [[ -n "$icon_file" ]]; then
+      cat <<EOF
+    <key>CFBundleIconFile</key>
+    <string>${icon_file}</string>
+EOF
+    fi
+    cat <<EOF
+    <key>LSMinimumSystemVersion</key>
     <string>10.13</string>
     <key>NSHighResolutionCapable</key>
     <true/>
   </dict>
 </plist>
 EOF
+  } >"$contents/Info.plist"
 
   cp -R "$app_root" "$stage/${app_name}.app"
 fi

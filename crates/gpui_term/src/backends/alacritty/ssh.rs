@@ -1,14 +1,13 @@
+#[cfg(windows)]
+use std::net::{TcpListener, TcpStream};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawSocket, AsSocket};
 #[cfg(unix)]
 use std::os::{
     fd::{AsFd, AsRawFd},
     unix::net::UnixStream,
 };
 use std::{collections::HashMap, process::ExitStatus, sync::Arc};
-#[cfg(windows)]
-use std::{
-    net::{TcpListener, TcpStream},
-    os::windows::io::{AsRawSocket, AsSocket},
-};
 
 use alacritty_terminal::{
     event::{OnResize, WindowSize},
@@ -34,6 +33,41 @@ const PTY_READ_WRITE_TOKEN: usize = 0;
 #[cfg(windows)]
 const PTY_READ_WRITE_TOKEN: usize = 2;
 const PTY_CHILD_EVENT_TOKEN: usize = 1;
+
+fn take_cached_exit_code(slot: &Mutex<Option<u32>>) -> Option<u32> {
+    slot.lock().take()
+}
+
+#[cfg(windows)]
+fn signal_stream_pair() -> std::io::Result<(TcpStream, TcpStream)> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let tx = TcpStream::connect(listener.local_addr()?)?;
+    let (rx, _) = listener.accept()?;
+    Ok((rx, tx))
+}
+
+#[cfg(windows)]
+fn spawn_child_exit_notifier(
+    mut child: SshChildProcess,
+    mut signal_tx: TcpStream,
+    child_exit_code: Arc<Mutex<Option<u32>>>,
+) -> Box<dyn ChildKiller + Send + Sync> {
+    let child_killer = child.clone_killer();
+    std::thread::spawn(move || {
+        let exit_code = match child.wait() {
+            Ok(status) => status.exit_code(),
+            Err(err) => {
+                error!("Error waiting for SSH child process termination: {}", err);
+                1
+            }
+        };
+        *child_exit_code.lock() = Some(exit_code);
+
+        let _ = std::io::Write::write_all(&mut signal_tx, &[1]);
+        let _ = std::io::Write::flush(&mut signal_tx);
+    });
+    child_killer
+}
 
 #[derive(Debug)]
 pub struct PtyWriter {
@@ -100,6 +134,7 @@ impl AsSocket for PtyWriter {
 #[derive(Debug)]
 pub struct Pty {
     pub pty: SshPty,
+    #[cfg(unix)]
     pub child: SshChildProcess,
     pub io_reader: PtyReader,
     pub io_writer: PtyWriter,
@@ -109,6 +144,10 @@ pub struct Pty {
     pub sig_id: SigId,
     #[cfg(windows)]
     pub signals: TcpStream,
+    #[cfg(windows)]
+    pub child_killer: Box<dyn ChildKiller + Send + Sync>,
+    #[cfg(windows)]
+    pub child_exit_code: Arc<Mutex<Option<u32>>>,
 }
 
 #[derive(Debug)]
@@ -168,33 +207,37 @@ impl std::io::Read for PtyReader {
 
 impl Drop for Pty {
     fn drop(&mut self) {
+        #[cfg(unix)]
         let _ = self.child.kill();
+
+        #[cfg(windows)]
+        let _ = self.child_killer.kill();
 
         // Clear signal-hook handler.
         #[cfg(unix)]
         unregister(self.sig_id);
 
+        #[cfg(unix)]
         let _ = self.child.wait();
     }
 }
 
 impl EventedPty for Pty {
     fn next_child_event(&mut self) -> Option<ChildEvent> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::ExitStatusExt;
+
+            let code = take_cached_exit_code(&self.child_exit_code)?;
+            return Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))));
+        }
+
+        #[cfg(unix)]
         match self.child.try_wait() {
             Ok(Some(status)) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::process::ExitStatusExt;
-                    let code = ExitStatus::from_raw(status.exit_code() as i32);
-                    Some(ChildEvent::Exited(Some(code)))
-                }
-
-                #[cfg(windows)]
-                {
-                    use std::os::windows::process::ExitStatusExt;
-                    let code = ExitStatus::from_raw(status.exit_code());
-                    Some(ChildEvent::Exited(Some(code)))
-                }
+                use std::os::unix::process::ExitStatusExt;
+                let code = ExitStatus::from_raw(status.exit_code() as i32);
+                Some(ChildEvent::Exited(Some(code)))
             }
             Ok(None) => None,
             Err(err) => {
@@ -372,21 +415,37 @@ impl Pty {
 
         #[cfg(windows)]
         {
-            let listener = TcpListener::bind("127.0.0.1:0")?;
-            let signals = TcpStream::connect(listener.local_addr()?)?;
+            let (signals, signal_tx) = signal_stream_pair()?;
+            let child_exit_code = Arc::new(Mutex::new(None));
+            let child_killer =
+                spawn_child_exit_notifier(child, signal_tx, Arc::clone(&child_exit_code));
             Ok((
                 Pty {
                     pty,
-                    child,
+                    child_killer,
                     io_reader: PtyReader {
                         fd: io_reader_fd,
                         cast_slot: Arc::clone(&cast_slot),
                     },
                     io_writer: PtyWriter::new(io_writer_fd, cast_slot),
                     signals,
+                    child_exit_code,
                 },
                 sftp,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn take_cached_exit_code_returns_code_once() {
+        let slot = Mutex::new(Some(23));
+
+        assert_eq!(take_cached_exit_code(&slot), Some(23));
+        assert_eq!(take_cached_exit_code(&slot), None);
     }
 }

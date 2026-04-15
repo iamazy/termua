@@ -9,16 +9,17 @@ $ErrorActionPreference = "Stop"
   - WiX Toolset (candle.exe + light.exe in PATH)
 
 .USAGE
+  pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+  # or Windows PowerShell:
   powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
   # Custom output directory
   $env:OUT_DIR="target\\msi"
-  powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+  pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
 .ICON
-  # Optional: generate and use installer icons from termua.svg
-  # $env:ICON_SVG="assets\\logo\\termua.svg"
-  # $env:ICON_ICO="target\\icons\\x86_64\\termua.ico"
+  # Optional: override the installer icon explicitly
+  # $env:ICON_ICO="assets\\logo\\termua.ico"
 
 .ARCH / .TARGET
   $env:ARCH="x86_64"   # or "aarch64"
@@ -192,42 +193,25 @@ function Find-WxsFiles([string] $repoRoot) {
 }
 
 function Ensure-TermuaIco([string] $repoRoot, [string] $arch) {
-  $svg = $env:ICON_SVG
-  if ([string]::IsNullOrWhiteSpace($svg)) {
-    $svg = Join-Path $repoRoot "assets\\logo\\termua.svg"
-  }
-  if (-not (Test-Path $svg)) {
-    return $null
-  }
+  $repoIco = Join-Path $repoRoot "assets\\logo\\termua.ico"
 
   $ico = $env:ICON_ICO
-  if ([string]::IsNullOrWhiteSpace($ico)) {
-    $ico = Join-Path $repoRoot ("target\\icons\\{0}\\termua.ico" -f $arch)
+  if (-not [string]::IsNullOrWhiteSpace($ico)) {
+    if (Test-Path $ico) {
+      return (Resolve-Path $ico).Path
+    }
+    Write-Host "warning: ICON_ICO not found: $ico"
   }
+
+  if (Test-Path $repoIco) {
+    return (Resolve-Path $repoIco).Path
+  }
+
+  $ico = Join-Path $repoRoot ("target\\icons\\{0}\\termua.ico" -f $arch)
   if (Test-Path $ico) {
     return (Resolve-Path $ico).Path
   }
-
-  if (-not (Get-Command "magick" -ErrorAction SilentlyContinue)) {
-    Write-Host "note: termua.svg icon found but ImageMagick (magick) is not in PATH; skipping MSI icon generation."
-    Write-Host "      Install ImageMagick and ensure 'magick' is available, then re-run."
-    Write-Host "      Suggested: winget install ImageMagick.ImageMagick"
-    return $null
-  }
-
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ico) | Out-Null
-
-  Write-Host "==> Generating .ico from: $svg"
-  & magick $svg -background none -define icon:auto-resize=256,128,64,48,32,16 $ico
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host "warning: failed to generate .ico from svg; continuing without MSI icons."
-    return $null
-  }
-  if (-not (Test-Path $ico)) {
-    Write-Host "warning: magick completed but .ico not found: $ico"
-    return $null
-  }
-  return (Resolve-Path $ico).Path
+  return $null
 }
 
 function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
@@ -240,27 +224,45 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
   $wixDir = Split-Path -Parent $wxsFiles[0].FullName
   $destIco = Join-Path $wixDir "termua.ico"
   Copy-Item -Force $icoPath $destIco
+  $iconSource = (Resolve-Path $destIco).Path
 
   foreach ($file in $wxsFiles) {
     $content = Get-Content -Raw -Path $file.FullName
     $original = $content
 
-    $hasIcon = $content -match '<Icon\s+Id="termuaIcon"\b'
-    $hasArp = $content -match '<Property\s+Id="ARPPRODUCTICON"\b'
+    $iconPattern = "<Icon\b(?=[^>]*\bId\s*=\s*[""'']termuaIcon[""''])[^>]*/>\s*"
+    $arpPattern = "<Property\b(?=[^>]*\bId\s*=\s*[""'']ARPPRODUCTICON[""''])[^>]*/>\s*"
+    $metadata = (
+      '    <Icon Id="termuaIcon" SourceFile="' + $iconSource + '" />' + "`r`n" +
+      '    <Property Id="ARPPRODUCTICON" Value="termuaIcon" />' + "`r`n"
+    )
 
-    if (-not $hasIcon -or -not $hasArp) {
-      $insertion = ""
-      if (-not $hasIcon) {
-        $insertion += "    <Icon Id=`"termuaIcon`" SourceFile=`"termua.ico`" />`r`n"
-      }
-      if (-not $hasArp) {
-        $insertion += "    <Property Id=`"ARPPRODUCTICON`" Value=`"termuaIcon`" />`r`n"
-      }
+    $content = [regex]::Replace(
+      $content,
+      $iconPattern,
+      "",
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    $content = [regex]::Replace(
+      $content,
+      $arpPattern,
+      "",
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
 
+    $insertionReplacement = '$1' + "`r`n" + $metadata
+    if ($content -match '<Package\b[^>]*/>') {
       $content = [regex]::Replace(
         $content,
-        "(<Product\\b[^>]*>\\s*)",
-        "`$1`r`n$insertion",
+        '(<Package\b[^>]*/>)',
+        $insertionReplacement,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    } else {
+      $content = [regex]::Replace(
+        $content,
+        '(<Product\b[^>]*>)',
+        $insertionReplacement,
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
       )
     }
@@ -272,6 +274,70 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
       '<Shortcut Icon="termuaIcon"$1>',
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
+
+    if ($content -ne $original) {
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    }
+  }
+}
+
+function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
+  $relayExe = Join-Path $repoRoot "target\$target\release\termua-relay.exe"
+  if (-not (Test-Path $relayExe)) {
+    throw "missing relay binary after build: $relayExe"
+  }
+
+  $wxsFiles = Find-WxsFiles $repoRoot
+  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
+
+  foreach ($file in $wxsFiles) {
+    $content = Get-Content -Raw -Path $file.FullName
+    $original = $content
+
+    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
+    $relayFilePattern = "<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*"
+    $relayComponentPattern = "\s*<Component\b[^>]*Id\s*=\s*[""'']RelayExecutable[""''][^>]*>.*?<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*</Component>\s*"
+    $relayComponentRefPattern = "<ComponentRef\s+Id\s*=\s*[""'']RelayExecutable[""'']\s*/>\s*"
+
+    $content = [regex]::Replace($content, $relayComponentPattern, "", $regexOptions)
+    $content = [regex]::Replace($content, $relayFilePattern, "", $regexOptions)
+    $content = [regex]::Replace($content, $relayComponentRefPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $relayComponent =
+      '          <Component Id="RelayExecutable" Guid="*">' + "`r`n" +
+      '            <File Id="termuaRelayExeFile" Name="termua-relay.exe" Source="$(var.CargoTargetBinDir)\termua-relay.exe" KeyPath="yes" Checksum="yes" />' + "`r`n" +
+      '          </Component>'
+
+    $mainComponentMatch = [regex]::Match(
+      $content,
+      '<Component\b[^>]*\bId\s*=\s*["' + "'" + '](?<id>[^"' + "'" + ']+)["' + "'" + '][^>]*>(?:(?!<Component\b).)*?<File\b[^>]*\bName\s*=\s*["' + "'" + ']termua\.exe["' + "'" + '][^>]*/>(?:(?!<Component\b).)*?</Component>',
+      $regexOptions
+    )
+    if (-not $mainComponentMatch.Success) {
+      continue
+    }
+
+    $mainComponentId = $mainComponentMatch.Groups['id'].Value
+    $insertAt = $mainComponentMatch.Index + $mainComponentMatch.Length
+    $content = $content.Insert($insertAt, "`r`n" + $relayComponent)
+
+    $mainComponentRefMatch = [regex]::Match(
+      $content,
+      '<ComponentRef\b[^>]*\bId\s*=\s*["' + "'" + ']' + [regex]::Escape($mainComponentId) + '["' + "'" + '][^>]*/>',
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if ($mainComponentRefMatch.Success) {
+      $refInsertAt = $mainComponentRefMatch.Index + $mainComponentRefMatch.Length
+      $content = $content.Insert($refInsertAt, "`r`n" + '            <ComponentRef Id="RelayExecutable" />')
+    } elseif ($content -match '</Feature>') {
+      $content = [regex]::Replace(
+        $content,
+        '(</Feature>)',
+        '            <ComponentRef Id="RelayExecutable" />' + "`r`n" + '$1',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    }
 
     if ($content -ne $original) {
       $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -345,9 +411,11 @@ if ([string]::IsNullOrWhiteSpace($outDir)) {
   $outDir = "target\\msi\\$arch"
 }
 
-Write-Host "==> Building termua (release)"
+Write-Host "==> Building termua + termua-relay (release)"
 & cargo build -p termua --release --target $target
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
+& cargo build -p termua_relay --release --target $target
+if ($LASTEXITCODE -ne 0) { throw "cargo build termua_relay failed ($LASTEXITCODE)" }
 
 if ((Find-WxsFiles $repoRoot).Count -eq 0) {
   Write-Host "==> Initializing WiX sources (cargo wix init)"
@@ -363,6 +431,7 @@ $icoPath = Ensure-TermuaIco $repoRoot $arch
 if ($icoPath) {
   Ensure-WixIcon $repoRoot $icoPath
 }
+Ensure-WixRelayBinary $repoRoot $target
 
 Write-Host "==> Packaging MSI (cargo wix)"
 & cargo wix --package termua --no-build --target $target

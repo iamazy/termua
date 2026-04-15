@@ -1780,7 +1780,90 @@ fn terminal_page_renders_default_backend_select(cx: &mut gpui::TestAppContext) {
             .is_some()
     );
     assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-description-inline")
+            .is_some()
+    );
+    let select_bounds = cx
+        .debug_bounds("termua-settings-terminal-ssh-backend-select")
+        .expect("expected ssh backend select");
+    let link_column_bounds = cx
+        .debug_bounds("termua-settings-terminal-ssh-backend-link-column")
+        .expect("expected ssh backend link column");
+    assert_eq!(link_column_bounds.origin.x, select_bounds.origin.x);
+    assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-link-ssh2")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-link-libssh")
+            .is_none()
+    );
+    assert!(
         cx.debug_bounds("termua-settings-terminal-default-backend-icon-alacritty")
+            .is_some()
+    );
+}
+
+#[gpui::test]
+fn terminal_page_renders_only_selected_ssh_backend_link(cx: &mut gpui::TestAppContext) {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-settings-test-terminal-ssh-backend-link-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let path = tmp_dir.join("termua").join("settings.json");
+    let _guard = crate::settings::override_settings_json_path(path.clone());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(
+        &path,
+        r#"{
+              "ui": { "last_settings_page": "nav.page.terminal.terminal" },
+              "terminal": { "ssh_backend": "libssh" }
+            }"#,
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let cx = cx.add_empty_window();
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| SettingsWindow::new(window, cx));
+            assert_eq!(view.read(app).selected_page, SettingsPage::Terminal);
+            div().size_full().child(view)
+        },
+    );
+
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-description-inline")
+            .is_some()
+    );
+    let select_bounds = cx
+        .debug_bounds("termua-settings-terminal-ssh-backend-select")
+        .expect("expected ssh backend select");
+    let link_column_bounds = cx
+        .debug_bounds("termua-settings-terminal-ssh-backend-link-column")
+        .expect("expected ssh backend link column");
+    assert_eq!(link_column_bounds.origin.x, select_bounds.origin.x);
+    assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-link-ssh2")
+            .is_none()
+    );
+    assert!(
+        cx.debug_bounds("termua-settings-terminal-ssh-backend-link-libssh")
             .is_some()
     );
 }

@@ -173,7 +173,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             }
         }
 
-        if !log::log_enabled!(log::Level::Debug) {
+        if !cfg!(debug_assertions) {
             return menu;
         }
 
@@ -507,10 +507,10 @@ mod command_block_context_menu_tests {
             "unexpected command-block select action is still present"
         );
 
-        let debug_gate = "log::log_enabled!(log::Level::Debug)";
+        let debug_gate = "cfg!(debug_assertions)";
         let gate_pos = src
             .find(debug_gate)
-            .expect("expected a debug log gate for command-block context menu items");
+            .expect("expected a debug-assertions gate for command-block context menu items");
 
         let copy_output_item = "t!(\"MainWindow.ContextMenu.CopyCommandBlockOutput\")";
         let copy_output_pos = src
@@ -518,7 +518,7 @@ mod command_block_context_menu_tests {
             .expect("expected a command-block output copy action");
         assert!(
             gate_pos < copy_output_pos,
-            "debug log gate should appear before command-block actions"
+            "debug-assertions gate should appear before command-block actions"
         );
 
         assert!(
