@@ -22,8 +22,8 @@ use gpui_component::{
 use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, PtySource, RemoteBackendEvent,
-    SerialFlowControl, SerialOptions, SerialParity, SerialStopBits, SshOptions, TerminalBuilder,
-    TerminalSettings, TerminalType, TerminalView, UserInput as TerminalUserInput,
+    SerialOptions, SshOptions, TerminalBuilder, TerminalSettings, TerminalType, TerminalView,
+    UserInput as TerminalUserInput,
     remote::{RemoteFrame, RemoteInputEvent, RemoteSnapshot, RemoteTerminalContent},
 };
 use gpui_transfer::{
@@ -1900,25 +1900,7 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let opts = SerialOptions {
-            port: params.port.clone(),
-            baud: params.baud,
-            data_bits: params.data_bits,
-            parity: match params.parity {
-                crate::store::SerialParity::None => SerialParity::None,
-                crate::store::SerialParity::Even => SerialParity::Even,
-                crate::store::SerialParity::Odd => SerialParity::Odd,
-            },
-            stop_bits: match params.stop_bits {
-                crate::store::SerialStopBits::One => SerialStopBits::One,
-                crate::store::SerialStopBits::Two => SerialStopBits::Two,
-            },
-            flow_control: match params.flow_control {
-                crate::store::SerialFlowControl::None => SerialFlowControl::None,
-                crate::store::SerialFlowControl::Software => SerialFlowControl::Software,
-                crate::store::SerialFlowControl::Hardware => SerialFlowControl::Hardware,
-            },
-        };
+        let opts = params.to_options();
 
         log::debug!(
             "termua: opening serial session (backend={backend_type:?}) port={} baud={}",
