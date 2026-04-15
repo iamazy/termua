@@ -105,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termua-linux-${{ matrix.arch }}-appimage
-          compression-level: 0
+          compression-level: 9
           if-no-files-found: error
           path: target/appimage/${{ matrix.arch }}/*.AppImage
 
@@ -114,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termua-linux-${{ matrix.arch }}-deb
-          compression-level: 0
+          compression-level: 9
           if-no-files-found: error
           path: target/deb/${{ matrix.arch }}/*.deb
 
@@ -123,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termua-linux-${{ matrix.arch }}-rpm
-          compression-level: 0
+          compression-level: 9
           if-no-files-found: error
           path: target/rpm/${{ matrix.arch }}/*.rpm
 
@@ -132,7 +132,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termua-macos-${{ matrix.arch }}-dmg
-          compression-level: 0
+          compression-level: 9
           if-no-files-found: error
           path: target/dmg/${{ matrix.arch }}/*.dmg
 
@@ -141,6 +141,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termua-windows-${{ matrix.arch }}-msi
-          compression-level: 0
+          compression-level: 9
           if-no-files-found: error
           path: target/msi/${{ matrix.arch }}/*.msi
