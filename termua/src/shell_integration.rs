@@ -464,6 +464,7 @@ fn write_nu_config_dir(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn detects_bash_program_by_basename() {
         assert!(is_bash_program("bash"));
@@ -471,6 +472,7 @@ mod tests {
         assert!(!is_bash_program("zsh"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn detects_zsh_program_by_basename() {
         assert!(is_zsh_program("zsh"));

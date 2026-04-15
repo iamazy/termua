@@ -213,7 +213,7 @@ fn windows_list_ports_from_registry() -> anyhow::Result<Vec<String>> {
             )
         };
 
-        if status == ERROR_NO_MORE_ITEMS.into() {
+        if status == ERROR_NO_MORE_ITEMS {
             break;
         }
 

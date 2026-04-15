@@ -122,7 +122,7 @@ fn new_window(_: &NewWindow, cx: &mut App) {
                 use std::os::windows::process::CommandExt;
 
                 use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-                child.creation_flags(CREATE_NEW_PROCESS_GROUP.0 as u32);
+                child.creation_flags(CREATE_NEW_PROCESS_GROUP.0);
             }
 
             #[cfg(unix)]
