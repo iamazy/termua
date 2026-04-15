@@ -3407,8 +3407,6 @@ mod tests {
         let _ = crate::PtySource::Ssh {
             env: std::collections::HashMap::new(),
             opts: super::ssh::SshOptions {
-                group: "test".to_string(),
-                name: "test".to_string(),
                 host: "127.0.0.1".to_string(),
                 port: None,
                 auth: super::ssh::Authentication::Config,

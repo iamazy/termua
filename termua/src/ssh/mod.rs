@@ -354,8 +354,6 @@ mod tests {
     #[test]
     fn ssh_tab_tooltip_shows_user_and_host_for_password_auth() {
         let opts = SshOptions {
-            group: "ssh".to_string(),
-            name: "prod".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("alice".to_string(), "pw".to_string()),
@@ -371,8 +369,6 @@ mod tests {
     #[test]
     fn ssh_tab_tooltip_defaults_user_to_root_when_empty() {
         let opts = SshOptions {
-            group: "ssh".to_string(),
-            name: "prod".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("".to_string(), "pw".to_string()),
@@ -388,8 +384,6 @@ mod tests {
     #[test]
     fn ssh_tab_tooltip_shows_host_only_for_config_auth() {
         let opts = SshOptions {
-            group: "ssh".to_string(),
-            name: "prod".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Config,
@@ -405,8 +399,6 @@ mod tests {
     #[test]
     fn ssh_connect_failure_message_mentions_wrong_password_when_denied() {
         let opts = SshOptions {
-            group: "ssh".to_string(),
-            name: "prod".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("alice".to_string(), "super-secret".to_string()),

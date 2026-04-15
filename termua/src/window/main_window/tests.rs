@@ -60,9 +60,8 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
             this.open_ssh_host_key_mismatch_dialog(
                 TerminalType::WezTerm,
                 HashMap::new(),
+                "prod".to_string(),
                 SshOptions {
-                    group: "ssh".to_string(),
-                    name: "prod".to_string(),
                     host: "127.0.0.1".to_string(),
                     port: Some(22),
                     auth: Authentication::Config,
@@ -392,9 +391,8 @@ fn ssh_connect_does_not_block_main_thread(cx: &mut gpui::TestAppContext) {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
                 HashMap::new(),
+                "prod".to_string(),
                 SshOptions {
-                    group: "ssh".to_string(),
-                    name: "prod".to_string(),
                     host: "example.com".to_string(),
                     port: Some(22),
                     auth: Authentication::Password("alice".to_string(), "pw".to_string()),
@@ -441,9 +439,8 @@ fn ssh_connect_failure_opens_an_error_tab(cx: &mut gpui::TestAppContext) {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
                 HashMap::new(),
+                "prod".to_string(),
                 SshOptions {
-                    group: "ssh".to_string(),
-                    name: "prod".to_string(),
                     host: "example.com".to_string(),
                     port: Some(22),
                     auth: Authentication::Password("alice".to_string(), "pw".to_string()),

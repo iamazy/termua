@@ -52,6 +52,7 @@ pub(crate) enum PendingCommand {
     OpenSshTerminal {
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        name: String,
         opts: SshOptions,
     },
     OpenSerialTerminal {

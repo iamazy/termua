@@ -548,9 +548,18 @@ impl TermuaWindow {
                 PendingCommand::OpenSshTerminal {
                     backend_type,
                     env,
+                    name,
                     opts,
                 } => {
-                    self.add_ssh_terminal_with_params(backend_type, env, opts, None, window, cx);
+                    self.add_ssh_terminal_with_params(
+                        backend_type,
+                        env,
+                        name,
+                        opts,
+                        None,
+                        window,
+                        cx,
+                    );
                     self.reload_sessions_sidebar(window, cx);
                 }
                 PendingCommand::OpenSerialTerminal {
@@ -2261,6 +2270,7 @@ impl TermuaWindow {
     fn queue_open_ssh_terminal(
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        name: String,
         opts: SshOptions,
         app: &mut App,
     ) {
@@ -2269,6 +2279,7 @@ impl TermuaWindow {
             .push(PendingCommand::OpenSshTerminal {
                 backend_type,
                 env,
+                name,
                 opts,
             });
         app.refresh_windows();
@@ -2277,6 +2288,7 @@ impl TermuaWindow {
     fn ssh_host_key_mismatch_dialog_footer_elements<C>(
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        name: String,
         opts: SshOptions,
         known_hosts_path: Option<std::path::PathBuf>,
         host: String,
@@ -2289,6 +2301,7 @@ impl TermuaWindow {
         C: FnOnce(&mut Window, &mut App) -> gpui::AnyElement,
     {
         let retry_env = env.clone();
+        let retry_name = name.clone();
         let retry_opts = opts.clone();
         let retry_button = Button::new("termua-ssh-hostkey-mismatch-retry")
             .label(t!("SshHostKeyMismatch.Button.Retry").to_string())
@@ -2297,12 +2310,14 @@ impl TermuaWindow {
                 Self::queue_open_ssh_terminal(
                     backend_type,
                     retry_env.clone(),
+                    retry_name.clone(),
                     retry_opts.clone(),
                     app,
                 );
             });
 
         let remove_env = env;
+        let remove_name = name;
         let remove_opts = opts;
         let remove_and_retry_button = Button::new("termua-ssh-hostkey-mismatch-remove-retry")
             .label(t!("SshHostKeyMismatch.Button.RemoveRetry").to_string())
@@ -2351,6 +2366,7 @@ impl TermuaWindow {
                 Self::queue_open_ssh_terminal(
                     backend_type,
                     remove_env.clone(),
+                    remove_name.clone(),
                     remove_opts.clone(),
                     app,
                 );
@@ -2367,6 +2383,7 @@ impl TermuaWindow {
         &mut self,
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        name: String,
         opts: SshOptions,
         reason: String,
         details: SshHostKeyMismatchDetails,
@@ -2412,6 +2429,7 @@ impl TermuaWindow {
                     let host_for_footer = host.clone();
                     let port_for_footer = port;
                     let env_for_footer = env.clone();
+                    let name_for_footer = name.clone();
                     let opts_for_footer = opts.clone();
 
                     dialog
@@ -2430,6 +2448,7 @@ impl TermuaWindow {
                             Self::ssh_host_key_mismatch_dialog_footer_elements(
                                 backend_type,
                                 env_for_footer.clone(),
+                                name_for_footer.clone(),
                                 opts_for_footer.clone(),
                                 known_hosts_path_for_footer.clone(),
                                 host_for_footer.clone(),
@@ -2450,6 +2469,7 @@ impl TermuaWindow {
         &mut self,
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        name: String,
         opts: SshOptions,
         session_id: Option<i64>,
         window: &mut Window,
@@ -2459,8 +2479,8 @@ impl TermuaWindow {
         // thread and only attach the terminal panel on success.
         let builder_fn = self.ssh_terminal_builder.clone();
         let env_for_thread = env.clone();
-        let opts_for_error = opts.clone();
-        let opts_for_panel = opts.clone();
+        let name_for_finish = name.clone();
+        let opts_for_finish = opts.clone();
         let opts_for_prompt = opts.clone();
         let background = cx.background_executor().clone();
 
@@ -2510,8 +2530,8 @@ impl TermuaWindow {
                     result,
                     backend_type,
                     env,
-                    opts_for_error,
-                    opts_for_panel,
+                    name_for_finish,
+                    opts_for_finish,
                     session_id,
                     window,
                     cx,
@@ -2529,16 +2549,21 @@ impl TermuaWindow {
         result: anyhow::Result<TerminalBuilder>,
         backend_type: TerminalType,
         env: HashMap<String, String>,
-        opts_for_error: SshOptions,
-        opts_for_panel: SshOptions,
+        name: String,
+        opts: SshOptions,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match result {
             Ok(builder) => {
-                let panel =
-                    self.build_ssh_terminal_panel_from_builder(builder, opts_for_panel, window, cx);
+                let panel = self.build_ssh_terminal_panel_from_builder(
+                    builder,
+                    name,
+                    opts,
+                    window,
+                    cx,
+                );
                 self.dock_area.update(cx, |dock, cx| {
                     dock.add_panel(
                         Arc::new(panel) as Arc<dyn PanelView>,
@@ -2557,7 +2582,8 @@ impl TermuaWindow {
                     self.open_ssh_host_key_mismatch_dialog(
                         backend_type,
                         env,
-                        opts_for_error,
+                        name,
+                        opts,
                         root_reason,
                         details,
                         window,
@@ -2571,10 +2597,9 @@ impl TermuaWindow {
                 let id = self.next_terminal_id;
                 self.next_terminal_id += 1;
 
-                let tab_label =
-                    dedupe_tab_label(&mut self.ssh_tab_label_counts, opts_for_error.name.as_str());
-                let tab_tooltip = ssh_tab_tooltip(&opts_for_error);
-                let message = ssh_connect_failure_message(&opts_for_error, &err);
+                let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, name.as_str());
+                let tab_tooltip = ssh_tab_tooltip(&opts);
+                let message = ssh_connect_failure_message(&opts, &err);
 
                 let panel = cx.new(|cx| {
                     SshErrorPanel::new(id, tab_label, Some(tab_tooltip), message.into(), cx)
@@ -2665,7 +2690,6 @@ impl TermuaWindow {
         let env = build_local_terminal_env("", session.term.as_str(), session.charset.as_str());
         let proxy = ssh_proxy_from_session(&session);
         let name = session.label;
-        let group = session.group_path;
 
         let auth = match session.ssh_auth_type {
             Some(crate::store::SshAuthType::Config) => Authentication::Config,
@@ -2690,8 +2714,6 @@ impl TermuaWindow {
         };
 
         let opts = SshOptions {
-            group,
-            name,
             host: host.to_string(),
             port: Some(port),
             auth,
@@ -2703,7 +2725,15 @@ impl TermuaWindow {
             tcp_nodelay: session.ssh_tcp_nodelay,
             tcp_keepalive: session.ssh_tcp_keepalive,
         };
-        self.add_ssh_terminal_with_params(backend_type, env, opts, Some(session_id), window, cx);
+        self.add_ssh_terminal_with_params(
+            backend_type,
+            env,
+            name,
+            opts,
+            Some(session_id),
+            window,
+            cx,
+        );
     }
 
     fn open_saved_serial_session(
@@ -2877,6 +2907,7 @@ impl TermuaWindow {
     fn build_ssh_terminal_panel_from_builder(
         &mut self,
         builder: TerminalBuilder,
+        name: String,
         opts: SshOptions,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2884,7 +2915,7 @@ impl TermuaWindow {
         let id = self.next_terminal_id;
         self.next_terminal_id += 1;
 
-        let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, opts.name.as_str());
+        let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, name.as_str());
         let tab_tooltip = ssh_tab_tooltip(&opts);
 
         let terminal = cx.new(move |cx| builder.subscribe(cx));

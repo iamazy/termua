@@ -781,8 +781,6 @@ impl NewSessionWindow {
         };
 
         let opts = SshOptions {
-            group,
-            name,
             host,
             port: Some(port),
             auth,
@@ -807,6 +805,7 @@ impl NewSessionWindow {
             crate::PendingCommand::OpenSshTerminal {
                 backend_type,
                 env,
+                name,
                 opts,
             },
         );
