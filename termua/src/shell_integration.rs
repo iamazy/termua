@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use gpui_term::shell::{
-    ShellKind, TERMUA_BASH_RCFILE_ENV_KEY, TERMUA_FISH_INIT_ENV_KEY, TERMUA_NU_CONFIG_ENV_KEY,
-    TERMUA_NU_ENV_CONFIG_ENV_KEY, TERMUA_PWSH_INIT_ENV_KEY, TERMUA_SHELL_ENV_KEY,
-    pick_shell_program_from_env_or_else, shell_kind,
+    ShellKind, TERMUA_FISH_INIT_ENV_KEY, TERMUA_NU_CONFIG_ENV_KEY, TERMUA_NU_ENV_CONFIG_ENV_KEY,
+    TERMUA_PWSH_INIT_ENV_KEY, TERMUA_SHELL_ENV_KEY, pick_shell_program_from_env_or_else,
+    shell_kind,
 };
 
 #[cfg(unix)]
@@ -58,7 +58,7 @@ pub(crate) fn maybe_inject_local_bash_osc133(
                 env.insert("SHELL".to_string(), shell_program.clone());
                 env.insert(TERMUA_SHELL_ENV_KEY.to_string(), shell_program);
                 env.insert(
-                    TERMUA_BASH_RCFILE_ENV_KEY.to_string(),
+                    gpui_term::shell::TERMUA_BASH_RCFILE_ENV_KEY.to_string(),
                     rcfile_path.to_string_lossy().to_string(),
                 );
             }

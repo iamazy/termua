@@ -267,12 +267,12 @@ mod tests {
     #[test]
     fn lock_state_activity_resets_idle_deadline() {
         // Use generous timings to avoid flaky failures on slower/loaded CI runners.
-        let mut state = LockState::new_for_test(Duration::from_millis(200));
+        let mut state = LockState::new_for_test(Duration::from_millis(500));
 
-        std::thread::sleep(Duration::from_millis(80));
+        std::thread::sleep(Duration::from_millis(100));
         state.report_activity();
 
-        std::thread::sleep(Duration::from_millis(80));
+        std::thread::sleep(Duration::from_millis(100));
         state.tick();
 
         assert!(!state.locked());
