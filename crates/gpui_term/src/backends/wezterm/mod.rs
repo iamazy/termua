@@ -1349,7 +1349,7 @@ fn default_shell_command_candidates() -> Vec<CommandBuilder> {
         let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
         candidates.push(CommandBuilder::new(comspec));
 
-        return candidates;
+        candidates
     }
 
     #[cfg(not(windows))]

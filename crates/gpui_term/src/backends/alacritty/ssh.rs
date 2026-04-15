@@ -225,7 +225,7 @@ impl EventedPty for Pty {
             use std::os::windows::process::ExitStatusExt;
 
             let code = self.child_exit_code.lock().take()?;
-            return Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))));
+            Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))))
         }
 
         #[cfg(unix)]
