@@ -5,7 +5,7 @@ use super::{
     NewSessionWindow, Protocol, SshAuthType, TermBackend, new_proxy_env_row_state,
     new_proxy_jump_row_state, set_input_value, ssh,
 };
-use crate::{env::build_local_terminal_env, store::SshProxyMode};
+use crate::{SerialParams, SshParams, env::build_local_terminal_env, store::SshProxyMode};
 
 struct SshFormValues {
     backend: TermBackend,
@@ -745,7 +745,7 @@ impl NewSessionWindow {
 
         let persist_op = match &auth {
             Authentication::Password(user, pw) => SessionStoreOp::SaveSshPassword {
-                group: group.clone(),
+                group,
                 label: name.clone(),
                 backend: backend_for_store,
                 host: host.clone(),
@@ -763,7 +763,7 @@ impl NewSessionWindow {
                 proxy_jump,
             },
             Authentication::Config => SessionStoreOp::SaveSshConfig {
-                group: group.clone(),
+                group,
                 label: name.clone(),
                 backend: backend_for_store,
                 host: host.clone(),
@@ -781,8 +781,6 @@ impl NewSessionWindow {
         };
 
         let opts = SshOptions {
-            group,
-            name,
             host,
             port: Some(port),
             auth,
@@ -806,8 +804,7 @@ impl NewSessionWindow {
         cx.global_mut::<crate::TermuaAppState>().pending_command(
             crate::PendingCommand::OpenSshTerminal {
                 backend_type,
-                env,
-                opts,
+                params: SshParams { env, name, opts },
             },
         );
         cx.refresh_windows();
@@ -979,15 +976,15 @@ impl NewSessionWindow {
         cx.global_mut::<crate::TermuaAppState>().pending_command(
             crate::PendingCommand::OpenSerialTerminal {
                 backend_type,
-                name: label,
-                port: port.trim().to_string(),
-                baud,
-                data_bits,
-                parity,
-                stop_bits,
-                flow_control,
-                term: term.to_string(),
-                charset: charset.to_string(),
+                params: SerialParams {
+                    name: label,
+                    port: port.trim().to_string(),
+                    baud,
+                    data_bits,
+                    parity,
+                    stop_bits,
+                    flow_control,
+                },
                 session_id: None,
             },
         );

@@ -1349,7 +1349,7 @@ fn default_shell_command_candidates() -> Vec<CommandBuilder> {
         let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
         candidates.push(CommandBuilder::new(comspec));
 
-        return candidates;
+        candidates
     }
 
     #[cfg(not(windows))]
@@ -3407,8 +3407,6 @@ mod tests {
         let _ = crate::PtySource::Ssh {
             env: std::collections::HashMap::new(),
             opts: super::ssh::SshOptions {
-                group: "test".to_string(),
-                name: "test".to_string(),
                 host: "127.0.0.1".to_string(),
                 port: None,
                 auth: super::ssh::Authentication::Config,

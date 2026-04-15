@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
 use gpui_term::shell::{
-    ShellKind, TERMUA_BASH_RCFILE_ENV_KEY, TERMUA_FISH_INIT_ENV_KEY, TERMUA_NU_CONFIG_ENV_KEY,
-    TERMUA_NU_ENV_CONFIG_ENV_KEY, TERMUA_PWSH_INIT_ENV_KEY, TERMUA_SHELL_ENV_KEY,
-    pick_shell_program_from_env_or_else, shell_kind,
+    ShellKind, TERMUA_FISH_INIT_ENV_KEY, TERMUA_NU_CONFIG_ENV_KEY, TERMUA_NU_ENV_CONFIG_ENV_KEY,
+    TERMUA_PWSH_INIT_ENV_KEY, TERMUA_SHELL_ENV_KEY, pick_shell_program_from_env_or_else,
+    shell_kind,
 };
 
+#[cfg(unix)]
 const OSC133_BASH: &str = include_str!("../../assets/shell/termua-osc133.bash");
+#[cfg(unix)]
 const OSC133_ZSH: &str = include_str!("../../assets/shell/termua-osc133.zsh");
 const OSC133_FISH: &str = include_str!("../../assets/shell/termua-osc133.fish");
 const OSC133_NU: &str = include_str!("../../assets/shell/termua-osc133.nu");
@@ -56,7 +58,7 @@ pub(crate) fn maybe_inject_local_bash_osc133(
                 env.insert("SHELL".to_string(), shell_program.clone());
                 env.insert(TERMUA_SHELL_ENV_KEY.to_string(), shell_program);
                 env.insert(
-                    TERMUA_BASH_RCFILE_ENV_KEY.to_string(),
+                    gpui_term::shell::TERMUA_BASH_RCFILE_ENV_KEY.to_string(),
                     rcfile_path.to_string_lossy().to_string(),
                 );
             }
@@ -208,10 +210,12 @@ fn selected_shell_program_for_env(env: &HashMap<String, String>) -> Option<Strin
     pick_shell_program_from_env_or_else(env, || std::env::var("SHELL").ok())
 }
 
+#[cfg(unix)]
 fn is_bash_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Bash)
 }
 
+#[cfg(unix)]
 fn is_zsh_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Zsh)
 }
@@ -460,6 +464,7 @@ fn write_nu_config_dir(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn detects_bash_program_by_basename() {
         assert!(is_bash_program("bash"));
@@ -467,6 +472,7 @@ mod tests {
         assert!(!is_bash_program("zsh"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn detects_zsh_program_by_basename() {
         assert!(is_zsh_program("zsh"));
@@ -653,6 +659,7 @@ mod tests {
         assert!(OSC133_ZSH.contains("local exit_status=$?"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn osc133_shell_scripts_emit_prompt_markers() {
         for script in [OSC133_BASH, OSC133_ZSH, OSC133_FISH, OSC133_NU, OSC133_PWSH] {

@@ -22,8 +22,8 @@ use gpui_component::{
 use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, PtySource, RemoteBackendEvent,
-    SerialFlowControl, SerialOptions, SerialParity, SerialStopBits, SshOptions, TerminalBuilder,
-    TerminalSettings, TerminalType, TerminalView, UserInput as TerminalUserInput,
+    SerialOptions, SshOptions, TerminalBuilder, TerminalSettings, TerminalType, TerminalView,
+    UserInput as TerminalUserInput,
     remote::{RemoteFrame, RemoteInputEvent, RemoteSnapshot, RemoteTerminalContent},
 };
 use gpui_transfer::{
@@ -35,7 +35,7 @@ use smol::Timer;
 
 use super::TermuaWindow;
 use crate::{
-    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, TermuaAppState,
+    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, SerialParams, SshParams, TermuaAppState,
     env::{build_local_terminal_env, cast_player_child_env},
     lock_screen, notification,
     panel::{PanelKind, SshErrorPanel, TerminalPanel, terminal_panel_tab_name},
@@ -547,36 +547,19 @@ impl TermuaWindow {
                 }
                 PendingCommand::OpenSshTerminal {
                     backend_type,
-                    env,
-                    opts,
+                    params,
                 } => {
-                    self.add_ssh_terminal_with_params(backend_type, env, opts, None, window, cx);
+                    self.add_ssh_terminal_with_params(backend_type, params, None, window, cx);
                     self.reload_sessions_sidebar(window, cx);
                 }
                 PendingCommand::OpenSerialTerminal {
                     backend_type,
-                    name,
-                    port,
-                    baud,
-                    data_bits,
-                    parity,
-                    stop_bits,
-                    flow_control,
-                    term,
-                    charset,
+                    params,
                     session_id,
                 } => {
                     self.add_serial_terminal_with_params(
                         backend_type,
-                        name,
-                        port,
-                        baud,
-                        data_bits,
-                        parity,
-                        stop_bits,
-                        flow_control,
-                        term,
-                        charset,
+                        params,
                         session_id,
                         window,
                         cx,
@@ -1909,42 +1892,15 @@ impl TermuaWindow {
         .detach();
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn add_serial_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
-        name: String,
-        port: String,
-        baud: u32,
-        data_bits: u8,
-        parity: crate::store::SerialParity,
-        stop_bits: crate::store::SerialStopBits,
-        flow_control: crate::store::SerialFlowControl,
-        _term: String,
-        _charset: String,
+        params: SerialParams,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let opts = SerialOptions {
-            port: port.clone(),
-            baud,
-            data_bits,
-            parity: match parity {
-                crate::store::SerialParity::None => SerialParity::None,
-                crate::store::SerialParity::Even => SerialParity::Even,
-                crate::store::SerialParity::Odd => SerialParity::Odd,
-            },
-            stop_bits: match stop_bits {
-                crate::store::SerialStopBits::One => SerialStopBits::One,
-                crate::store::SerialStopBits::Two => SerialStopBits::Two,
-            },
-            flow_control: match flow_control {
-                crate::store::SerialFlowControl::None => SerialFlowControl::None,
-                crate::store::SerialFlowControl::Software => SerialFlowControl::Software,
-                crate::store::SerialFlowControl::Hardware => SerialFlowControl::Hardware,
-            },
-        };
+        let opts = params.to_options();
 
         log::debug!(
             "termua: opening serial session (backend={backend_type:?}) port={} baud={}",
@@ -1965,14 +1921,18 @@ impl TermuaWindow {
             Err(err) => {
                 if let Some(_session_id) = session_id {
                     let reason = err.root_cause().to_string();
-                    let hint = crate::serial::open_failure_hint(&port, &err);
+                    let hint = crate::serial::open_failure_hint(&params.port, &err);
                     let message: SharedString = match hint {
                         Some(hint) => format!(
-                            "Failed to open serial port `{port}`.\n\nError:\n{reason}\n\n{hint}"
+                            "Failed to open serial port `{}`.\n\nError:\n{reason}\n\n{hint}",
+                            params.port
                         )
                         .into(),
-                        None => format!("Failed to open serial port `{port}`.\n\nError:\n{reason}")
-                            .into(),
+                        None => format!(
+                            "Failed to open serial port `{}`.\n\nError:\n{reason}",
+                            params.port
+                        )
+                        .into(),
                     };
 
                     // Clicking a saved Serial session should only show a toast; editing the
@@ -1994,12 +1954,16 @@ impl TermuaWindow {
                 }
 
                 let reason = err.root_cause().to_string();
-                let hint = crate::serial::open_failure_hint(&port, &err);
+                let hint = crate::serial::open_failure_hint(&params.port, &err);
                 let message = match hint {
                     Some(hint) => format!(
-                        "Failed to open serial port `{port}`.\n\nError:\n{reason}\n\n{hint}"
+                        "Failed to open serial port `{}`.\n\nError:\n{reason}\n\n{hint}",
+                        params.port
                     ),
-                    None => format!("Failed to open serial port `{port}`.\n\nError:\n{reason}"),
+                    None => format!(
+                        "Failed to open serial port `{}`.\n\nError:\n{reason}",
+                        params.port
+                    ),
                 };
 
                 notification::notify_deferred(
@@ -2012,7 +1976,7 @@ impl TermuaWindow {
             }
         };
 
-        let panel = self.build_serial_terminal_panel_from_builder(builder, name, opts, window, cx);
+        let panel = self.build_serial_panel_from_builder(builder, params.name, opts, window, cx);
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
                 Arc::new(panel) as Arc<dyn PanelView>,
@@ -2258,26 +2222,19 @@ impl TermuaWindow {
         });
     }
 
-    fn queue_open_ssh_terminal(
-        backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts: SshOptions,
-        app: &mut App,
-    ) {
+    fn queue_open_ssh_terminal(backend_type: TerminalType, params: SshParams, app: &mut App) {
         app.global_mut::<TermuaAppState>()
             .pending_commands
             .push(PendingCommand::OpenSshTerminal {
                 backend_type,
-                env,
-                opts,
+                params,
             });
         app.refresh_windows();
     }
 
     fn ssh_host_key_mismatch_dialog_footer_elements<C>(
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts: SshOptions,
+        params: SshParams,
         known_hosts_path: Option<std::path::PathBuf>,
         host: String,
         port: u16,
@@ -2288,22 +2245,15 @@ impl TermuaWindow {
     where
         C: FnOnce(&mut Window, &mut App) -> gpui::AnyElement,
     {
-        let retry_env = env.clone();
-        let retry_opts = opts.clone();
+        let retry_params = params.clone();
         let retry_button = Button::new("termua-ssh-hostkey-mismatch-retry")
             .label(t!("SshHostKeyMismatch.Button.Retry").to_string())
             .on_click(move |_, window, app| {
                 Self::close_dialog(window, app);
-                Self::queue_open_ssh_terminal(
-                    backend_type,
-                    retry_env.clone(),
-                    retry_opts.clone(),
-                    app,
-                );
+                Self::queue_open_ssh_terminal(backend_type, retry_params.clone(), app);
             });
 
-        let remove_env = env;
-        let remove_opts = opts;
+        let remove_params = params;
         let remove_and_retry_button = Button::new("termua-ssh-hostkey-mismatch-remove-retry")
             .label(t!("SshHostKeyMismatch.Button.RemoveRetry").to_string())
             .primary()
@@ -2348,12 +2298,7 @@ impl TermuaWindow {
                     app,
                 );
 
-                Self::queue_open_ssh_terminal(
-                    backend_type,
-                    remove_env.clone(),
-                    remove_opts.clone(),
-                    app,
-                );
+                Self::queue_open_ssh_terminal(backend_type, remove_params.clone(), app);
             });
 
         vec![
@@ -2366,8 +2311,7 @@ impl TermuaWindow {
     pub(crate) fn open_ssh_host_key_mismatch_dialog(
         &mut self,
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts: SshOptions,
+        params: SshParams,
         reason: String,
         details: SshHostKeyMismatchDetails,
         window: &mut Window,
@@ -2378,9 +2322,9 @@ impl TermuaWindow {
             return;
         };
 
-        let target = ssh_target_label(&opts);
-        let default_host = opts.host.trim().to_string();
-        let default_port = opts.port.unwrap_or(22);
+        let target = ssh_target_label(&params.opts);
+        let default_host = params.opts.host.trim().to_string();
+        let default_port = params.opts.port.unwrap_or(22);
         let host = details
             .server_host
             .clone()
@@ -2411,8 +2355,7 @@ impl TermuaWindow {
                     let known_hosts_path_for_footer = known_hosts_path.clone();
                     let host_for_footer = host.clone();
                     let port_for_footer = port;
-                    let env_for_footer = env.clone();
-                    let opts_for_footer = opts.clone();
+                    let params_for_footer = params.clone();
 
                     dialog
                         .title(Self::ssh_host_key_mismatch_dialog_title(app))
@@ -2429,8 +2372,7 @@ impl TermuaWindow {
                         .footer(move |_ok, cancel, window, app| {
                             Self::ssh_host_key_mismatch_dialog_footer_elements(
                                 backend_type,
-                                env_for_footer.clone(),
-                                opts_for_footer.clone(),
+                                params_for_footer.clone(),
                                 known_hosts_path_for_footer.clone(),
                                 host_for_footer.clone(),
                                 port_for_footer,
@@ -2449,8 +2391,7 @@ impl TermuaWindow {
     pub(crate) fn add_ssh_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts: SshOptions,
+        params: SshParams,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2458,10 +2399,10 @@ impl TermuaWindow {
         // Building the SSH PTY involves a blocking login handshake. Run that work in a background
         // thread and only attach the terminal panel on success.
         let builder_fn = self.ssh_terminal_builder.clone();
-        let env_for_thread = env.clone();
-        let opts_for_error = opts.clone();
-        let opts_for_panel = opts.clone();
-        let opts_for_prompt = opts.clone();
+        let env_for_thread = params.env.clone();
+        let opts_for_thread = params.opts.clone();
+        let params_for_finish = params.clone();
+        let opts_for_prompt = params.opts;
         let background = cx.background_executor().clone();
 
         let (verify_tx, verify_rx) =
@@ -2500,7 +2441,7 @@ impl TermuaWindow {
                 let _guard = gpui_term::set_thread_ssh_host_verification_prompt_sender(Some(
                     verify_tx_for_task,
                 ));
-                (builder_fn)(backend_type, env_for_thread, opts)
+                (builder_fn)(backend_type, env_for_thread, opts_for_thread)
             });
 
             let result = task.await;
@@ -2509,9 +2450,7 @@ impl TermuaWindow {
                 this.finish_add_ssh_terminal_task(
                     result,
                     backend_type,
-                    env,
-                    opts_for_error,
-                    opts_for_panel,
+                    params_for_finish,
                     session_id,
                     window,
                     cx,
@@ -2528,17 +2467,20 @@ impl TermuaWindow {
         &mut self,
         result: anyhow::Result<TerminalBuilder>,
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts_for_error: SshOptions,
-        opts_for_panel: SshOptions,
+        params: SshParams,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match result {
             Ok(builder) => {
-                let panel =
-                    self.build_ssh_terminal_panel_from_builder(builder, opts_for_panel, window, cx);
+                let panel = self.build_ssh_panel_from_builder(
+                    builder,
+                    params.name,
+                    params.opts,
+                    window,
+                    cx,
+                );
                 self.dock_area.update(cx, |dock, cx| {
                     dock.add_panel(
                         Arc::new(panel) as Arc<dyn PanelView>,
@@ -2556,8 +2498,7 @@ impl TermuaWindow {
                 if let Some(details) = parse_ssh_host_key_mismatch(&root_reason) {
                     self.open_ssh_host_key_mismatch_dialog(
                         backend_type,
-                        env,
-                        opts_for_error,
+                        params,
                         root_reason,
                         details,
                         window,
@@ -2566,15 +2507,13 @@ impl TermuaWindow {
                     self.clear_connecting_session(session_id, cx);
                     return;
                 }
-                let _env = env;
-
                 let id = self.next_terminal_id;
                 self.next_terminal_id += 1;
 
                 let tab_label =
-                    dedupe_tab_label(&mut self.ssh_tab_label_counts, opts_for_error.name.as_str());
-                let tab_tooltip = ssh_tab_tooltip(&opts_for_error);
-                let message = ssh_connect_failure_message(&opts_for_error, &err);
+                    dedupe_tab_label(&mut self.ssh_tab_label_counts, params.name.as_str());
+                let tab_tooltip = ssh_tab_tooltip(&params.opts);
+                let message = ssh_connect_failure_message(&params.opts, &err);
 
                 let panel = cx.new(|cx| {
                     SshErrorPanel::new(id, tab_label, Some(tab_tooltip), message.into(), cx)
@@ -2665,7 +2604,6 @@ impl TermuaWindow {
         let env = build_local_terminal_env("", session.term.as_str(), session.charset.as_str());
         let proxy = ssh_proxy_from_session(&session);
         let name = session.label;
-        let group = session.group_path;
 
         let auth = match session.ssh_auth_type {
             Some(crate::store::SshAuthType::Config) => Authentication::Config,
@@ -2690,8 +2628,6 @@ impl TermuaWindow {
         };
 
         let opts = SshOptions {
-            group,
-            name,
             host: host.to_string(),
             port: Some(port),
             auth,
@@ -2703,7 +2639,13 @@ impl TermuaWindow {
             tcp_nodelay: session.ssh_tcp_nodelay,
             tcp_keepalive: session.ssh_tcp_keepalive,
         };
-        self.add_ssh_terminal_with_params(backend_type, env, opts, Some(session_id), window, cx);
+        self.add_ssh_terminal_with_params(
+            backend_type,
+            SshParams { env, name, opts },
+            Some(session_id),
+            window,
+            cx,
+        );
     }
 
     fn open_saved_serial_session(
@@ -2738,15 +2680,15 @@ impl TermuaWindow {
 
         self.add_serial_terminal_with_params(
             backend_type,
-            session.label,
-            port,
-            baud,
-            data_bits,
-            parity,
-            stop_bits,
-            flow_control,
-            session.term,
-            session.charset,
+            SerialParams {
+                name: session.label,
+                port,
+                baud,
+                data_bits,
+                parity,
+                stop_bits,
+                flow_control,
+            },
             Some(session_id),
             window,
             cx,
@@ -2874,9 +2816,10 @@ impl TermuaWindow {
         cx.new(|_| TerminalPanel::new(id, kind, tab_label, tab_tooltip, terminal_view))
     }
 
-    fn build_ssh_terminal_panel_from_builder(
+    fn build_ssh_panel_from_builder(
         &mut self,
         builder: TerminalBuilder,
+        name: String,
         opts: SshOptions,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2884,7 +2827,7 @@ impl TermuaWindow {
         let id = self.next_terminal_id;
         self.next_terminal_id += 1;
 
-        let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, opts.name.as_str());
+        let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, name.as_str());
         let tab_tooltip = ssh_tab_tooltip(&opts);
 
         let terminal = cx.new(move |cx| builder.subscribe(cx));
@@ -2899,7 +2842,7 @@ impl TermuaWindow {
         )
     }
 
-    fn build_serial_terminal_panel_from_builder(
+    fn build_serial_panel_from_builder(
         &mut self,
         builder: TerminalBuilder,
         name: String,

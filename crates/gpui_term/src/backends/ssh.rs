@@ -32,8 +32,6 @@ impl SshBackend {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SshOptions {
-    pub group: String,
-    pub name: String,
     pub host: String,
     pub port: Option<u16>,
     pub auth: Authentication,
@@ -691,8 +689,6 @@ mod tests {
     #[test]
     fn proxy_disabled_sets_proxycommand_none() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(2222),
             auth: Authentication::Password("alice".to_string(), "pw".to_string()),
@@ -709,8 +705,6 @@ mod tests {
     #[test]
     fn proxy_command_expands_common_tokens() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "server-alias".to_string(),
             port: Some(2200),
             auth: Authentication::Password("bob".to_string(), "pw".to_string()),
@@ -741,8 +735,6 @@ mod tests {
         );
 
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("root".to_string(), "pw".to_string()),
@@ -767,8 +759,6 @@ mod tests {
     #[test]
     fn jump_proxy_one_hop_sets_proxyjump() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("root".to_string(), "pw".to_string()),
@@ -796,8 +786,6 @@ mod tests {
     #[test]
     fn jump_proxy_multi_hop_sets_proxyjump_chain() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("root".to_string(), "pw".to_string()),
@@ -837,8 +825,6 @@ mod tests {
     #[test]
     fn tcp_socket_options_are_written_into_config() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Password("root".to_string(), "pw".to_string()),
@@ -862,8 +848,6 @@ mod tests {
     #[test]
     fn ssh_backend_is_written_into_config() {
         let opts = SshOptions {
-            group: "g".to_string(),
-            name: "n".to_string(),
             host: "example.com".to_string(),
             port: Some(22),
             auth: Authentication::Config,

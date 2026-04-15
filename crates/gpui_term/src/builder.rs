@@ -103,8 +103,6 @@ mod tests {
                 PtySource::Ssh {
                     env: HashMap::new(),
                     opts: SshOptions {
-                        group: "test".to_string(),
-                        name: "test".to_string(),
                         host: "127.0.0.1".to_string(),
                         port: None,
                         auth: crate::Authentication::Config,

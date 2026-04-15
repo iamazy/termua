@@ -122,7 +122,7 @@ fn new_window(_: &NewWindow, cx: &mut App) {
                 use std::os::windows::process::CommandExt;
 
                 use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-                child.creation_flags(CREATE_NEW_PROCESS_GROUP.0 as u32);
+                child.creation_flags(CREATE_NEW_PROCESS_GROUP.0);
             }
 
             #[cfg(unix)]
@@ -505,12 +505,25 @@ mod tests {
             let quit = window
                 .highest_precedence_binding_for_action(&Quit)
                 .expect("Quit should have a binding");
-            assert_eq!(quit.keystrokes()[0].as_keystroke().unparse(), "ctrl-q");
+            let expected_quit = if cfg!(target_os = "macos") {
+                "cmd-q"
+            } else {
+                "ctrl-q"
+            };
+            assert_eq!(quit.keystrokes()[0].as_keystroke().unparse(), expected_quit);
 
             let new_term = window
                 .highest_precedence_binding_for_action(&crate::NewLocalTerminal)
                 .expect("NewLocalTerminal should have a binding");
-            assert_eq!(new_term.keystrokes()[0].as_keystroke().unparse(), "ctrl-n");
+            let expected_new_term = if cfg!(target_os = "macos") {
+                "cmd-n"
+            } else {
+                "ctrl-n"
+            };
+            assert_eq!(
+                new_term.keystrokes()[0].as_keystroke().unparse(),
+                expected_new_term
+            );
         });
     }
 

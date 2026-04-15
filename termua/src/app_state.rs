@@ -5,6 +5,48 @@ use gpui_term::{SshOptions, TerminalType};
 
 use crate::store::{SerialFlowControl, SerialParity, SerialStopBits};
 
+#[derive(Clone, Debug)]
+pub(crate) struct SshParams {
+    pub(crate) env: HashMap<String, String>,
+    pub(crate) name: String,
+    pub(crate) opts: SshOptions,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SerialParams {
+    pub(crate) name: String,
+    pub(crate) port: String,
+    pub(crate) baud: u32,
+    pub(crate) data_bits: u8,
+    pub(crate) parity: SerialParity,
+    pub(crate) stop_bits: SerialStopBits,
+    pub(crate) flow_control: SerialFlowControl,
+}
+
+impl SerialParams {
+    pub(crate) fn to_options(&self) -> gpui_term::SerialOptions {
+        gpui_term::SerialOptions {
+            port: self.port.clone(),
+            baud: self.baud,
+            data_bits: self.data_bits,
+            parity: match self.parity {
+                SerialParity::None => gpui_term::SerialParity::None,
+                SerialParity::Even => gpui_term::SerialParity::Even,
+                SerialParity::Odd => gpui_term::SerialParity::Odd,
+            },
+            stop_bits: match self.stop_bits {
+                SerialStopBits::One => gpui_term::SerialStopBits::One,
+                SerialStopBits::Two => gpui_term::SerialStopBits::Two,
+            },
+            flow_control: match self.flow_control {
+                SerialFlowControl::None => gpui_term::SerialFlowControl::None,
+                SerialFlowControl::Software => gpui_term::SerialFlowControl::Software,
+                SerialFlowControl::Hardware => gpui_term::SerialFlowControl::Hardware,
+            },
+        }
+    }
+}
+
 pub(crate) struct TermuaAppState {
     pub(crate) main_window: Option<gpui::WindowHandle<gpui_component::Root>>,
     pub(crate) settings_window: Option<gpui::WindowHandle<gpui_component::Root>>,
@@ -51,20 +93,11 @@ pub(crate) enum PendingCommand {
     },
     OpenSshTerminal {
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        opts: SshOptions,
+        params: SshParams,
     },
     OpenSerialTerminal {
         backend_type: TerminalType,
-        name: String,
-        port: String,
-        baud: u32,
-        data_bits: u8,
-        parity: SerialParity,
-        stop_bits: SerialStopBits,
-        flow_control: SerialFlowControl,
-        term: String,
-        charset: String,
+        params: SerialParams,
         session_id: Option<i64>,
     },
     ReloadSessionsSidebar,
@@ -91,6 +124,28 @@ impl PendingCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serial_params_convert_to_serial_options() {
+        let params = SerialParams {
+            name: "usb".to_string(),
+            port: "/dev/ttyUSB0".to_string(),
+            baud: 115_200,
+            data_bits: 8,
+            parity: SerialParity::Even,
+            stop_bits: SerialStopBits::Two,
+            flow_control: SerialFlowControl::Hardware,
+        };
+
+        let opts = params.to_options();
+
+        assert_eq!(opts.port, "/dev/ttyUSB0");
+        assert_eq!(opts.baud, 115_200);
+        assert_eq!(opts.data_bits, 8);
+        assert_eq!(opts.parity, gpui_term::SerialParity::Even);
+        assert_eq!(opts.stop_bits, gpui_term::SerialStopBits::Two);
+        assert_eq!(opts.flow_control, gpui_term::SerialFlowControl::Hardware);
+    }
 
     #[test]
     fn enqueue_pending_command_coalesces_singleton_commands() {

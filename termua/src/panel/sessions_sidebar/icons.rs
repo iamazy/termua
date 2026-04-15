@@ -68,12 +68,12 @@ pub(super) fn build_session_icon_kinds(sessions: &[Session]) -> BTreeMap<i64, Se
             .map(|program| program.to_ascii_lowercase())
             .as_deref()
             .map(strip_exe_suffix)
-            .and_then(|program| match program {
-                "sh" => Some(SessionIconKind::Sh),
-                "nu" | "nushell" => Some(SessionIconKind::Nushell),
-                "pwsh" | "powershell" => Some(SessionIconKind::Pwsh),
-                "fish" => Some(SessionIconKind::Fish),
-                _ => Some(SessionIconKind::Terminal),
+            .map(|program| match program {
+                "sh" => SessionIconKind::Sh,
+                "nu" | "nushell" => SessionIconKind::Nushell,
+                "pwsh" | "powershell" => SessionIconKind::Pwsh,
+                "fish" => SessionIconKind::Fish,
+                _ => SessionIconKind::Terminal,
             })
             .unwrap();
 

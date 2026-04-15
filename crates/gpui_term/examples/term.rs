@@ -43,8 +43,6 @@ fn main() {
                         PtySource::Ssh {
                             env: HashMap::default(),
                             opts: SshOptions {
-                                group: "example_group".to_string(),
-                                name: "example_user".to_string(),
                                 host: "127.0.0.1".to_string(),
                                 port: Some(22),
                                 auth: Authentication::Password(

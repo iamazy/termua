@@ -478,7 +478,7 @@ fn assistant_headers_to_text(headers: &HashMap<String, String>) -> String {
     }
 
     let mut pairs: Vec<(&String, &String)> = headers.iter().collect();
-    pairs.sort_by(|(ak, _), (bk, _)| ak.cmp(bk));
+    pairs.sort_by_key(|(ak, _)| *ak);
 
     let mut out = String::new();
     for (i, (k, v)) in pairs.into_iter().enumerate() {

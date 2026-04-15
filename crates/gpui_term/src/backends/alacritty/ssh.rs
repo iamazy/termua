@@ -34,10 +34,6 @@ const PTY_READ_WRITE_TOKEN: usize = 0;
 const PTY_READ_WRITE_TOKEN: usize = 2;
 const PTY_CHILD_EVENT_TOKEN: usize = 1;
 
-fn take_cached_exit_code(slot: &Mutex<Option<u32>>) -> Option<u32> {
-    slot.lock().take()
-}
-
 #[cfg(windows)]
 fn signal_stream_pair() -> std::io::Result<(TcpStream, TcpStream)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -228,8 +224,8 @@ impl EventedPty for Pty {
         {
             use std::os::windows::process::ExitStatusExt;
 
-            let code = take_cached_exit_code(&self.child_exit_code)?;
-            return Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))));
+            let code = self.child_exit_code.lock().take()?;
+            Some(ChildEvent::Exited(Some(ExitStatus::from_raw(code))))
         }
 
         #[cfg(unix)]
@@ -434,18 +430,5 @@ impl Pty {
                 sftp,
             ))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn take_cached_exit_code_returns_code_once() {
-        let slot = Mutex::new(Some(23));
-
-        assert_eq!(take_cached_exit_code(&slot), Some(23));
-        assert_eq!(take_cached_exit_code(&slot), None);
     }
 }

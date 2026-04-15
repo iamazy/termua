@@ -22,7 +22,7 @@ use gpui_term::{
 
 use super::*;
 use crate::{
-    TermuaAppState, ToggleSessionsSidebar, lock_screen,
+    SshParams, TermuaAppState, ToggleSessionsSidebar, lock_screen,
     menu::Quit,
     notification,
     ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn},
@@ -59,17 +59,18 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
         termua.update(app, |this, cx| {
             this.open_ssh_host_key_mismatch_dialog(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                SshOptions {
-                    group: "ssh".to_string(),
+                SshParams {
+                    env: HashMap::new(),
                     name: "prod".to_string(),
-                    host: "127.0.0.1".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Config,
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                    opts: SshOptions {
+                        host: "127.0.0.1".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Config,
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 "host key mismatch".to_string(),
                 SshHostKeyMismatchDetails {
@@ -249,10 +250,7 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        {
-            let root = root.clone();
-            move |_, _| div().size_full().child(root)
-        },
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -355,10 +353,7 @@ fn menu_quit_with_open_tabs_opens_confirmation_dialog_without_panicking(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        {
-            let root = root.clone();
-            move |_, _| div().size_full().child(root)
-        },
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -397,17 +392,18 @@ fn ssh_connect_does_not_block_main_thread(cx: &mut gpui::TestAppContext) {
         view.update(cx, |this, cx| {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                SshOptions {
-                    group: "ssh".to_string(),
+                SshParams {
+                    env: HashMap::new(),
                     name: "prod".to_string(),
-                    host: "example.com".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Password("alice".to_string(), "pw".to_string()),
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                    opts: SshOptions {
+                        host: "example.com".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Password("alice".to_string(), "pw".to_string()),
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 None,
                 window,
@@ -446,17 +442,18 @@ fn ssh_connect_failure_opens_an_error_tab(cx: &mut gpui::TestAppContext) {
         view.update(cx, |this, cx| {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                SshOptions {
-                    group: "ssh".to_string(),
+                SshParams {
+                    env: HashMap::new(),
                     name: "prod".to_string(),
-                    host: "example.com".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Password("alice".to_string(), "pw".to_string()),
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                    opts: SshOptions {
+                        host: "example.com".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Password("alice".to_string(), "pw".to_string()),
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 None,
                 window,
@@ -806,7 +803,6 @@ fn terminal_toast_events_are_recorded_in_message_center(cx: &mut gpui::TestAppCo
         .as_ref()
         .expect("expected TermuaWindow view to be captured")
         .clone();
-    let root_for_draw = root.clone();
 
     let (terminal, terminal_view_for_draw) = window_cx.update(|window, app| {
         let recording_active = Arc::new(AtomicBool::new(false));
@@ -826,12 +822,7 @@ fn terminal_toast_events_are_recorded_in_message_center(cx: &mut gpui::TestAppCo
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| {
-            div()
-                .size_full()
-                .child(root_for_draw)
-                .child(terminal_view_for_draw)
-        },
+        move |_, _| div().size_full().child(root).child(terminal_view_for_draw),
     );
     window_cx.run_until_parked();
 

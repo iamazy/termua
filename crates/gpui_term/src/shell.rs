@@ -264,7 +264,7 @@ pub fn program_exists_on_path(program: &str) -> bool {
             }
         }
 
-        return false;
+        false
     }
 
     #[cfg(not(windows))]
