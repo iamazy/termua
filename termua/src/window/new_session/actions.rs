@@ -745,7 +745,7 @@ impl NewSessionWindow {
 
         let persist_op = match &auth {
             Authentication::Password(user, pw) => SessionStoreOp::SaveSshPassword {
-                group: group.clone(),
+                group,
                 label: name.clone(),
                 backend: backend_for_store,
                 host: host.clone(),
@@ -763,7 +763,7 @@ impl NewSessionWindow {
                 proxy_jump,
             },
             Authentication::Config => SessionStoreOp::SaveSshConfig {
-                group: group.clone(),
+                group,
                 label: name.clone(),
                 backend: backend_for_store,
                 host: host.clone(),

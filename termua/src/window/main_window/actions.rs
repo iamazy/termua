@@ -1892,7 +1892,6 @@ impl TermuaWindow {
         .detach();
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn add_serial_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
@@ -2422,7 +2421,7 @@ impl TermuaWindow {
         let env_for_thread = params.env.clone();
         let opts_for_thread = params.opts.clone();
         let params_for_finish = params.clone();
-        let opts_for_prompt = params.opts.clone();
+        let opts_for_prompt = params.opts;
         let background = cx.background_executor().clone();
 
         let (verify_tx, verify_rx) =
