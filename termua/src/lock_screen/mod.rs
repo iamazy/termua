@@ -255,10 +255,10 @@ mod tests {
     #[test]
     fn lock_state_enters_locked_after_idle_timeout() {
         // Use generous timings to avoid flaky failures on slower/loaded CI runners.
-        let mut state = LockState::new_for_test(Duration::from_millis(50));
+        let mut state = LockState::new_for_test(Duration::from_millis(200));
         assert!(!state.locked());
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(400));
         state.tick();
 
         assert!(state.locked());
