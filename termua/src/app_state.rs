@@ -5,6 +5,17 @@ use gpui_term::{SshOptions, TerminalType};
 
 use crate::store::{SerialFlowControl, SerialParity, SerialStopBits};
 
+#[derive(Clone, Debug)]
+pub(crate) struct SerialTerminalParams {
+    pub(crate) name: String,
+    pub(crate) port: String,
+    pub(crate) baud: u32,
+    pub(crate) data_bits: u8,
+    pub(crate) parity: SerialParity,
+    pub(crate) stop_bits: SerialStopBits,
+    pub(crate) flow_control: SerialFlowControl,
+}
+
 pub(crate) struct TermuaAppState {
     pub(crate) main_window: Option<gpui::WindowHandle<gpui_component::Root>>,
     pub(crate) settings_window: Option<gpui::WindowHandle<gpui_component::Root>>,
@@ -57,15 +68,7 @@ pub(crate) enum PendingCommand {
     },
     OpenSerialTerminal {
         backend_type: TerminalType,
-        name: String,
-        port: String,
-        baud: u32,
-        data_bits: u8,
-        parity: SerialParity,
-        stop_bits: SerialStopBits,
-        flow_control: SerialFlowControl,
-        term: String,
-        charset: String,
+        params: SerialTerminalParams,
         session_id: Option<i64>,
     },
     ReloadSessionsSidebar,

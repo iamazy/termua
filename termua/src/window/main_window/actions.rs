@@ -35,7 +35,7 @@ use smol::Timer;
 
 use super::TermuaWindow;
 use crate::{
-    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, TermuaAppState,
+    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, SerialTerminalParams, TermuaAppState,
     env::{build_local_terminal_env, cast_player_child_env},
     lock_screen, notification,
     panel::{PanelKind, SshErrorPanel, TerminalPanel, terminal_panel_tab_name},
@@ -564,28 +564,12 @@ impl TermuaWindow {
                 }
                 PendingCommand::OpenSerialTerminal {
                     backend_type,
-                    name,
-                    port,
-                    baud,
-                    data_bits,
-                    parity,
-                    stop_bits,
-                    flow_control,
-                    term,
-                    charset,
+                    params,
                     session_id,
                 } => {
                     self.add_serial_terminal_with_params(
                         backend_type,
-                        name,
-                        port,
-                        baud,
-                        data_bits,
-                        parity,
-                        stop_bits,
-                        flow_control,
-                        term,
-                        charset,
+                        params,
                         session_id,
                         window,
                         cx,
@@ -1922,33 +1906,25 @@ impl TermuaWindow {
     fn add_serial_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
-        name: String,
-        port: String,
-        baud: u32,
-        data_bits: u8,
-        parity: crate::store::SerialParity,
-        stop_bits: crate::store::SerialStopBits,
-        flow_control: crate::store::SerialFlowControl,
-        _term: String,
-        _charset: String,
+        params: SerialTerminalParams,
         session_id: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let opts = SerialOptions {
-            port: port.clone(),
-            baud,
-            data_bits,
-            parity: match parity {
+            port: params.port.clone(),
+            baud: params.baud,
+            data_bits: params.data_bits,
+            parity: match params.parity {
                 crate::store::SerialParity::None => SerialParity::None,
                 crate::store::SerialParity::Even => SerialParity::Even,
                 crate::store::SerialParity::Odd => SerialParity::Odd,
             },
-            stop_bits: match stop_bits {
+            stop_bits: match params.stop_bits {
                 crate::store::SerialStopBits::One => SerialStopBits::One,
                 crate::store::SerialStopBits::Two => SerialStopBits::Two,
             },
-            flow_control: match flow_control {
+            flow_control: match params.flow_control {
                 crate::store::SerialFlowControl::None => SerialFlowControl::None,
                 crate::store::SerialFlowControl::Software => SerialFlowControl::Software,
                 crate::store::SerialFlowControl::Hardware => SerialFlowControl::Hardware,
@@ -1974,14 +1950,18 @@ impl TermuaWindow {
             Err(err) => {
                 if let Some(_session_id) = session_id {
                     let reason = err.root_cause().to_string();
-                    let hint = crate::serial::open_failure_hint(&port, &err);
+                    let hint = crate::serial::open_failure_hint(&params.port, &err);
                     let message: SharedString = match hint {
                         Some(hint) => format!(
-                            "Failed to open serial port `{port}`.\n\nError:\n{reason}\n\n{hint}"
+                            "Failed to open serial port `{}`.\n\nError:\n{reason}\n\n{hint}",
+                            params.port
                         )
                         .into(),
-                        None => format!("Failed to open serial port `{port}`.\n\nError:\n{reason}")
-                            .into(),
+                        None => format!(
+                            "Failed to open serial port `{}`.\n\nError:\n{reason}",
+                            params.port
+                        )
+                        .into(),
                     };
 
                     // Clicking a saved Serial session should only show a toast; editing the
@@ -2003,12 +1983,16 @@ impl TermuaWindow {
                 }
 
                 let reason = err.root_cause().to_string();
-                let hint = crate::serial::open_failure_hint(&port, &err);
+                let hint = crate::serial::open_failure_hint(&params.port, &err);
                 let message = match hint {
                     Some(hint) => format!(
-                        "Failed to open serial port `{port}`.\n\nError:\n{reason}\n\n{hint}"
+                        "Failed to open serial port `{}`.\n\nError:\n{reason}\n\n{hint}",
+                        params.port
                     ),
-                    None => format!("Failed to open serial port `{port}`.\n\nError:\n{reason}"),
+                    None => format!(
+                        "Failed to open serial port `{}`.\n\nError:\n{reason}",
+                        params.port
+                    ),
                 };
 
                 notification::notify_deferred(
@@ -2021,7 +2005,8 @@ impl TermuaWindow {
             }
         };
 
-        let panel = self.build_serial_terminal_panel_from_builder(builder, name, opts, window, cx);
+        let panel =
+            self.build_serial_terminal_panel_from_builder(builder, params.name, opts, window, cx);
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
                 Arc::new(panel) as Arc<dyn PanelView>,
@@ -2557,13 +2542,8 @@ impl TermuaWindow {
     ) {
         match result {
             Ok(builder) => {
-                let panel = self.build_ssh_terminal_panel_from_builder(
-                    builder,
-                    name,
-                    opts,
-                    window,
-                    cx,
-                );
+                let panel =
+                    self.build_ssh_terminal_panel_from_builder(builder, name, opts, window, cx);
                 self.dock_area.update(cx, |dock, cx| {
                     dock.add_panel(
                         Arc::new(panel) as Arc<dyn PanelView>,
@@ -2768,15 +2748,15 @@ impl TermuaWindow {
 
         self.add_serial_terminal_with_params(
             backend_type,
-            session.label,
-            port,
-            baud,
-            data_bits,
-            parity,
-            stop_bits,
-            flow_control,
-            session.term,
-            session.charset,
+            SerialTerminalParams {
+                name: session.label,
+                port,
+                baud,
+                data_bits,
+                parity,
+                stop_bits,
+                flow_control,
+            },
             Some(session_id),
             window,
             cx,
