@@ -6,6 +6,13 @@ use gpui_term::{SshOptions, TerminalType};
 use crate::store::{SerialFlowControl, SerialParity, SerialStopBits};
 
 #[derive(Clone, Debug)]
+pub(crate) struct SshParams {
+    pub(crate) env: HashMap<String, String>,
+    pub(crate) name: String,
+    pub(crate) opts: SshOptions,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct SerialParams {
     pub(crate) name: String,
     pub(crate) port: String,
@@ -62,9 +69,7 @@ pub(crate) enum PendingCommand {
     },
     OpenSshTerminal {
         backend_type: TerminalType,
-        env: HashMap<String, String>,
-        name: String,
-        opts: SshOptions,
+        params: SshParams,
     },
     OpenSerialTerminal {
         backend_type: TerminalType,

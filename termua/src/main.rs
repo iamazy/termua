@@ -29,7 +29,7 @@ mod static_suggestions;
 mod theme_manager;
 mod window;
 
-pub(crate) use app_state::{PendingCommand, SerialParams, TermuaAppState};
+pub(crate) use app_state::{PendingCommand, SerialParams, SshParams, TermuaAppState};
 pub(crate) use menu::{
     NewLocalTerminal, OpenNewSession, OpenSftp, PlayCast, ToggleAssistantSidebar,
     ToggleMessagesSidebar, ToggleMultiExec, ToggleSessionsSidebar,

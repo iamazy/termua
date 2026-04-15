@@ -22,7 +22,7 @@ use gpui_term::{
 
 use super::*;
 use crate::{
-    TermuaAppState, ToggleSessionsSidebar, lock_screen,
+    SshParams, TermuaAppState, ToggleSessionsSidebar, lock_screen,
     menu::Quit,
     notification,
     ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn},
@@ -59,16 +59,18 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
         termua.update(app, |this, cx| {
             this.open_ssh_host_key_mismatch_dialog(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                "prod".to_string(),
-                SshOptions {
-                    host: "127.0.0.1".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Config,
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                SshParams {
+                    env: HashMap::new(),
+                    name: "prod".to_string(),
+                    opts: SshOptions {
+                        host: "127.0.0.1".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Config,
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 "host key mismatch".to_string(),
                 SshHostKeyMismatchDetails {
@@ -390,16 +392,18 @@ fn ssh_connect_does_not_block_main_thread(cx: &mut gpui::TestAppContext) {
         view.update(cx, |this, cx| {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                "prod".to_string(),
-                SshOptions {
-                    host: "example.com".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Password("alice".to_string(), "pw".to_string()),
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                SshParams {
+                    env: HashMap::new(),
+                    name: "prod".to_string(),
+                    opts: SshOptions {
+                        host: "example.com".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Password("alice".to_string(), "pw".to_string()),
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 None,
                 window,
@@ -438,16 +442,18 @@ fn ssh_connect_failure_opens_an_error_tab(cx: &mut gpui::TestAppContext) {
         view.update(cx, |this, cx| {
             this.add_ssh_terminal_with_params(
                 TerminalType::WezTerm,
-                HashMap::new(),
-                "prod".to_string(),
-                SshOptions {
-                    host: "example.com".to_string(),
-                    port: Some(22),
-                    auth: Authentication::Password("alice".to_string(), "pw".to_string()),
-                    proxy: gpui_term::SshProxyMode::Inherit,
-                    backend: gpui_term::SshBackend::default(),
-                    tcp_nodelay: false,
-                    tcp_keepalive: false,
+                SshParams {
+                    env: HashMap::new(),
+                    name: "prod".to_string(),
+                    opts: SshOptions {
+                        host: "example.com".to_string(),
+                        port: Some(22),
+                        auth: Authentication::Password("alice".to_string(), "pw".to_string()),
+                        proxy: gpui_term::SshProxyMode::Inherit,
+                        backend: gpui_term::SshBackend::default(),
+                        tcp_nodelay: false,
+                        tcp_keepalive: false,
+                    },
                 },
                 None,
                 window,
