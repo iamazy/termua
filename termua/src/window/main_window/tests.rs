@@ -766,14 +766,13 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
         terminal
     });
 
-    let root_for_draw = root.clone();
     window_cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
         gpui::size(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(root_for_draw),
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -902,14 +901,13 @@ fn exited_ssh_terminal_closes_on_second_ctrl_d(cx: &mut gpui::TestAppContext) {
         terminal_view
     });
 
-    let root_for_draw = root.clone();
     window_cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
         gpui::size(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(root_for_draw),
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 
@@ -1041,14 +1039,13 @@ fn active_ssh_terminal_does_not_close_on_first_ctrl_d(cx: &mut gpui::TestAppCont
         terminal_view
     });
 
-    let root_for_draw = root.clone();
     window_cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
         gpui::size(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(root_for_draw),
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 

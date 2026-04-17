@@ -6,9 +6,7 @@ use gpui::{
 };
 use gpui_component::Root;
 use gpui_component_assets::Assets;
-use gpui_term::{
-    Authentication, CursorShape, PtySource, SshOptions, TerminalBuilder, TerminalType, TerminalView,
-};
+use gpui_term::{CursorShape, TerminalBuilder, TerminalType, TerminalView};
 
 fn main() {
     env_logger::init();
