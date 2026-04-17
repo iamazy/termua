@@ -28,7 +28,13 @@ impl SessionsSidebarView {
                 .placeholder(t!("SessionsSidebar.Placeholder.Search").to_string())
         });
 
-        let sessions = load_all_sessions().unwrap_or_default();
+        let (sessions, has_load_error) = match load_all_sessions() {
+            Ok(sessions) => (sessions, false),
+            Err(err) => {
+                log::error!("SessionsSidebar: failed to load sessions: {err:#}");
+                (Vec::new(), true)
+            }
+        };
         let session_summaries = sessions
             .iter()
             .map(tree::SessionTreeSummary::from_session)
@@ -66,6 +72,7 @@ impl SessionsSidebarView {
             focus_handle: cx.focus_handle(),
             search_input,
             query: String::new(),
+            has_load_error,
             reload_epoch: 0,
             reload_in_flight: false,
             reload_pending: false,
@@ -174,6 +181,7 @@ impl SessionsSidebarView {
                 this.reload_in_flight = false;
                 match result {
                     Ok(sessions) => {
+                        this.has_load_error = false;
                         this.session_summaries = sessions
                             .iter()
                             .map(tree::SessionTreeSummary::from_session)
@@ -182,6 +190,7 @@ impl SessionsSidebarView {
                         this.rebuild_tree(window, cx);
                     }
                     Err(err) => {
+                        this.has_load_error = true;
                         log::warn!("SessionsSidebar: failed to load sessions: {err:#}");
                         cx.notify();
                         window.refresh();

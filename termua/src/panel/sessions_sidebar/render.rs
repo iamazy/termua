@@ -442,6 +442,24 @@ impl Render for SessionsSidebarView {
             .min_h_0()
             .bg(cx.theme().background)
             .child(div().p_2().child(Input::new(&self.search_input)))
+            .when(self.has_load_error, |this| {
+                this.child(
+                    div()
+                        .id("termua-sessions-sidebar-load-error")
+                        .debug_selector(|| "termua-sessions-sidebar-load-error".to_string())
+                        .mx_2()
+                        .mb_2()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(cx.theme().warning.opacity(0.25))
+                        .bg(cx.theme().warning.opacity(0.08))
+                        .text_xs()
+                        .text_color(cx.theme().warning)
+                        .whitespace_normal()
+                        .child(t!("SessionsSidebar.LoadError").to_string()),
+                )
+            })
             .child(
                 ContextMenu::new(
                     "termua-sessions-sidebar-context-menu",

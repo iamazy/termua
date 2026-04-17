@@ -136,6 +136,14 @@ impl TerminalPanel {
         }
     }
 
+    pub(crate) fn id(&self) -> usize {
+        self.id
+    }
+
+    pub(crate) fn kind(&self) -> PanelKind {
+        self.kind
+    }
+
     pub(crate) fn terminal_view(&self) -> gpui::Entity<TerminalView> {
         self.terminal_view.clone()
     }

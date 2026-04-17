@@ -110,7 +110,6 @@ impl TerminalBuilder {
         source: PtySource,
         cursor_shape: CursorShape,
         max_scrollback: Option<usize>,
-        exit_fn: Option<fn(&mut Context<WidgetTerminal>)>,
     ) -> anyhow::Result<Self> {
         let scrollback_size = max_scrollback
             .unwrap_or(backends::DEFAULT_SCROLLBACK_LINES)
@@ -204,7 +203,7 @@ impl TerminalBuilder {
         };
 
         let (backend, events_rx) =
-            build_backend(master, child, scrollback_size, cursor_shape, exit_fn, sftp)?;
+            build_backend(master, child, scrollback_size, cursor_shape, sftp)?;
         Ok(Self { backend, events_rx })
     }
 
@@ -258,7 +257,6 @@ fn build_backend(
     child: Box<dyn portable_pty::Child + Send>,
     scrollback_size: usize,
     default_cursor_shape: CursorShape,
-    exit_fn: Option<fn(&mut Context<WidgetTerminal>)>,
     sftp: Option<wezterm_ssh::Sftp>,
 ) -> anyhow::Result<(WezTermBackend, Receiver<WezEvent>)> {
     let reader = master.try_clone_reader()?;
@@ -303,7 +301,6 @@ fn build_backend(
             last_mouse_pos: None,
             selection: SelectionState::default(),
             default_cursor_shape,
-            exit_fn,
             scroll_px: px(0.0),
             sftp,
             record: RecordState::new(cast_slot),
@@ -496,7 +493,6 @@ pub struct WezTermBackend {
     last_mouse_pos: Option<Point<Pixels>>,
     selection: SelectionState,
     default_cursor_shape: CursorShape,
-    exit_fn: Option<fn(&mut Context<WidgetTerminal>)>,
     scroll_px: Pixels,
 
     // SFTP support for SSH terminals.
@@ -1460,11 +1456,7 @@ impl TerminalBackend for WezTermBackend {
                     // Ensure any active cast recording flushes and closes on PTY exit, even if the
                     // terminal view remains open to show the final buffer.
                     self.stop_cast_recording();
-                    if let Some(f) = self.exit_fn.as_ref() {
-                        f(cx);
-                    } else {
-                        cx.emit(Event::CloseTerminal);
-                    }
+                    cx.emit(Event::CloseTerminal);
                 }
                 WezEvent::Alert(alert) => match alert {
                     Alert::Bell => cx.emit(Event::Bell),
@@ -1648,6 +1640,10 @@ impl TerminalBackend for WezTermBackend {
 
     fn last_clicked_line(&self) -> Option<i32> {
         self.last_clicked_line
+    }
+
+    fn has_exited(&self) -> bool {
+        self.exited
     }
 
     fn vi_mode_enabled(&self) -> bool {
@@ -2715,7 +2711,6 @@ mod tests {
             last_mouse_pos: None,
             selection: super::SelectionState::default(),
             default_cursor_shape: crate::CursorShape::default(),
-            exit_fn: None,
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
@@ -2782,7 +2777,6 @@ mod tests {
             last_mouse_pos: None,
             selection: super::SelectionState::default(),
             default_cursor_shape: crate::CursorShape::default(),
-            exit_fn: None,
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
@@ -3067,7 +3061,6 @@ mod tests {
             last_mouse_pos: None,
             selection: super::SelectionState::default(),
             default_cursor_shape: crate::CursorShape::default(),
-            exit_fn: None,
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
@@ -3154,7 +3147,6 @@ mod tests {
             last_mouse_pos: None,
             selection: super::SelectionState::default(),
             default_cursor_shape: crate::CursorShape::default(),
-            exit_fn: None,
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),

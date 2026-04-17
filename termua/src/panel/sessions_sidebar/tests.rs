@@ -921,6 +921,60 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
 }
 
 #[gpui::test]
+fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+    });
+
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-sessions-sidebar-load-error-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let db_path = tmp_dir.join("termua").join("termua.db");
+    let _guard = crate::store::tests::override_termua_db_path(db_path.clone());
+
+    let session_id = crate::store::save_local_session(
+        "local",
+        "bash",
+        crate::settings::TerminalBackend::Wezterm,
+        "bash",
+        "xterm-256color",
+        "UTF-8",
+    )
+    .unwrap();
+
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    conn.execute(
+        "UPDATE sessions SET backend = 'alacritty2' WHERE id = ?1",
+        rusqlite::params![session_id],
+    )
+    .unwrap();
+
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
+        gpui_component::Root::new(sidebar, window, cx)
+    });
+
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+            gpui::AvailableSpace::Definite(gpui::px(240.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    cx.run_until_parked();
+
+    cx.debug_bounds("termua-sessions-sidebar-load-error")
+        .expect("expected a visible load error when disk sessions cannot be parsed");
+}
+
+#[gpui::test]
 fn session_labels_do_not_wrap_when_sidebar_is_narrow(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);

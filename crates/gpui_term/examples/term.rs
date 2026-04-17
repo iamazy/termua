@@ -57,7 +57,6 @@ fn main() {
                         },
                         CursorShape::default(),
                         None,
-                        None,
                     )
                     .unwrap()
                     .subscribe(cx)

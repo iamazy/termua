@@ -202,6 +202,10 @@ pub trait TerminalBackend: Send {
     fn mouse_mode(&self, shift: bool) -> bool;
     fn selection_started(&self) -> bool;
 
+    fn has_exited(&self) -> bool {
+        false
+    }
+
     /// Clears any active selection.
     ///
     /// This is used to implement common terminal behavior: any user input (typing/paste) cancels
@@ -1434,6 +1438,10 @@ impl Terminal {
 
     pub fn last_content(&self) -> &TerminalContent {
         self.inner.last_content()
+    }
+
+    pub fn has_exited(&self) -> bool {
+        self.inner.has_exited()
     }
 
     pub fn matches(&self) -> &[RangeInclusive<GridPoint>] {

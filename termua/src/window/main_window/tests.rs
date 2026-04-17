@@ -17,7 +17,7 @@ use gpui::{
 use gpui_component::input::InputState;
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, SshOptions, Terminal, TerminalBackend,
-    TerminalBounds, TerminalType, TerminalView,
+    TerminalBounds, TerminalType, TerminalView, UserInput as TerminalUserInput,
 };
 
 use super::*;
@@ -691,6 +691,396 @@ fn main_window_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
         "expected a drag overlay so the window remains movable while locked"
     );
     assert!(window.debug_bounds("termua-lock-password-input").is_some());
+}
+
+#[gpui::test]
+fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui_dock::{DockPlacement, PanelView};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
+
+    let (root, window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
+
+    let terminal = window_cx.update(|window, app| {
+        let recording_active = Arc::new(AtomicBool::new(false));
+        let terminal = app.new(|_cx| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::new(recording_active.clone())),
+            )
+        });
+        let terminal_view = app.new(|cx| TerminalView::new(terminal.clone(), window, cx));
+        let panel = app.new(|_| {
+            crate::panel::TerminalPanel::new(
+                42,
+                crate::panel::PanelKind::Local,
+                "bash".into(),
+                None,
+                terminal_view,
+            )
+        });
+
+        termua.update(app, |this, cx| {
+            this.subscribe_terminal_events_for_messages(
+                terminal.clone(),
+                42,
+                "bash".into(),
+                window,
+                cx,
+            );
+            this.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        terminal
+    });
+
+    let root_for_draw = root.clone();
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root_for_draw),
+    );
+    window_cx.run_until_parked();
+
+    let terminal_tabs_before = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_before, 1,
+        "expected one terminal tab before close event"
+    );
+
+    window_cx.update(|_window, app| {
+        terminal.update(app, |_terminal, cx| {
+            cx.emit(TerminalEvent::CloseTerminal);
+        });
+    });
+    window_cx.run_until_parked();
+
+    let terminal_tabs_after = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_after, 0,
+        "expected close event on local terminal to remove the terminal tab"
+    );
+}
+
+#[gpui::test]
+fn exited_ssh_terminal_closes_on_second_ctrl_d(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::Keystroke;
+    use gpui_dock::{DockPlacement, PanelView};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
+
+    let (root, window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
+
+    let terminal_view = window_cx.update(|window, app| {
+        let recording_active = Arc::new(AtomicBool::new(false));
+        let terminal = app.new(|_cx| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::with_exited(recording_active.clone(), true)),
+            )
+        });
+        let terminal_view = app.new(|cx| TerminalView::new(terminal.clone(), window, cx));
+        let panel = app.new(|_| {
+            crate::panel::TerminalPanel::new(
+                77,
+                crate::panel::PanelKind::Ssh,
+                "ssh demo".into(),
+                None,
+                terminal_view.clone(),
+            )
+        });
+
+        termua.update(app, |this, cx| {
+            this.subscribe_terminal_events_for_messages(
+                terminal.clone(),
+                77,
+                "ssh demo".into(),
+                window,
+                cx,
+            );
+            this.subscribe_terminal_view_events(&terminal_view, window, cx);
+            this.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        terminal_view
+    });
+
+    let root_for_draw = root.clone();
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root_for_draw),
+    );
+    window_cx.run_until_parked();
+
+    window_cx.update(|_window, app| {
+        let terminal = terminal_view.read(app).terminal.clone();
+        terminal.update(app, |_terminal, cx| {
+            cx.emit(TerminalEvent::CloseTerminal);
+        });
+    });
+    window_cx.run_until_parked();
+
+    let terminal_tabs_after_exit = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_after_exit, 1,
+        "expected close event on exited ssh terminal to stay open"
+    );
+
+    window_cx.update(|_window, app| {
+        terminal_view.update(app, |_view, cx| {
+            cx.emit(TerminalEvent::UserInput(TerminalUserInput::Keystroke(
+                Keystroke::parse("ctrl-d").unwrap(),
+            )));
+        });
+    });
+    window_cx.run_until_parked();
+
+    let terminal_tabs_after = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_after, 0,
+        "expected exited ssh terminal to close on Ctrl-D"
+    );
+}
+
+#[gpui::test]
+fn active_ssh_terminal_does_not_close_on_first_ctrl_d(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::Keystroke;
+    use gpui_dock::{DockPlacement, PanelView};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
+
+    let (root, window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
+
+    let terminal_view = window_cx.update(|window, app| {
+        let recording_active = Arc::new(AtomicBool::new(false));
+        let terminal = app.new(|_cx| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::with_exited(recording_active.clone(), false)),
+            )
+        });
+        let terminal_view = app.new(|cx| TerminalView::new(terminal.clone(), window, cx));
+        let panel = app.new(|_| {
+            crate::panel::TerminalPanel::new(
+                78,
+                crate::panel::PanelKind::Ssh,
+                "ssh demo".into(),
+                None,
+                terminal_view.clone(),
+            )
+        });
+
+        termua.update(app, |this, cx| {
+            this.subscribe_terminal_view_events(&terminal_view, window, cx);
+            this.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        terminal_view
+    });
+
+    let root_for_draw = root.clone();
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root_for_draw),
+    );
+    window_cx.run_until_parked();
+
+    window_cx.update(|_window, app| {
+        terminal_view.update(app, |_view, cx| {
+            cx.emit(TerminalEvent::UserInput(TerminalUserInput::Keystroke(
+                Keystroke::parse("ctrl-d").unwrap(),
+            )));
+        });
+    });
+    window_cx.run_until_parked();
+
+    let terminal_tabs_after = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_after, 1,
+        "expected active ssh terminal to stay open on first Ctrl-D"
+    );
 }
 
 #[gpui::test]
@@ -2005,13 +2395,19 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
 struct FakeBackend {
     content: gpui_term::TerminalContent,
     recording_active: Arc<AtomicBool>,
+    exited: bool,
 }
 
 impl FakeBackend {
     fn new(recording_active: Arc<AtomicBool>) -> Self {
+        Self::with_exited(recording_active, false)
+    }
+
+    fn with_exited(recording_active: Arc<AtomicBool>, exited: bool) -> Self {
         Self {
             content: gpui_term::TerminalContent::default(),
             recording_active,
+            exited,
         }
     }
 }
@@ -2033,6 +2429,10 @@ impl TerminalBackend for FakeBackend {
 
     fn last_clicked_line(&self) -> Option<i32> {
         None
+    }
+
+    fn has_exited(&self) -> bool {
+        self.exited
     }
 
     fn vi_mode_enabled(&self) -> bool {

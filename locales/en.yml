@@ -158,6 +158,7 @@ SessionsSidebar:
   Status:
     Connecting: "connecting..."
   Empty: "No sessions yet."
+  LoadError: "Failed to load sessions from disk. Check logs for details."
   Context:
     Edit: "Edit"
     Delete: "Delete"

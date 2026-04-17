@@ -132,14 +132,15 @@ impl TermuaWindow {
         let sub = cx.subscribe_in(
             &terminal,
             window,
-            move |_this, _terminal, event, window, cx| {
-                Self::handle_terminal_event_for_messages(panel_id, &tab_label, event, window, cx);
+            move |this, _terminal, event, window, cx| {
+                this.handle_terminal_event_for_messages(panel_id, &tab_label, event, window, cx);
             },
         );
         self._subscriptions.push(sub);
     }
 
     fn handle_terminal_event_for_messages(
+        &mut self,
         panel_id: usize,
         tab_label: &SharedString,
         event: &TerminalEvent,
@@ -149,7 +150,12 @@ impl TermuaWindow {
         if Self::handle_terminal_event_toast(event, window, cx) {
             return;
         }
-        let _ = Self::handle_terminal_event_sftp_upload(panel_id, tab_label, event, window, cx);
+        if Self::handle_terminal_event_sftp_upload(panel_id, tab_label, event, window, cx) {
+            return;
+        }
+        if matches!(event, TerminalEvent::CloseTerminal) {
+            self.close_terminal_panel_on_event(panel_id, window, cx);
+        }
     }
 
     fn handle_terminal_event_toast(
@@ -227,6 +233,65 @@ impl TermuaWindow {
         };
 
         (id, task)
+    }
+
+    fn find_visible_terminal_panel(
+        &self,
+        cx: &App,
+        mut predicate: impl FnMut(&TerminalPanel, &App) -> bool,
+    ) -> Option<Arc<dyn PanelView>> {
+        self.dock_area
+            .read(cx)
+            .visible_tab_panels(cx)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(cx).active_panel(cx))
+            .find(|panel| {
+                panel
+                    .view()
+                    .downcast::<TerminalPanel>()
+                    .ok()
+                    .is_some_and(|terminal_panel| predicate(&terminal_panel.read(cx), cx))
+            })
+    }
+
+    fn close_terminal_panel(
+        &mut self,
+        panel: Arc<dyn PanelView>,
+        window: &mut Window,
+        cx: &mut Context<TermuaWindow>,
+    ) {
+        self.dock_area.update(cx, |dock, cx| {
+            dock.remove_panel_from_all_docks(panel, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn close_terminal_panel_on_event(
+        &mut self,
+        panel_id: usize,
+        window: &mut Window,
+        cx: &mut Context<TermuaWindow>,
+    ) {
+        let Some(panel) = self.find_visible_terminal_panel(cx, |terminal_panel, cx| {
+            if terminal_panel.id() != panel_id {
+                return false;
+            }
+
+            if terminal_panel.kind() != PanelKind::Ssh {
+                return true;
+            }
+
+            !terminal_panel
+                .terminal_view()
+                .read(cx)
+                .terminal
+                .read(cx)
+                .has_exited()
+        }) else {
+            return;
+        };
+
+        self.close_terminal_panel(panel, window, cx);
     }
 
     fn handle_terminal_event_sftp_upload(
@@ -1913,7 +1978,6 @@ impl TermuaWindow {
             PtySource::Serial { opts: opts.clone() },
             CursorShape::default(),
             None,
-            None,
         );
 
         let builder = match builder {
@@ -2723,7 +2787,7 @@ impl TermuaWindow {
         self._subscriptions.push(sub);
     }
 
-    fn subscribe_terminal_view_events(
+    pub(crate) fn subscribe_terminal_view_events(
         &mut self,
         terminal_view: &gpui::Entity<TerminalView>,
         window: &mut Window,
@@ -2734,12 +2798,18 @@ impl TermuaWindow {
         let subscription = cx.subscribe_in(
             &source_terminal_view,
             window,
-            move |this, _, event, _window, cx| match event {
-                TerminalEvent::UserInput(input) => this.on_terminal_user_input(
-                    source_terminal_view_for_cb.clone(),
-                    input.clone(),
-                    cx,
-                ),
+            move |this, _, event, window, cx| match event {
+                TerminalEvent::UserInput(input) => {
+                    if this.close_exited_ssh_panel(&source_terminal_view_for_cb, input, window, cx)
+                    {
+                        return;
+                    }
+                    this.on_terminal_user_input(
+                        source_terminal_view_for_cb.clone(),
+                        input.clone(),
+                        cx,
+                    )
+                }
                 TerminalEvent::Toast {
                     level,
                     title,
@@ -2896,16 +2966,9 @@ impl TermuaWindow {
         };
 
         let terminal = cx.new(|cx| {
-            TerminalBuilder::new(
-                backend_type,
-                env,
-                CursorShape::default(),
-                None,
-                id as u64,
-                None,
-            )
-            .expect("local terminal builder should succeed")
-            .subscribe(cx)
+            TerminalBuilder::new(backend_type, env, CursorShape::default(), None, id as u64)
+                .expect("local terminal builder should succeed")
+                .subscribe(cx)
         });
         self.build_wired_terminal_panel(id, kind, tab_label, None, terminal, window, cx)
     }
@@ -2959,6 +3022,43 @@ impl TermuaWindow {
             }
         });
         cx.notify();
+    }
+
+    fn close_exited_ssh_panel(
+        &mut self,
+        source: &gpui::Entity<TerminalView>,
+        input: &TerminalUserInput,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let TerminalUserInput::Keystroke(keystroke) = input else {
+            return false;
+        };
+        if keystroke.key.as_str() != "d"
+            || !keystroke.modifiers.control
+            || keystroke.modifiers.alt
+            || keystroke.modifiers.platform
+            || keystroke.modifiers.function
+            || keystroke.modifiers.shift
+        {
+            return false;
+        }
+
+        let Some(panel) = self.find_visible_terminal_panel(cx, |terminal_panel, cx| {
+            terminal_panel.kind() == PanelKind::Ssh
+                && terminal_panel.terminal_view().entity_id() == source.entity_id()
+                && terminal_panel
+                    .terminal_view()
+                    .read(cx)
+                    .terminal
+                    .read(cx)
+                    .has_exited()
+        }) else {
+            return false;
+        };
+
+        self.close_terminal_panel(panel, window, cx);
+        true
     }
 
     fn on_terminal_user_input(
