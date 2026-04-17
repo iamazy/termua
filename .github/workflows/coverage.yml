@@ -84,7 +84,6 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to codecov.io
-        if: ${{ secrets.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
