@@ -16,12 +16,11 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          target: ${{ matrix.target }}
       - name: Install Linux dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl dpkg rpm
-          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
+          apt-get update
+          apt-get install -y curl dpkg rpm
+          apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
       - name: Generate code coverage
         run: |
             cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
