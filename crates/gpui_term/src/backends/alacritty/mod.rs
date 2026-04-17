@@ -1589,7 +1589,8 @@ impl TerminalBackend for AlacrittyBackend {
         let last_col = grid.last_column();
 
         let mut out = Vec::new();
-        for (line, _) in (top + start_line..).zip((0..count)) {
+        let mut line = top + start_line;
+        for _ in 0..count {
             if line > bottom {
                 break;
             }
@@ -1598,6 +1599,7 @@ impl TerminalBackend for AlacrittyBackend {
                 AlacPoint::new(line, last_col),
             );
             out.push(s.trim_end_matches(|c: char| c.is_whitespace()).to_string());
+            line += 1usize;
         }
         out
     }
@@ -1624,7 +1626,8 @@ impl TerminalBackend for AlacrittyBackend {
         let mut out: Vec<crate::IndexedCell> = Vec::with_capacity(cols * count);
         let mut rows = 0usize;
 
-        for (line, r) in (top + start_line..).zip((0..count)) {
+        let mut line = top + start_line;
+        for r in 0..count {
             if line > bottom {
                 break;
             }
@@ -1636,6 +1639,7 @@ impl TerminalBackend for AlacrittyBackend {
                     cell: map_cell(cell),
                 });
             }
+            line += 1usize;
         }
 
         (cols, rows, out)
