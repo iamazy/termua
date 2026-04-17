@@ -259,7 +259,6 @@ impl TerminalBuilder {
         cast_slot: Arc<Mutex<Option<CastRecorderSender>>>,
         env: HashMap<String, String>,
         window_id: u64,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         // env.entry("LANG".to_string())
         //     .or_insert_with(|| "en_US.UTF-8".to_string());
@@ -308,7 +307,6 @@ impl TerminalBuilder {
             cast_slot,
             pty,
             pty_options.drain_on_exit,
-            exit_fn,
         )
     }
 
@@ -321,7 +319,6 @@ impl TerminalBuilder {
         cast_slot: Arc<Mutex<Option<CastRecorderSender>>>,
         env: HashMap<String, String>,
         opts: SshOptions,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         // SSH PTY encapsulates its own remote spawning; no `tty::Options`.
         let (pty, sftp) = ssh::Pty::new(env, opts, Arc::clone(&cast_slot))?;
@@ -334,7 +331,6 @@ impl TerminalBuilder {
             cast_slot,
             pty,
             false,
-            exit_fn,
         )
     }
 
@@ -345,11 +341,10 @@ impl TerminalBuilder {
         events_rx: UnboundedReceiver<AlacTermEvent>,
         cast_slot: Arc<Mutex<Option<CastRecorderSender>>>,
         opts: SerialOptions,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         let pty = serial::Pty::new(opts, Arc::clone(&cast_slot))?;
         Self::build_with_pty(
-            term, config, events_tx, events_rx, None, cast_slot, pty, false, exit_fn,
+            term, config, events_tx, events_rx, None, cast_slot, pty, false,
         )
     }
 
@@ -363,7 +358,6 @@ impl TerminalBuilder {
         cast_slot: Arc<Mutex<Option<CastRecorderSender>>>,
         pty: T,
         drain_on_exit: bool,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self>
     where
         T: tty::EventedPty + OnResize + Send + 'static,
@@ -389,7 +383,7 @@ impl TerminalBuilder {
                 search: SearchState::default(),
                 selection: SelectionState::default(),
                 scroll_px: px(0.0),
-                exit_fn,
+                exited: false,
                 content: TerminalContent::default(),
                 sftp,
                 record: RecordState::new(cast_slot),
@@ -403,20 +397,19 @@ impl TerminalBuilder {
         pty_source: PtySource,
         cursor_shape: CursorShape,
         max_scroll_history_lines: Option<usize>,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         let (term, config, events_tx, events_rx, cast_slot) =
             Self::build_shared_term_state(cursor_shape, max_scroll_history_lines);
 
         match pty_source {
             PtySource::Local { env, window_id } => Self::build_local(
-                term, config, events_tx, events_rx, cast_slot, env, window_id, exit_fn,
+                term, config, events_tx, events_rx, cast_slot, env, window_id,
             ),
-            PtySource::Ssh { env, opts } => Self::build_ssh(
-                term, config, events_tx, events_rx, cast_slot, env, opts, exit_fn,
-            ),
+            PtySource::Ssh { env, opts } => {
+                Self::build_ssh(term, config, events_tx, events_rx, cast_slot, env, opts)
+            }
             PtySource::Serial { opts } => {
-                Self::build_serial(term, config, events_tx, events_rx, cast_slot, opts, exit_fn)
+                Self::build_serial(term, config, events_tx, events_rx, cast_slot, opts)
             }
         }
     }
@@ -528,7 +521,7 @@ pub struct AlacrittyBackend {
     selection: SelectionState,
     scroll_px: Pixels,
 
-    exit_fn: Option<fn(&mut Context<Terminal>)>,
+    exited: bool,
 
     content: TerminalContent,
     // SFTP support for SSH terminals.
@@ -674,9 +667,8 @@ impl AlacrittyBackend {
             }
             AlacTermEvent::Bell => cx.emit(Event::Bell),
             AlacTermEvent::Exit => {
-                if let Some(f) = self.exit_fn.as_ref() {
-                    f(cx);
-                }
+                self.exited = true;
+                cx.emit(Event::CloseTerminal);
             }
             AlacTermEvent::Title(_title) => {
                 cx.emit(Event::TitleChanged);
@@ -967,6 +959,10 @@ impl TerminalBackend for AlacrittyBackend {
 
     fn last_clicked_line(&self) -> Option<i32> {
         None
+    }
+
+    fn has_exited(&self) -> bool {
+        self.exited
     }
 
     fn vi_mode_enabled(&self) -> bool {
@@ -1593,8 +1589,8 @@ impl TerminalBackend for AlacrittyBackend {
         let last_col = grid.last_column();
 
         let mut out = Vec::new();
-        let mut line = top + start_line;
-        for _ in 0..count {
+        for offset in 0..count {
+            let line = top + start_line + offset;
             if line > bottom {
                 break;
             }
@@ -1603,7 +1599,6 @@ impl TerminalBackend for AlacrittyBackend {
                 AlacPoint::new(line, last_col),
             );
             out.push(s.trim_end_matches(|c: char| c.is_whitespace()).to_string());
-            line += 1usize;
         }
         out
     }
@@ -1630,8 +1625,8 @@ impl TerminalBackend for AlacrittyBackend {
         let mut out: Vec<crate::IndexedCell> = Vec::with_capacity(cols * count);
         let mut rows = 0usize;
 
-        let mut line = top + start_line;
         for r in 0..count {
+            let line = top + start_line + r;
             if line > bottom {
                 break;
             }
@@ -1643,7 +1638,6 @@ impl TerminalBackend for AlacrittyBackend {
                     cell: map_cell(cell),
                 });
             }
-            line += 1usize;
         }
 
         (cols, rows, out)
@@ -1935,11 +1929,14 @@ mod selection_tests {
         sync::FairMutex,
         tty::{ChildEvent, EventedPty, EventedReadWrite},
     };
-    use gpui::{Bounds, Modifiers, MouseButton, MouseDownEvent, point, px, size};
+    use gpui::{AppContext, Bounds, Modifiers, MouseButton, MouseDownEvent, point, px, size};
     use parking_lot::Mutex;
     use polling::{Event, PollMode, Poller};
 
-    use super::{AlacrittyBackend, EventProxy, RecordState, SearchState, SelectionState, TermOp};
+    use super::{
+        AlacTermEvent, AlacrittyBackend, EventProxy, RecordState, SearchState, SelectionState,
+        TermOp,
+    };
     use crate::{
         TerminalBackend, TerminalBounds, TerminalContent, command_blocks::CommandBlockTracker,
     };
@@ -1995,6 +1992,80 @@ mod selection_tests {
         fn on_resize(&mut self, _window_size: WindowSize) {}
     }
 
+    fn test_backend() -> AlacrittyBackend {
+        let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
+        let term = Term::new(
+            alacritty_terminal::term::Config::default(),
+            &TerminalBounds::default(),
+            EventProxy(events_tx.clone()),
+        );
+        let term = Arc::new(FairMutex::new(term));
+
+        let event_loop = EventLoop::new(
+            Arc::clone(&term),
+            EventProxy(events_tx),
+            DummyPty::default(),
+            false,
+            false,
+        )
+        .expect("event loop");
+        let pty_tx = alacritty_terminal::event_loop::Notifier(event_loop.channel());
+
+        let cast_slot: Arc<Mutex<Option<crate::cast::CastRecorderSender>>> =
+            Arc::new(Mutex::new(None));
+
+        AlacrittyBackend {
+            pty_tx,
+            term,
+            term_config: alacritty_terminal::term::Config::default(),
+            pending_ops: VecDeque::new(),
+            term_mode: alacritty_terminal::term::TermMode::empty(),
+            search: SearchState::default(),
+            selection: SelectionState::default(),
+            scroll_px: px(0.0),
+            exited: false,
+            content: TerminalContent::default(),
+            sftp: None,
+            record: RecordState::new(cast_slot),
+            blocks: CommandBlockTracker::new(200),
+        }
+    }
+
+    #[gpui::test]
+    fn exit_emits_close_terminal_event(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            crate::init(app);
+        });
+
+        let terminal = cx.update(|app| {
+            app.new(|_cx| {
+                crate::Terminal::new(crate::TerminalType::Alacritty, Box::new(test_backend()))
+            })
+        });
+
+        let exited = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let exited_for_sub = exited.clone();
+        let _sub = cx.update(|app| {
+            app.subscribe(&terminal, move |_, event: &crate::Event, _| {
+                if matches!(event, crate::Event::CloseTerminal) {
+                    exited_for_sub.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            })
+        });
+
+        cx.update(|app| {
+            terminal.update(app, |terminal, cx| {
+                terminal.dispatch_backend_event(Box::new(AlacTermEvent::Exit), cx);
+            });
+        });
+        cx.run_until_parked();
+
+        assert!(
+            exited.load(std::sync::atomic::Ordering::Relaxed),
+            "expected alacritty exit to emit CloseTerminal"
+        );
+    }
+
     #[test]
     fn triple_click_selects_current_line() {
         let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
@@ -2028,7 +2099,7 @@ mod selection_tests {
             search: SearchState::default(),
             selection: SelectionState::default(),
             scroll_px: px(0.0),
-            exit_fn: None,
+            exited: false,
             content: TerminalContent::default(),
             sftp: None,
             record: RecordState::new(cast_slot),

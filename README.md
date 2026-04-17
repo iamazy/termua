@@ -1,32 +1,21 @@
-<p align="center">
-  English | <a href="./README.zh-CN.md">简体中文</a>
-</p>
+<div align="center">
+    <h1>Termua</h1>
+    <h4>
+        an open-source cross-platform terminal application built with <a href="https://github.com/zed-industries/zed">GPUI</a> <br/>and powered by the <a href="https://github.com/alacritty/alacritty">Alacritty</a> / <a href="https://github.com/wezterm/wezterm">WezTerm</a> terminal backends.
+    </h4>
 
-<p align="center">
-  <img src="./assets/logo/termua.svg" alt="Termua Logo" width="120" />
-</p>
+[![codecov](https://codecov.io/github/iamazy/termua/graph/badge.svg?token=QRH8H0O6P5)](https://codecov.io/github/iamazy/termua)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 
-<p align="center">
-  an open-source cross-platform terminal application built with <a href="https://github.com/zed-industries/zed">GPUI</a> and powered by the <a href="https://github.com/alacritty/alacritty">Alacritty</a> / <a href="https://github.com/wezterm/wezterm">WezTerm</a> terminal backends.
-</p>
-
-<p>
-    <div align="center">
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="Linux" src="https://img.shields.io/badge/-Linux-yellow?style=flat-square&logo=linux&logoColor=black&color=orange" />
-      </a>
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="Windows" src="https://img.shields.io/badge/-Windows-blue?style=flat-square&logo=windows&logoColor=white" />
-      </a>
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="macOS" src="https://img.shields.io/badge/-macOS-black?style=flat-square&logo=apple&logoColor=white" />
-      </a>
-    </div>
-</p>
+</div>
 
 <div align="center">
     <img src="assets/screenshot/screenshot.png" alt="termua" height="500" style="border-radius: 16px;" />
 </div>
+
+<p align="center">
+  English | <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
 ### Features ❇️
 

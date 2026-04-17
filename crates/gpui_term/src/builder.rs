@@ -25,14 +25,12 @@ impl TerminalBuilder {
         cursor_shape: CursorShape,
         max_scroll_history_lines: Option<usize>,
         window_id: u64,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         Self::new_with_pty(
             backend_type,
             PtySource::Local { env, window_id },
             cursor_shape,
             max_scroll_history_lines,
-            exit_fn,
         )
     }
 
@@ -41,7 +39,6 @@ impl TerminalBuilder {
         pty_source: PtySource,
         cursor_shape: CursorShape,
         max_scroll_history_lines: Option<usize>,
-        exit_fn: Option<fn(&mut Context<Terminal>)>,
     ) -> anyhow::Result<Self> {
         let inner = match backend_type {
             TerminalType::Alacritty => {
@@ -49,7 +46,6 @@ impl TerminalBuilder {
                     pty_source,
                     cursor_shape,
                     max_scroll_history_lines,
-                    exit_fn,
                 )?)
             }
             TerminalType::WezTerm => {
@@ -57,7 +53,6 @@ impl TerminalBuilder {
                     pty_source,
                     cursor_shape,
                     max_scroll_history_lines,
-                    exit_fn,
                 )?)
             }
         };
@@ -95,7 +90,6 @@ mod tests {
                 CursorShape::default(),
                 None,
                 0,
-                None,
             );
 
             let _ = TerminalBuilder::new_with_pty(
@@ -114,7 +108,6 @@ mod tests {
                 },
                 CursorShape::default(),
                 None,
-                None,
             );
 
             let _ = TerminalBuilder::new_with_pty(
@@ -130,7 +123,6 @@ mod tests {
                     },
                 },
                 CursorShape::default(),
-                None,
                 None,
             );
         };

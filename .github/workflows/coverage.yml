@@ -1,0 +1,92 @@
+name: coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: codecov-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            dpkg \
+            rpm \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libssl-dev \
+            zlib1g-dev
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run tests with coverage instrumentation
+        run: cargo llvm-cov --workspace --all-features --no-report
+
+      - name: Generate LCOV report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Generate HTML report
+        run: cargo llvm-cov report --html --output-dir coverage-html
+
+      - name: Generate text summary
+        run: cargo llvm-cov report > coverage-summary.txt
+
+      - name: Publish coverage summary
+        run: |
+          echo '## Coverage Summary' >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat coverage-summary.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload LCOV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage-html
+          if-no-files-found: error
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+          slug: iamazy/termua

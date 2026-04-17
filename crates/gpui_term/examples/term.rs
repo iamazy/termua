@@ -6,9 +6,7 @@ use gpui::{
 };
 use gpui_component::Root;
 use gpui_component_assets::Assets;
-use gpui_term::{
-    Authentication, CursorShape, PtySource, SshOptions, TerminalBuilder, TerminalType, TerminalView,
-};
+use gpui_term::{CursorShape, TerminalBuilder, TerminalType, TerminalView};
 
 fn main() {
     env_logger::init();
@@ -25,39 +23,13 @@ fn main() {
                 if std::env::var_os("WAYLAND_DISPLAY").is_some() {
                     window.set_background_appearance(WindowBackgroundAppearance::Transparent);
                 }
-                // let terminal = cx.new(|cx| {
-                //     TerminalBuilder::new(
-                //         TerminalType::Alacritty,
-                //         std::collections::HashMap::default(),
-                //         CursorShape::default(),
-                //         None,
-                //         0,
-                //         None,
-                //     )
-                //     .unwrap()
-                //     .subscribe(cx)
-                // });
                 let terminal = cx.new(|cx| {
-                    TerminalBuilder::new_with_pty(
-                        TerminalType::WezTerm,
-                        PtySource::Ssh {
-                            env: HashMap::default(),
-                            opts: SshOptions {
-                                host: "127.0.0.1".to_string(),
-                                port: Some(22),
-                                auth: Authentication::Password(
-                                    "iamazy".to_string(),
-                                    "1448588084".to_string(),
-                                ),
-                                proxy: gpui_term::SshProxyMode::Inherit,
-                                backend: gpui_term::SshBackend::default(),
-                                tcp_nodelay: false,
-                                tcp_keepalive: false,
-                            },
-                        },
+                    TerminalBuilder::new(
+                        TerminalType::Alacritty,
+                        HashMap::default(),
                         CursorShape::default(),
                         None,
-                        None,
+                        0,
                     )
                     .unwrap()
                     .subscribe(cx)

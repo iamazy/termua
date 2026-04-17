@@ -1,36 +1,24 @@
-<p align="center">
-  <a href="./README.md">English</a> | 简体中文
-</p>
-
-<p align="center">
-  <img src="./assets/logo/termua.svg" alt="Termua Logo" width="120" />
-</p>
-
-<p align="center">
-  <span style="font: bold; font-size: larger">Termua:</span> 一款使用 <a href="https://github.com/zed-industries/zed">GPUI</a> 构建，基于 <a href="https://github.com/alacritty/alacritty">Alacritty</a>  / <a href="https://github.com/wezterm/wezterm">Wezterm</a>  内核的开源跨平台终端应用。
-</p>
-
-<p align="center">
+<div align="center">
+    <h1>Termua</h1>
+    <h4>
+        一款使用 <a href="https://github.com/zed-industries/zed">GPUI</a> 构建，基于 <a href="https://github.com/alacritty/alacritty">Alacritty</a>  / <a href="https://github.com/wezterm/wezterm">Wezterm</a>  内核的开源跨平台终端应用
+    </h4>
+    <p align="center">
   集成 SSH / Serial / SFTP / 回放 / 终端共享 / AI 助手，目标是成为一个现代化的终端工作台。
 </p>
 
-<p>
-    <div align="center">
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="Linux" src="https://img.shields.io/badge/-Linux-yellow?style=flat-square&logo=linux&logoColor=black&color=orange" />
-      </a>
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="Windows" src="https://img.shields.io/badge/-Windows-blue?style=flat-square&logo=windows&logoColor=white" />
-      </a>
-      <a href="https://github.com/iamazy/termua/releases">
-        <img alt="macOS" src="https://img.shields.io/badge/-macOS-black?style=flat-square&logo=apple&logoColor=white" />
-      </a>
-    </div>
-</p>
+[![codecov](https://codecov.io/github/iamazy/termua/graph/badge.svg?token=QRH8H0O6P5)](https://codecov.io/github/iamazy/termua)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
+
+</div>
 
 <div align="center">
     <img src="assets/screenshot/screenshot.png" alt="termua" height="500" style="border-radius: 16px;" />
 </div>
+
+<p align="center">
+  <a href="./README.md">English</a> | 简体中文
+</p>
 
 ### 特性 ❇️
 

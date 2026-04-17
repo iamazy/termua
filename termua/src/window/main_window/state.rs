@@ -255,7 +255,6 @@ impl TermuaWindow {
                     PtySource::Ssh { env, opts },
                     CursorShape::default(),
                     None,
-                    None,
                 )
             },
         );

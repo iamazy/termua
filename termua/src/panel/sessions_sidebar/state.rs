@@ -19,6 +19,7 @@ pub struct SessionsSidebarView {
     pub(super) focus_handle: FocusHandle,
     pub(super) search_input: Entity<InputState>,
     pub(super) query: String,
+    pub(super) has_load_error: bool,
     pub(super) reload_epoch: usize,
     pub(super) reload_in_flight: bool,
     pub(super) reload_pending: bool,

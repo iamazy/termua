@@ -158,6 +158,7 @@ SessionsSidebar:
   Status:
     Connecting: "连接中..."
   Empty: "暂无会话。"
+  LoadError: "从磁盘加载会话失败，请查看日志详情。"
   Context:
     Edit: "编辑"
     Delete: "删除"
