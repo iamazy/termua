@@ -1,7 +1,7 @@
 <div align="center">
     <h1>Termua</h1>
-    <h4>
-        an open-source cross-platform terminal application built with <a href="https://github.com/zed-industries/zed">GPUI</a> and powered by the <a href="https://github.com/alacritty/alacritty">Alacritty</a> / <a href="https://github.com/wezterm/wezterm">WezTerm</a> terminal backends.
+    <br>
+        an open-source cross-platform terminal application built with <a href="https://github.com/zed-industries/zed">GPUI</a> </br>and powered by the <a href="https://github.com/alacritty/alacritty">Alacritty</a> / <a href="https://github.com/wezterm/wezterm">WezTerm</a> terminal backends.
     </h4>
 
 [![codecov](https://codecov.io/github/iamazy/termua/graph/badge.svg?token=QRH8H0O6P5)](https://codecov.io/github/iamazy/termua)

@@ -1,7 +1,7 @@
 <div align="center">
     <h1>Termua</h1>
     <h4>
-        Termua:</span> 一款使用 <a href="https://github.com/zed-industries/zed">GPUI</a> 构建，基于 <a href="https://github.com/alacritty/alacritty">Alacritty</a>  / <a href="https://github.com/wezterm/wezterm">Wezterm</a>  内核的开源跨平台终端应用
+        一款使用 <a href="https://github.com/zed-industries/zed">GPUI</a> 构建，基于 <a href="https://github.com/alacritty/alacritty">Alacritty</a>  / <a href="https://github.com/wezterm/wezterm">Wezterm</a>  内核的开源跨平台终端应用
     </h4>
     <p align="center">
   集成 SSH / Serial / SFTP / 回放 / 终端共享 / AI 助手，目标是成为一个现代化的终端工作台。
