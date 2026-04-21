@@ -373,6 +373,21 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
 
         // Reverse iterator and use it as the new grid storage.
         let mut reversed: Vec<Row<T>> = new_raw.drain(..).rev().collect();
+
+        if reflow && reversed.len() > self.lines {
+            let cursor_buffer_line = self.lines - self.cursor.point.line.0 as usize - 1;
+            let reclaimed = min(cursor_buffer_line, reversed.len() - self.lines);
+
+            if reclaimed != 0 {
+                reversed.drain(..reclaimed);
+                self.cursor.point.line += reclaimed;
+                self.saved_cursor.point.line = min(
+                    self.saved_cursor.point.line + reclaimed,
+                    Line(self.lines as i32 - 1),
+                );
+            }
+        }
+
         reversed.truncate(self.max_scroll_limit + self.lines);
         self.raw.replace_inner(reversed);
 

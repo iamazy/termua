@@ -126,6 +126,12 @@ pub struct SshJumpHop {
     pub port: Option<u16>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionEnvVar {
+    pub name: String,
+    pub value: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Session {
     pub id: i64,
@@ -135,7 +141,9 @@ pub struct Session {
 
     pub backend: TerminalBackend,
     pub term: String,
+    pub colorterm: Option<String>,
     pub charset: String,
+    pub env: Option<Vec<SessionEnvVar>>,
 
     // Local
     pub shell_program: Option<String>,
@@ -222,6 +230,8 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
           backend TEXT NOT NULL,
           term TEXT NOT NULL,
           charset TEXT NOT NULL,
+          colorterm TEXT,
+          session_env TEXT,
           shell_program TEXT,
           ssh_host TEXT,
           ssh_port INTEGER,
@@ -259,6 +269,8 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_sessions_column(conn, "ssh_proxy_jump", "TEXT")?;
     ensure_sessions_column(conn, "ssh_tcp_nodelay", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_sessions_column(conn, "ssh_tcp_keepalive", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_sessions_column(conn, "colorterm", "TEXT")?;
+    ensure_sessions_column(conn, "session_env", "TEXT")?;
     ensure_sessions_column(conn, "serial_port", "TEXT")?;
     ensure_sessions_column(conn, "serial_baud", "INTEGER")?;
     ensure_sessions_column(conn, "serial_data_bits", "INTEGER")?;
@@ -406,7 +418,9 @@ struct SessionWrite<'a> {
     label: &'a str,
     backend: TerminalBackend,
     term: &'a str,
+    colorterm: Option<&'a str>,
     charset: &'a str,
+    env: Vec<SessionEnvVar>,
     shell_program: Option<&'a str>,
     ssh_host: Option<&'a str>,
     ssh_port: Option<u16>,
@@ -435,7 +449,9 @@ impl<'a> SessionWrite<'a> {
         backend: TerminalBackend,
         shell_program: &'a str,
         term: &'a str,
+        colorterm: Option<&'a str>,
         charset: &'a str,
+        env: Vec<SessionEnvVar>,
     ) -> Self {
         Self {
             protocol: SessionType::Local,
@@ -443,7 +459,9 @@ impl<'a> SessionWrite<'a> {
             label,
             backend,
             term,
+            colorterm,
             charset,
+            env,
             shell_program: Some(shell_program),
             ssh_host: None,
             ssh_port: None,
@@ -476,7 +494,9 @@ impl<'a> SessionWrite<'a> {
         user: &'a str,
         password: &'a str,
         term: &'a str,
+        colorterm: Option<&'a str>,
         charset: &'a str,
+        env: Vec<SessionEnvVar>,
         ssh_tcp_nodelay: bool,
         ssh_tcp_keepalive: bool,
         proxy_mode: SshProxyMode,
@@ -491,7 +511,9 @@ impl<'a> SessionWrite<'a> {
             label,
             backend,
             term,
+            colorterm,
             charset,
+            env,
             shell_program: None,
             ssh_host: Some(host),
             ssh_port: Some(port),
@@ -522,7 +544,9 @@ impl<'a> SessionWrite<'a> {
         host: &'a str,
         port: u16,
         term: &'a str,
+        colorterm: Option<&'a str>,
         charset: &'a str,
+        env: Vec<SessionEnvVar>,
         ssh_tcp_nodelay: bool,
         ssh_tcp_keepalive: bool,
         proxy_mode: SshProxyMode,
@@ -537,7 +561,9 @@ impl<'a> SessionWrite<'a> {
             label,
             backend,
             term,
+            colorterm,
             charset,
+            env,
             shell_program: None,
             ssh_host: Some(host),
             ssh_port: Some(port),
@@ -580,7 +606,9 @@ impl<'a> SessionWrite<'a> {
             label,
             backend,
             term,
+            colorterm: None,
             charset,
+            env: Vec::new(),
             shell_program: None,
             ssh_host: None,
             ssh_port: None,
@@ -613,6 +641,15 @@ fn serialize_ssh_proxy_env(proxy_env: &[SshProxyEnvVar]) -> anyhow::Result<Optio
     ))
 }
 
+fn serialize_session_env(env: &[SessionEnvVar]) -> anyhow::Result<Option<String>> {
+    if env.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        serde_json::to_string(env).context("serialize session_env")?,
+    ))
+}
+
 fn serialize_ssh_proxy_jump(
     proxy_mode: Option<SshProxyMode>,
     proxy_jump: &[SshJumpHop],
@@ -629,18 +666,19 @@ fn insert_session_row(conn: &Connection, session: &SessionWrite<'_>) -> anyhow::
     let proxy_env_json = serialize_ssh_proxy_env(&session.ssh_proxy_env)?;
     let proxy_jump_json =
         serialize_ssh_proxy_jump(session.ssh_proxy_mode, &session.ssh_proxy_jump)?;
+    let session_env_json = serialize_session_env(&session.env)?;
 
     conn.execute(
         r#"
         INSERT INTO sessions (
           protocol, group_path, label,
-          backend, term, charset,
+          backend, term, charset, colorterm, session_env,
           shell_program,
           ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
           ssh_tcp_nodelay, ssh_tcp_keepalive,
           ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
           serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
         "#,
         params![
             protocol_to_str(&session.protocol),
@@ -649,6 +687,8 @@ fn insert_session_row(conn: &Connection, session: &SessionWrite<'_>) -> anyhow::
             backend_to_str(session.backend),
             session.term,
             session.charset,
+            session.colorterm,
+            session_env_json,
             session.shell_program,
             session.ssh_host,
             session.ssh_port.map(|value| value as i64),
@@ -680,6 +720,7 @@ fn update_session_row(
     let proxy_env_json = serialize_ssh_proxy_env(&session.ssh_proxy_env)?;
     let proxy_jump_json =
         serialize_ssh_proxy_jump(session.ssh_proxy_mode, &session.ssh_proxy_jump)?;
+    let session_env_json = serialize_session_env(&session.env)?;
 
     conn.execute(
         r#"
@@ -691,25 +732,27 @@ fn update_session_row(
           backend = ?5,
           term = ?6,
           charset = ?7,
-          shell_program = ?8,
-          ssh_host = ?9,
-          ssh_port = ?10,
-          ssh_auth_type = ?11,
-          ssh_user = ?12,
+          colorterm = ?8,
+          session_env = ?9,
+          shell_program = ?10,
+          ssh_host = ?11,
+          ssh_port = ?12,
+          ssh_auth_type = ?13,
+          ssh_user = ?14,
           ssh_credential_username = NULL,
-          ssh_tcp_nodelay = ?13,
-          ssh_tcp_keepalive = ?14,
-          ssh_proxy_mode = ?15,
-          ssh_proxy_command = ?16,
-          ssh_proxy_workdir = ?17,
-          ssh_proxy_env = ?18,
-          ssh_proxy_jump = ?19,
-          serial_port = ?20,
-          serial_baud = ?21,
-          serial_data_bits = ?22,
-          serial_parity = ?23,
-          serial_stop_bits = ?24,
-          serial_flow_control = ?25,
+          ssh_tcp_nodelay = ?15,
+          ssh_tcp_keepalive = ?16,
+          ssh_proxy_mode = ?17,
+          ssh_proxy_command = ?18,
+          ssh_proxy_workdir = ?19,
+          ssh_proxy_env = ?20,
+          ssh_proxy_jump = ?21,
+          serial_port = ?22,
+          serial_baud = ?23,
+          serial_data_bits = ?24,
+          serial_parity = ?25,
+          serial_stop_bits = ?26,
+          serial_flow_control = ?27,
           updated_at = unixepoch()
         WHERE id = ?1
         "#,
@@ -721,6 +764,8 @@ fn update_session_row(
             backend_to_str(session.backend),
             session.term,
             session.charset,
+            session.colorterm,
+            session_env_json,
             session.shell_program,
             session.ssh_host,
             session.ssh_port.map(|value| value as i64),
@@ -770,10 +815,41 @@ pub fn save_local_session(
     term: &str,
     charset: &str,
 ) -> anyhow::Result<i64> {
+    save_local_session_with_env(
+        group_path,
+        label,
+        backend,
+        shell_program,
+        term,
+        None,
+        charset,
+        Vec::new(),
+    )
+}
+
+pub fn save_local_session_with_env(
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    shell_program: &str,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<i64> {
     let conn = open()?;
     insert_session_row(
         &conn,
-        &SessionWrite::local(group_path, label, backend, shell_program, term, charset),
+        &SessionWrite::local(
+            group_path,
+            label,
+            backend,
+            shell_program,
+            term,
+            colorterm,
+            charset,
+            env,
+        ),
     )
     .context("insert local session")
 }
@@ -827,6 +903,49 @@ pub fn save_ssh_session_password_with_proxy(
     proxy_env: Vec<SshProxyEnvVar>,
     proxy_jump: Vec<SshJumpHop>,
 ) -> anyhow::Result<i64> {
+    save_ssh_session_password_with_proxy_and_env(
+        group_path,
+        label,
+        backend,
+        host,
+        port,
+        user,
+        password,
+        term,
+        None,
+        charset,
+        ssh_tcp_nodelay,
+        ssh_tcp_keepalive,
+        proxy_mode,
+        proxy_command,
+        proxy_workdir,
+        proxy_env,
+        proxy_jump,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn save_ssh_session_password_with_proxy_and_env(
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    ssh_tcp_nodelay: bool,
+    ssh_tcp_keepalive: bool,
+    proxy_mode: SshProxyMode,
+    proxy_command: Option<&str>,
+    proxy_workdir: Option<&str>,
+    proxy_env: Vec<SshProxyEnvVar>,
+    proxy_jump: Vec<SshJumpHop>,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<i64> {
     let conn = open()?;
     let session = SessionWrite::ssh_password(
         group_path,
@@ -837,7 +956,9 @@ pub fn save_ssh_session_password_with_proxy(
         user,
         password,
         term,
+        colorterm,
         charset,
+        env,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -894,6 +1015,45 @@ pub fn save_ssh_session_config_with_proxy(
     proxy_env: Vec<SshProxyEnvVar>,
     proxy_jump: Vec<SshJumpHop>,
 ) -> anyhow::Result<i64> {
+    save_ssh_session_config_with_proxy_and_env(
+        group_path,
+        label,
+        backend,
+        host,
+        port,
+        term,
+        None,
+        charset,
+        ssh_tcp_nodelay,
+        ssh_tcp_keepalive,
+        proxy_mode,
+        proxy_command,
+        proxy_workdir,
+        proxy_env,
+        proxy_jump,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn save_ssh_session_config_with_proxy_and_env(
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    host: &str,
+    port: u16,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    ssh_tcp_nodelay: bool,
+    ssh_tcp_keepalive: bool,
+    proxy_mode: SshProxyMode,
+    proxy_command: Option<&str>,
+    proxy_workdir: Option<&str>,
+    proxy_env: Vec<SshProxyEnvVar>,
+    proxy_jump: Vec<SshJumpHop>,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<i64> {
     let conn = open()?;
     insert_session_row(
         &conn,
@@ -904,7 +1064,9 @@ pub fn save_ssh_session_config_with_proxy(
             host,
             port,
             term,
+            colorterm,
             charset,
+            env,
             ssh_tcp_nodelay,
             ssh_tcp_keepalive,
             proxy_mode,
@@ -957,12 +1119,12 @@ pub fn load_all_sessions() -> anyhow::Result<Vec<Session>> {
             r#"
 	            SELECT
 	              id, protocol, group_path, label,
-	              backend, term, charset,
-	              shell_program,
-	              ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
-	              ssh_tcp_nodelay, ssh_tcp_keepalive,
-	              ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
-                  serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
+	              backend, term, charset, colorterm, session_env,
+              shell_program,
+              ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
+              ssh_tcp_nodelay, ssh_tcp_keepalive,
+              ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
+              serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
 	            FROM sessions
 	            ORDER BY group_path ASC, label ASC, id ASC
 	            "#,
@@ -986,12 +1148,12 @@ pub fn load_session(id: i64) -> anyhow::Result<Option<Session>> {
         r#"
 	    SELECT
 	      id, protocol, group_path, label,
-	      backend, term, charset,
-	      shell_program,
-	      ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
-	      ssh_tcp_nodelay, ssh_tcp_keepalive,
-	      ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
-          serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
+	      backend, term, charset, colorterm, session_env,
+              shell_program,
+              ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
+              ssh_tcp_nodelay, ssh_tcp_keepalive,
+              ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
+              serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
 	    FROM sessions
 	    WHERE id = ?1
         "#,
@@ -1021,27 +1183,29 @@ fn parse_session_row(row: &rusqlite::Row<'_>, include_password: bool) -> rusqlit
         label: row.get(3)?,
         backend,
         term: row.get(5)?,
+        colorterm: row.get(7)?,
         charset: row.get(6)?,
-        shell_program: row.get(7)?,
-        ssh_host: row.get(8)?,
-        ssh_port: row.get::<_, Option<i64>>(9)?.map(|v| v as u16),
+        env: parse_session_env(row)?,
+        shell_program: row.get(9)?,
+        ssh_host: row.get(10)?,
+        ssh_port: row.get::<_, Option<i64>>(11)?.map(|v| v as u16),
         ssh_auth_type,
-        ssh_user: row.get(11)?,
-        ssh_credential_username: row.get(12)?,
+        ssh_user: row.get(13)?,
+        ssh_credential_username: row.get(14)?,
         ssh_password,
 
-        ssh_tcp_nodelay: row.get::<_, i64>(13)? != 0,
-        ssh_tcp_keepalive: row.get::<_, i64>(14)? != 0,
+        ssh_tcp_nodelay: row.get::<_, i64>(15)? != 0,
+        ssh_tcp_keepalive: row.get::<_, i64>(16)? != 0,
 
         ssh_proxy_mode: parse_ssh_proxy_mode(row)?,
-        ssh_proxy_command: row.get(16)?,
-        ssh_proxy_workdir: row.get(17)?,
+        ssh_proxy_command: row.get(18)?,
+        ssh_proxy_workdir: row.get(19)?,
         ssh_proxy_env: parse_ssh_proxy_env(row)?,
         ssh_proxy_jump: parse_ssh_proxy_jump(row)?,
 
-        serial_port: row.get(20)?,
-        serial_baud: row.get::<_, Option<i64>>(21)?.map(|v| v as u32),
-        serial_data_bits: row.get::<_, Option<i64>>(22)?.map(|v| v as u8),
+        serial_port: row.get(22)?,
+        serial_baud: row.get::<_, Option<i64>>(23)?.map(|v| v as u32),
+        serial_data_bits: row.get::<_, Option<i64>>(24)?.map(|v| v as u8),
         serial_parity: parse_serial_parity(row)?,
         serial_stop_bits: parse_serial_stop_bits(row)?,
         serial_flow_control: parse_serial_flow_control(row)?,
@@ -1061,51 +1225,56 @@ fn parse_backend(row: &rusqlite::Row<'_>) -> rusqlite::Result<TerminalBackend> {
 }
 
 fn parse_ssh_auth_type(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SshAuthType>> {
-    let ssh_auth_s: Option<String> = row.get(10)?;
+    let ssh_auth_s: Option<String> = row.get(12)?;
     ssh_auth_s
         .map(|s| {
             ssh_auth_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(10, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(12, ParseError(e.to_string())))
         })
         .transpose()
 }
 
+fn parse_session_env(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SessionEnvVar>>> {
+    let session_env_s: Option<String> = row.get(8)?;
+    Ok(session_env_s.and_then(|raw| serde_json_lenient::from_str::<Vec<SessionEnvVar>>(&raw).ok()))
+}
+
 fn parse_ssh_proxy_mode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SshProxyMode>> {
-    let ssh_proxy_mode_s: Option<String> = row.get(15)?;
+    let ssh_proxy_mode_s: Option<String> = row.get(17)?;
     ssh_proxy_mode_s
         .map(|s| {
             ssh_proxy_mode_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(15, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(17, ParseError(e.to_string())))
         })
         .transpose()
 }
 
 fn parse_ssh_proxy_env(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SshProxyEnvVar>>> {
-    let ssh_proxy_env_s: Option<String> = row.get(18)?;
+    let ssh_proxy_env_s: Option<String> = row.get(20)?;
     Ok(ssh_proxy_env_s
         .and_then(|raw| serde_json_lenient::from_str::<Vec<SshProxyEnvVar>>(&raw).ok()))
 }
 
 fn parse_ssh_proxy_jump(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SshJumpHop>>> {
-    let ssh_proxy_jump_s: Option<String> = row.get(19)?;
+    let ssh_proxy_jump_s: Option<String> = row.get(21)?;
     Ok(ssh_proxy_jump_s.and_then(|raw| serde_json_lenient::from_str::<Vec<SshJumpHop>>(&raw).ok()))
 }
 
 fn parse_serial_parity(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SerialParity>> {
-    let serial_parity_s: Option<String> = row.get(23)?;
+    let serial_parity_s: Option<String> = row.get(25)?;
     serial_parity_s
         .map(|s| {
             serial_parity_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(23, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(25, ParseError(e.to_string())))
         })
         .transpose()
 }
 
 fn parse_serial_stop_bits(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SerialStopBits>> {
-    row.get::<_, Option<i64>>(24)?
+    row.get::<_, Option<i64>>(26)?
         .map(|v| {
             serial_stop_bits_from_i64(v)
-                .map_err(|e| from_sql_int_parse_error(24, ParseError(e.to_string())))
+                .map_err(|e| from_sql_int_parse_error(26, ParseError(e.to_string())))
         })
         .transpose()
 }
@@ -1113,11 +1282,11 @@ fn parse_serial_stop_bits(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Se
 fn parse_serial_flow_control(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<Option<SerialFlowControl>> {
-    let serial_flow_control_s: Option<String> = row.get(25)?;
+    let serial_flow_control_s: Option<String> = row.get(27)?;
     serial_flow_control_s
         .map(|s| {
             serial_flow_control_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(25, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(27, ParseError(e.to_string())))
         })
         .transpose()
 }
@@ -1167,12 +1336,45 @@ pub fn update_local_session(
     term: &str,
     charset: &str,
 ) -> anyhow::Result<()> {
+    update_local_session_with_env(
+        id,
+        group_path,
+        label,
+        backend,
+        shell_program,
+        term,
+        None,
+        charset,
+        Vec::new(),
+    )
+}
+
+pub fn update_local_session_with_env(
+    id: i64,
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    shell_program: &str,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<()> {
     delete_ssh_password_if_present(id);
     let conn = open()?;
     update_session_row(
         &conn,
         id,
-        &SessionWrite::local(group_path, label, backend, shell_program, term, charset),
+        &SessionWrite::local(
+            group_path,
+            label,
+            backend,
+            shell_program,
+            term,
+            colorterm,
+            charset,
+            env,
+        ),
     )
     .context("update local session")
 }
@@ -1229,6 +1431,51 @@ pub fn update_ssh_session_password_with_proxy(
     proxy_env: Vec<SshProxyEnvVar>,
     proxy_jump: Vec<SshJumpHop>,
 ) -> anyhow::Result<()> {
+    update_ssh_session_password_with_proxy_and_env(
+        id,
+        group_path,
+        label,
+        backend,
+        host,
+        port,
+        user,
+        password,
+        term,
+        None,
+        charset,
+        ssh_tcp_nodelay,
+        ssh_tcp_keepalive,
+        proxy_mode,
+        proxy_command,
+        proxy_workdir,
+        proxy_env,
+        proxy_jump,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_ssh_session_password_with_proxy_and_env(
+    id: i64,
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    ssh_tcp_nodelay: bool,
+    ssh_tcp_keepalive: bool,
+    proxy_mode: SshProxyMode,
+    proxy_command: Option<&str>,
+    proxy_workdir: Option<&str>,
+    proxy_env: Vec<SshProxyEnvVar>,
+    proxy_jump: Vec<SshJumpHop>,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<()> {
     let conn = open()?;
     let session = SessionWrite::ssh_password(
         group_path,
@@ -1239,7 +1486,9 @@ pub fn update_ssh_session_password_with_proxy(
         user,
         password,
         term,
+        colorterm,
         charset,
+        env,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -1299,6 +1548,47 @@ pub fn update_ssh_session_config_with_proxy(
     proxy_env: Vec<SshProxyEnvVar>,
     proxy_jump: Vec<SshJumpHop>,
 ) -> anyhow::Result<()> {
+    update_ssh_session_config_with_proxy_and_env(
+        id,
+        group_path,
+        label,
+        backend,
+        host,
+        port,
+        term,
+        None,
+        charset,
+        ssh_tcp_nodelay,
+        ssh_tcp_keepalive,
+        proxy_mode,
+        proxy_command,
+        proxy_workdir,
+        proxy_env,
+        proxy_jump,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_ssh_session_config_with_proxy_and_env(
+    id: i64,
+    group_path: &str,
+    label: &str,
+    backend: TerminalBackend,
+    host: &str,
+    port: u16,
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    ssh_tcp_nodelay: bool,
+    ssh_tcp_keepalive: bool,
+    proxy_mode: SshProxyMode,
+    proxy_command: Option<&str>,
+    proxy_workdir: Option<&str>,
+    proxy_env: Vec<SshProxyEnvVar>,
+    proxy_jump: Vec<SshJumpHop>,
+    env: Vec<SessionEnvVar>,
+) -> anyhow::Result<()> {
     delete_ssh_password_if_present(id);
     let conn = open()?;
     update_session_row(
@@ -1311,7 +1601,9 @@ pub fn update_ssh_session_config_with_proxy(
             host,
             port,
             term,
+            colorterm,
             charset,
+            env,
             ssh_tcp_nodelay,
             ssh_tcp_keepalive,
             proxy_mode,
@@ -1678,6 +1970,74 @@ pub(crate) mod tests {
         );
         assert_eq!(ssh.ssh_proxy_workdir.as_deref(), Some("/tmp"));
         assert_eq!(ssh.ssh_proxy_env.as_deref(), Some(env.as_slice()));
+    }
+
+    #[test]
+    fn local_env_settings_roundtrip_through_sqlite() {
+        let db_path = unique_test_db_path("local-env");
+        let _guard = override_termua_db_path(db_path);
+
+        let env = vec![
+            SessionEnvVar {
+                name: "COLORTERM".to_string(),
+                value: "24bit".to_string(),
+            },
+            SessionEnvVar {
+                name: "FOO".to_string(),
+                value: "bar".to_string(),
+            },
+        ];
+
+        let id = save_local_session_with_env(
+            "local",
+            "fish",
+            TerminalBackend::Wezterm,
+            "fish",
+            "xterm-256color",
+            Some("truecolor"),
+            "UTF-8",
+            env.clone(),
+        )
+        .unwrap();
+
+        let local = load_session(id).unwrap().unwrap();
+        assert_eq!(local.colorterm.as_deref(), Some("truecolor"));
+        assert_eq!(local.env.as_deref(), Some(env.as_slice()));
+    }
+
+    #[test]
+    fn ssh_remote_env_settings_roundtrip_through_sqlite() {
+        let db_path = unique_test_db_path("ssh-env");
+        let _guard = override_termua_db_path(db_path);
+
+        let env = vec![SessionEnvVar {
+            name: "LANG".to_string(),
+            value: "C.UTF-8".to_string(),
+        }];
+
+        let id = save_ssh_session_config_with_proxy_and_env(
+            "ssh",
+            "prod",
+            TerminalBackend::Wezterm,
+            "example.com",
+            22,
+            "xterm-256color",
+            Some("truecolor"),
+            "UTF-8",
+            true,
+            false,
+            SshProxyMode::Disabled,
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            env.clone(),
+        )
+        .unwrap();
+
+        let ssh = load_session(id).unwrap().unwrap();
+        assert_eq!(ssh.colorterm.as_deref(), Some("truecolor"));
+        assert_eq!(ssh.env.as_deref(), Some(env.as_slice()));
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub(super) fn ssh_user_input_box_width(
     let padding_x = Size::Medium.input_px() * 2;
     let border_x = px(2.0);
     let content_width = user_text_width + padding_x + border_x;
-    content_width.max(px(120.0)).min(px(200.0))
+    content_width.max(px(96.0)).min(px(160.0))
 }
 
 fn measure_text_advance_width(

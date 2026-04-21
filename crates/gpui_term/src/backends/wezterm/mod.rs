@@ -117,13 +117,6 @@ impl TerminalBuilder {
 
         let (master, child, sftp) = match source {
             PtySource::Local { env, window_id: _ } => {
-                // env.entry("LANG".to_string())
-                //     .or_insert_with(|| "en_US.UTF-8".to_string());
-                // env.entry("TERM".to_string())
-                //     .or_insert_with(|| "xterm-256color".to_string());
-                // env.entry("COLORTERM".to_string())
-                //     .or_insert_with(|| "truecolor".to_string());
-
                 let pty_system = native_pty_system();
                 let pair = pty_system.openpty(PtySize {
                     rows: 24,

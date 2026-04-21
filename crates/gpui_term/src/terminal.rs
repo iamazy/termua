@@ -29,8 +29,6 @@ actions!(
         ShowCharacterPalette,
         /// Opens the in-terminal search UI.
         Search,
-        /// Searches for text in the terminal. (Deprecated: use `Search`)
-        SearchTest,
         /// Jump to the next match in the active search.
         SearchNext,
         /// Jump to the previous match in the active search.

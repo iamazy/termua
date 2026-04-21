@@ -59,6 +59,8 @@ NewSession:
     Group: "分组："
     Term: "Term："
     Charset: "字符集："
+    ColorTerm: "ColorTerm："
+    EnvironmentVariables: "环境变量："
     Host: "主机："
     Port: "端口："
   Nav:

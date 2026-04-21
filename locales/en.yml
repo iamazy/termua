@@ -52,6 +52,7 @@ NewSession:
     JumpHost: "jump host"
     JumpUser: "user"
     JumpPort: "22"
+    ColorTerm: "truecolor"
   Field:
     Shell: "Shell:"
     Type: "Type:"
@@ -59,6 +60,8 @@ NewSession:
     Group: "Group:"
     Term: "Term:"
     Charset: "Charset:"
+    ColorTerm: "ColorTerm:"
+    EnvironmentVariables: "Environment variables:"
     Host: "Host:"
     Port: "Port:"
   Nav:

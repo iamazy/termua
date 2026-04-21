@@ -36,7 +36,7 @@ use smol::Timer;
 use super::TermuaWindow;
 use crate::{
     NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, SerialParams, SshParams, TermuaAppState,
-    env::{build_local_terminal_env, cast_player_child_env},
+    env::{build_terminal_env, cast_player_child_env},
     lock_screen, notification,
     panel::{PanelKind, SshErrorPanel, TerminalPanel, terminal_panel_tab_name},
     sharing::{
@@ -2644,10 +2644,13 @@ impl TermuaWindow {
         cx: &mut Context<Self>,
     ) {
         let shell_program = session.shell_program.unwrap_or_default();
-        let env = build_local_terminal_env(
+        let session_env = session.env.clone().unwrap_or_default();
+        let env = build_terminal_env(
             shell_program.as_str(),
             session.term.as_str(),
+            session.colorterm.as_deref(),
             session.charset.as_str(),
+            &session_env,
         );
         self.add_local_terminal_with_params(backend_type, env, window, cx);
     }
@@ -2665,7 +2668,14 @@ impl TermuaWindow {
         };
         let port = session.ssh_port.unwrap_or(22);
 
-        let env = build_local_terminal_env("", session.term.as_str(), session.charset.as_str());
+        let session_env = session.env.clone().unwrap_or_default();
+        let env = build_terminal_env(
+            "",
+            session.term.as_str(),
+            session.colorterm.as_deref(),
+            session.charset.as_str(),
+            &session_env,
+        );
         let proxy = ssh_proxy_from_session(&session);
         let name = session.label;
 

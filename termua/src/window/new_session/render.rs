@@ -20,7 +20,7 @@ use rust_i18n::t;
 
 use super::{
     NewSessionWindow, Page, Protocol, SerialSessionState, ShellSessionState, SshAuthType,
-    SshSessionState, new_proxy_env_row_state, new_proxy_jump_row_state, ssh,
+    SshSessionState, new_env_row_state, new_proxy_env_row_state, new_proxy_jump_row_state, ssh,
     ssh::ssh_user_input_box_width,
 };
 use crate::store::SshProxyMode;
@@ -457,12 +457,81 @@ fn render_form_row(
 }
 
 impl ShellSessionState {
+    fn render_env_editor(&self, view: Entity<NewSessionWindow>) -> impl IntoElement {
+        let mut rows = v_flex()
+            .w_full()
+            .gap_1()
+            .debug_selector(|| "termua-new-session-shell-env".to_string());
+
+        for row in self.env_rows.iter() {
+            let row_id = row.id;
+            let view = view.clone();
+            rows = rows.child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(120.))
+                            .child(Input::new(&row.name_input)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(160.))
+                            .child(Input::new(&row.value_input)),
+                    )
+                    .child(
+                        Button::new(format!("termua-new-session-shell-env-del-{row_id}"))
+                            .icon(IconName::Minus)
+                            .xsmall()
+                            .ghost()
+                            .tab_stop(false)
+                            .on_click(move |_, window, app| {
+                                view.update(app, |this, cx| {
+                                    this.shell.env_rows.retain(|r| r.id != row_id);
+                                    cx.notify();
+                                });
+                                window.refresh();
+                            }),
+                    ),
+            );
+        }
+
+        rows.child(
+            h_flex().justify_end().child(
+                Button::new("termua-new-session-shell-env-add")
+                    .icon(IconName::Plus)
+                    .xsmall()
+                    .ghost()
+                    .tab_stop(false)
+                    .on_click(move |_, window, app| {
+                        view.update(app, |this, cx| {
+                            let id = this.shell.env_next_id;
+                            this.shell.env_next_id += 1;
+                            this.shell
+                                .env_rows
+                                .push(new_env_row_state(id, window, cx, None, None));
+                            cx.notify();
+                        });
+                        window.refresh();
+                    }),
+            ),
+        )
+    }
+}
+
+impl ShellSessionState {
     pub(super) fn render(
         &self,
-        _view: Entity<NewSessionWindow>,
+        view: Entity<NewSessionWindow>,
         _window: &mut Window,
         cx: &mut Context<NewSessionWindow>,
     ) -> impl IntoElement {
+        let env_editor = self.render_env_editor(view);
+
         v_flex()
             .id("termua-new-session-shell-session")
             .gap_3()
@@ -514,6 +583,19 @@ impl ShellSessionState {
                     .w_full()
                     .debug_selector(|| "termua-new-session-shell-charset-select".to_string())
                     .child(Select::new(&self.common.charset_select)),
+                cx,
+            ))
+            .child(render_form_row(
+                t!("NewSession.Field.ColorTerm").to_string(),
+                div()
+                    .w_full()
+                    .debug_selector(|| "termua-new-session-shell-colorterm-select".to_string())
+                    .child(Select::new(&self.colorterm_select)),
+                cx,
+            ))
+            .child(render_form_row(
+                t!("NewSession.Field.EnvironmentVariables").to_string(),
+                env_editor,
                 cx,
             ))
     }
@@ -600,6 +682,71 @@ impl SshSessionState {
         )
     }
 
+    fn render_env_editor(&self, view: Entity<NewSessionWindow>) -> impl IntoElement {
+        let mut rows = v_flex()
+            .w_full()
+            .gap_1()
+            .debug_selector(|| "termua-new-session-ssh-env".to_string());
+
+        for row in self.env_rows.iter() {
+            let row_id = row.id;
+            let view = view.clone();
+            rows = rows.child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(120.))
+                            .child(Input::new(&row.name_input)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(160.))
+                            .child(Input::new(&row.value_input)),
+                    )
+                    .child(
+                        Button::new(format!("termua-new-session-ssh-env-del-{row_id}"))
+                            .icon(IconName::Minus)
+                            .xsmall()
+                            .ghost()
+                            .tab_stop(false)
+                            .on_click(move |_, window, app| {
+                                view.update(app, |this, cx| {
+                                    this.ssh.env_rows.retain(|r| r.id != row_id);
+                                    cx.notify();
+                                });
+                                window.refresh();
+                            }),
+                    ),
+            );
+        }
+
+        rows.child(
+            h_flex().justify_end().child(
+                Button::new("termua-new-session-ssh-env-add")
+                    .icon(IconName::Plus)
+                    .xsmall()
+                    .ghost()
+                    .tab_stop(false)
+                    .on_click(move |_, window, app| {
+                        view.update(app, |this, cx| {
+                            let id = this.ssh.env_next_id;
+                            this.ssh.env_next_id += 1;
+                            this.ssh
+                                .env_rows
+                                .push(new_env_row_state(id, window, cx, None, None));
+                            cx.notify();
+                        });
+                        window.refresh();
+                    }),
+            ),
+        )
+    }
+
     fn render_proxy_jump_editor(&self, view: Entity<NewSessionWindow>) -> impl IntoElement {
         let mut rows = v_flex()
             .w_full()
@@ -671,47 +818,112 @@ impl SshSessionState {
     fn render_host_row(
         &self,
         host_error: Option<String>,
+        port_error: Option<String>,
         window: &mut Window,
         cx: &mut Context<NewSessionWindow>,
     ) -> gpui::AnyElement {
+        let inline_port = |host_input: gpui::AnyElement,
+                           this: &Self,
+                           port_error: Option<String>,
+                           cx: &mut Context<NewSessionWindow>| {
+            v_flex()
+                .gap_1()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap_1()
+                        .child(host_input)
+                        .child(
+                            div()
+                                .debug_selector(|| {
+                                    "termua-new-session-ssh-host-port-colon".to_string()
+                                })
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(":"),
+                        )
+                        .child(
+                            div()
+                                .w(px(80.))
+                                .debug_selector(|| {
+                                    "termua-new-session-ssh-port-inline-input".to_string()
+                                })
+                                .child(
+                                    Input::new(&this.port_input)
+                                        .when(port_error.is_some(), |this| {
+                                            this.border_color(cx.theme().danger)
+                                        }),
+                                ),
+                        ),
+                )
+                .when_some(port_error, |this, msg| {
+                    this.child(
+                        div()
+                            .debug_selector(|| "termua-new-session-ssh-port-error".to_string())
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .child(msg),
+                    )
+                })
+        };
+
         let control = match self.auth_type {
             SshAuthType::Password => {
                 let user_value = self.user_input.read(cx).value();
                 let user_w = ssh_user_input_box_width(window, cx, user_value.as_ref());
 
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(user_w)
-                            .debug_selector(|| "termua-new-session-ssh-user-input".to_string())
-                            .child(Input::new(&self.user_input)),
-                    )
-                    .child(
-                        div()
-                            .debug_selector(|| "termua-new-session-ssh-at-label".to_string())
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("@"),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(120.))
-                            .debug_selector(|| "termua-new-session-ssh-host-input".to_string())
-                            .child(Input::new(&self.host_input)),
-                    )
-                    .into_any_element()
+                inline_port(
+                    h_flex()
+                        .flex_1()
+                        .min_w(px(160.))
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div()
+                                .w(user_w)
+                                .flex_shrink_0()
+                                .debug_selector(|| "termua-new-session-ssh-user-input".to_string())
+                                .child(Input::new(&self.user_input)),
+                        )
+                        .child(
+                            div()
+                                .debug_selector(|| "termua-new-session-ssh-at-label".to_string())
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("@"),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(160.))
+                                .debug_selector(|| "termua-new-session-ssh-host-input".to_string())
+                                .child(Input::new(&self.host_input)),
+                        )
+                        .into_any_element(),
+                    self,
+                    port_error,
+                    cx,
+                )
+                .into_any_element()
             }
             SshAuthType::Config => v_flex()
                 .gap_1()
-                .child(
-                    Input::new(&self.host_input).when(host_error.is_some(), |this| {
-                        this.border_color(cx.theme().danger)
-                    }),
-                )
+                .child(inline_port(
+                    div()
+                        .flex_1()
+                        .min_w(px(160.))
+                        .debug_selector(|| "termua-new-session-ssh-host-input".to_string())
+                        .child(
+                            Input::new(&self.host_input).when(host_error.is_some(), |this| {
+                                this.border_color(cx.theme().danger)
+                            }),
+                        )
+                        .into_any_element(),
+                    self,
+                    port_error,
+                    cx,
+                ))
                 .when_some(host_error, |this, msg| {
                     this.child(
                         div()
@@ -725,31 +937,6 @@ impl SshSessionState {
         };
 
         render_form_row(t!("NewSession.Field.Host").to_string(), control, cx).into_any_element()
-    }
-
-    fn render_port_row(
-        &self,
-        port_error: Option<String>,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> gpui::AnyElement {
-        let control = v_flex()
-            .gap_1()
-            .child(
-                Input::new(&self.port_input).when(port_error.is_some(), |this| {
-                    this.border_color(cx.theme().danger)
-                }),
-            )
-            .when_some(port_error, |this, msg| {
-                this.child(
-                    div()
-                        .debug_selector(|| "termua-new-session-ssh-port-error".to_string())
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(msg),
-                )
-            });
-
-        render_form_row(t!("NewSession.Field.Port").to_string(), control, cx).into_any_element()
     }
 
     fn render_auth_type_row(&self, cx: &mut Context<NewSessionWindow>) -> gpui::AnyElement {
@@ -842,7 +1029,8 @@ impl SshSessionState {
         view: Entity<NewSessionWindow>,
         cx: &mut Context<NewSessionWindow>,
     ) -> Vec<gpui::AnyElement> {
-        let view_sftp = view;
+        let view_sftp = view.clone();
+        let env_editor = self.render_env_editor(view);
         vec![
             render_form_row(
                 t!("NewSession.Field.Type").to_string(),
@@ -892,6 +1080,21 @@ impl SshSessionState {
             )
             .into_any_element(),
             render_form_row(
+                t!("NewSession.Field.ColorTerm").to_string(),
+                div()
+                    .w_full()
+                    .debug_selector(|| "termua-new-session-ssh-colorterm-select".to_string())
+                    .child(Select::new(&self.colorterm_select)),
+                cx,
+            )
+            .into_any_element(),
+            render_form_row(
+                t!("NewSession.Field.EnvironmentVariables").to_string(),
+                env_editor,
+                cx,
+            )
+            .into_any_element(),
+            render_form_row(
                 t!("NewSession.Ssh.Field.Sftp").to_string(),
                 Switch::new("termua-new-session-ssh-sftp")
                     .checked(self.sftp)
@@ -923,8 +1126,7 @@ impl SshSessionState {
             .then_some(t!("NewSession.Ssh.Error.PortRange").to_string());
 
         let mut rows = Vec::new();
-        rows.push(self.render_host_row(host_error, window, cx));
-        rows.push(self.render_port_row(port_error, cx));
+        rows.push(self.render_host_row(host_error, port_error, window, cx));
         rows.push(self.render_auth_type_row(cx));
         if let Some(row) = self.render_password_row(view.clone(), !self.password_edit_unlocked, cx)
         {

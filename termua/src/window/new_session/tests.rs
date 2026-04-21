@@ -2,7 +2,85 @@ use gpui::{ParentElement, Render, Styled, div};
 use gpui_common::TermuaIcon;
 
 use super::*;
-use crate::env::build_local_terminal_env;
+use crate::env::build_terminal_env;
+
+#[test]
+fn new_session_colorterm_field_label_uses_camel_case_locale() {
+    assert_eq!(rust_i18n::t!("NewSession.Field.ColorTerm"), "ColorTerm:");
+}
+
+#[gpui::test]
+fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    assert!(
+        win.debug_bounds("termua-new-session-shell-colorterm-select")
+            .is_some(),
+        "expected shell ColorTerm to use a select control"
+    );
+    assert!(
+        win.debug_bounds("termua-new-session-shell-colorterm-input")
+            .is_none(),
+        "expected shell ColorTerm input to be replaced by a select"
+    );
+
+    let shell_colorterm = win.update(|_window, app| {
+        view.read(app)
+            .shell
+            .colorterm_select
+            .read(app)
+            .selected_value()
+            .map(|value| value.to_string())
+    });
+    assert_eq!(shell_colorterm.as_deref(), Some("truecolor"));
+
+    win.update(|window, app| {
+        view.update(app, |this, cx| {
+            this.set_protocol(Protocol::Ssh, cx);
+        });
+        window.refresh();
+    });
+    win.run_until_parked();
+
+    let ssh_colorterm = win.update(|_window, app| {
+        view.read(app)
+            .ssh
+            .colorterm_select
+            .read(app)
+            .selected_value()
+            .map(|value| value.to_string())
+    });
+    assert_eq!(ssh_colorterm.as_deref(), Some("truecolor"));
+}
 
 #[test]
 fn new_session_connect_enabled() {
@@ -104,8 +182,164 @@ fn new_session_ssh_password_mode_renders_split_user_and_host_inputs(cx: &mut gpu
         .debug_bounds("termua-new-session-ssh-host-input")
         .expect("host input bounds should exist");
     assert!(
-        host.size.width >= gpui::px(120.0),
-        "expected host input to be usable, got {host:?}"
+        host.size.width >= gpui::px(160.0),
+        "expected host input to be wider, got {host:?}"
+    );
+}
+
+#[gpui::test]
+fn new_session_ssh_host_row_includes_inline_port_input(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            view.update(app, |this, cx| {
+                this.set_protocol(Protocol::Ssh, cx);
+                this.ssh
+                    .set_auth_type_for_test_only(SshAuthType::Password, window, cx);
+            });
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let host = win
+        .debug_bounds("termua-new-session-ssh-host-input")
+        .expect("host input bounds should exist");
+    let colon = win
+        .debug_bounds("termua-new-session-ssh-host-port-colon")
+        .expect("expected colon separator between host and port");
+    let port = win
+        .debug_bounds("termua-new-session-ssh-port-inline-input")
+        .expect("expected inline port input after host");
+
+    assert!(
+        (host.origin.y - port.origin.y).abs() <= gpui::px(1.0),
+        "expected host and port controls on the same row; got host={host:?}, port={port:?}"
+    );
+    assert!(
+        colon.origin.x >= host.origin.x,
+        "expected colon separator to appear after host; got host={host:?}, colon={colon:?}"
+    );
+    assert!(
+        win.debug_bounds("termua-new-session-ssh-port-row")
+            .is_none(),
+        "expected standalone SSH port row to be removed"
+    );
+}
+
+#[gpui::test]
+fn new_session_ssh_inline_port_input_is_more_compact(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            view.update(app, |this, cx| {
+                this.set_protocol(Protocol::Ssh, cx);
+                this.ssh
+                    .set_auth_type_for_test_only(SshAuthType::Password, window, cx);
+            });
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let port = win
+        .debug_bounds("termua-new-session-ssh-port-inline-input")
+        .expect("port input bounds should exist");
+
+    assert!(
+        port.size.width <= gpui::px(80.0) + gpui::px(1.0),
+        "expected inline port input to be narrower; got {port:?}"
+    );
+    assert!(
+        port.size.width >= gpui::px(64.0) - gpui::px(1.0),
+        "expected inline port input to remain usable; got {port:?}"
+    );
+}
+
+#[gpui::test]
+fn new_session_ssh_inline_separators_use_compact_spacing(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            view.update(app, |this, cx| {
+                this.set_protocol(Protocol::Ssh, cx);
+                this.ssh
+                    .set_auth_type_for_test_only(SshAuthType::Password, window, cx);
+            });
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let user = win
+        .debug_bounds("termua-new-session-ssh-user-input")
+        .expect("user input bounds should exist");
+    let at = win
+        .debug_bounds("termua-new-session-ssh-at-label")
+        .expect("@ label bounds should exist");
+    let host = win
+        .debug_bounds("termua-new-session-ssh-host-input")
+        .expect("host input bounds should exist");
+    let colon = win
+        .debug_bounds("termua-new-session-ssh-host-port-colon")
+        .expect("colon bounds should exist");
+    let port = win
+        .debug_bounds("termua-new-session-ssh-port-inline-input")
+        .expect("port input bounds should exist");
+
+    let user_to_at = at.origin.x - (user.origin.x + user.size.width);
+    let at_to_host = host.origin.x - (at.origin.x + at.size.width);
+    let host_to_colon = colon.origin.x - (host.origin.x + host.size.width);
+    let colon_to_port = port.origin.x - (colon.origin.x + colon.size.width);
+
+    assert!(
+        user_to_at <= gpui::px(6.0),
+        "expected compact spacing before @; got {user_to_at:?}"
+    );
+    assert!(
+        at_to_host <= gpui::px(6.0),
+        "expected compact spacing after @; got {at_to_host:?}"
+    );
+    assert!(
+        host_to_colon <= gpui::px(6.0),
+        "expected compact spacing before :; got {host_to_colon:?}"
+    );
+    assert!(
+        colon_to_port <= gpui::px(6.0),
+        "expected compact spacing after :; got {colon_to_port:?}"
     );
 }
 
@@ -160,22 +394,21 @@ fn new_session_ssh_user_input_has_min_width_120px_and_grows_until_200px(
          0123456789012345678901234567890123456789012345678901234567890123456789",
     );
 
-    let dw = (w10 - w1).abs();
     assert!(
-        (w1 - gpui::px(120.0)).abs() <= gpui::px(1.0),
-        "expected min width 120px; got {w1:?}"
+        (w1 - gpui::px(96.0)).abs() <= gpui::px(1.0),
+        "expected min width 96px; got {w1:?}"
     );
     assert!(
-        dw <= gpui::px(1.0),
-        "expected short text to keep fixed width; got {w1:?} vs {w10:?} (dw={dw:?})"
+        w10 > w1,
+        "expected width to start growing sooner; got {w1:?} vs {w10:?}"
     );
     assert!(
         w40 > w10,
         "expected width to grow when text is long; got {w10:?} vs {w40:?}"
     );
     assert!(
-        w200 <= gpui::px(200.0) + gpui::px(1.0),
-        "expected width to cap at 200px; got {w200:?}"
+        w200 <= gpui::px(160.0) + gpui::px(1.0),
+        "expected width to cap at 160px; got {w200:?}"
     );
 }
 
@@ -1225,6 +1458,8 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
+                colorterm: None,
+                env: None,
             };
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
             div().size_full().child(view)
@@ -1286,6 +1521,8 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
+                colorterm: None,
+                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
@@ -1362,6 +1599,8 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
+                colorterm: None,
+                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
@@ -1379,13 +1618,13 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
 
 #[test]
 fn local_terminal_env_includes_shell_term_and_locale() {
-    let env = build_local_terminal_env("/bin/zsh", "xterm-256color", "UTF-8");
+    let env = build_terminal_env("/bin/zsh", "xterm-256color", None, "UTF-8", &[]);
     assert_eq!(env.get("SHELL"), Some(&"/bin/zsh".to_string()));
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/zsh".to_string()));
     assert_eq!(env.get("TERM"), Some(&"xterm-256color".to_string()));
     assert_eq!(env.get("LANG"), Some(&"en_US.UTF-8".to_string()));
 
-    let env = build_local_terminal_env("/bin/bash", "screen-256color", "ASCII");
+    let env = build_terminal_env("/bin/bash", "screen-256color", None, "ASCII", &[]);
     assert_eq!(env.get("SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERM"), Some(&"screen-256color".to_string()));
@@ -1528,6 +1767,97 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         sessions[0].shell_program.as_deref(),
         Some(expected_shell_program.as_str())
     );
+}
+
+#[gpui::test]
+fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_component::init(app);
+    });
+
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-new-session-local-env-persist-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let db_path = tmp_dir.join("termua").join("termua.db");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(860.)),
+            gpui::AvailableSpace::Definite(gpui::px(640.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    win.update(|window, app| {
+        view.update(app, |this, cx| {
+            this.shell.set_colorterm("truecolor", window, cx);
+
+            let env_id = this.shell.env_next_id;
+            this.shell.env_next_id += 1;
+            this.shell.env_rows.push(new_env_row_state(
+                env_id,
+                window,
+                cx,
+                Some("COLORTERM"),
+                Some("24bit"),
+            ));
+
+            let env_id = this.shell.env_next_id;
+            this.shell.env_next_id += 1;
+            this.shell.env_rows.push(new_env_row_state(
+                env_id,
+                window,
+                cx,
+                Some("FOO"),
+                Some("bar"),
+            ));
+        });
+
+        view.read(app)
+            .persist_new_local_session_for_connect(app)
+            .expect("expected local session persistence to succeed");
+    });
+    win.run_until_parked();
+
+    let sessions = crate::store::load_all_sessions()
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.protocol == crate::store::SessionType::Local)
+        .collect::<Vec<_>>();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].colorterm.as_deref(), Some("truecolor"));
+    assert_eq!(sessions[0].env.as_ref().map(Vec::len), Some(2));
+    assert_eq!(sessions[0].env.as_ref().unwrap()[0].name, "COLORTERM");
+    assert_eq!(sessions[0].env.as_ref().unwrap()[0].value, "24bit");
+    assert_eq!(sessions[0].env.as_ref().unwrap()[1].name, "FOO");
+    assert_eq!(sessions[0].env.as_ref().unwrap()[1].value, "bar");
 }
 
 #[gpui::test]
@@ -1743,6 +2073,8 @@ fn edit_session_repeat_save_is_ignored_while_submit_is_in_flight(cx: &mut gpui::
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
+                colorterm: None,
+                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));

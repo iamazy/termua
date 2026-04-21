@@ -260,13 +260,6 @@ impl TerminalBuilder {
         env: HashMap<String, String>,
         window_id: u64,
     ) -> anyhow::Result<Self> {
-        // env.entry("LANG".to_string())
-        //     .or_insert_with(|| "en_US.UTF-8".to_string());
-        // env.entry("TERM".to_string())
-        //     .or_insert_with(|| "xterm-256color".to_string());
-        // env.entry("COLORTERM".to_string())
-        //     .or_insert_with(|| "truecolor".to_string());
-
         let pty_options = local_pty_options(env);
         #[cfg(target_os = "windows")]
         let pty = {

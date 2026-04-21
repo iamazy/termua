@@ -559,6 +559,8 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             serial_parity: None,
             serial_stop_bits: None,
             serial_flow_control: None,
+            colorterm: None,
+            env: None,
         },
         Session {
             id: 2,
@@ -588,6 +590,8 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             serial_parity: None,
             serial_stop_bits: None,
             serial_flow_control: None,
+            colorterm: None,
+            env: None,
         },
     ];
 
