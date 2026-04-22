@@ -8,6 +8,8 @@
 
 status is-interactive; or return 0
 
+set -g fish_handle_reflow 0
+
 if set -q TERMUA_OSC133_FISH_INSTALLED
   return 0
 end

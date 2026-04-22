@@ -13,6 +13,7 @@ use rust_i18n::t;
 const SHELL_SESSION_ID: &str = "shell.session";
 const SSH_SESSION_ID: &str = "ssh.session";
 const SERIAL_SESSION_ID: &str = "serial.session";
+const DEFAULT_COLORTERM: &str = "truecolor";
 
 use nav::{
     Page, build_nav_tree_items, default_selected_item_id, find_tree_item_by_id,
@@ -30,7 +31,7 @@ mod state;
 pub use ssh::connect_enabled;
 pub use state::Protocol;
 use state::{
-    BackendSelectItem, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
+    BackendSelectItem, EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
     SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState,
     SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellProgramSelectItem,
     ShellSessionState, SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState,
@@ -144,13 +145,29 @@ fn new_input_with_value(
     input
 }
 
-fn new_proxy_env_row_state(
+fn colorterm_options() -> Vec<SharedString> {
+    vec![
+        SharedString::from(DEFAULT_COLORTERM),
+        SharedString::from("24bit"),
+    ]
+}
+
+fn normalize_colorterm(value: &str) -> SharedString {
+    let value = value.trim();
+    if value.is_empty() {
+        SharedString::from(DEFAULT_COLORTERM)
+    } else {
+        SharedString::from(value.to_string())
+    }
+}
+
+fn new_env_row_state(
     id: u64,
     window: &mut Window,
     cx: &mut Context<NewSessionWindow>,
     name: Option<&str>,
     value: Option<&str>,
-) -> ProxyEnvRowState {
+) -> EnvRowState {
     let name_input = new_input(window, cx, t!("NewSession.Placeholder.EnvVar").to_string());
     if let Some(name) = name {
         set_input_value(&name_input, name, window, cx);
@@ -165,10 +182,25 @@ fn new_proxy_env_row_state(
         set_input_value(&value_input, value, window, cx);
     }
 
-    ProxyEnvRowState {
+    EnvRowState {
         id,
         name_input,
         value_input,
+    }
+}
+
+fn new_proxy_env_row_state(
+    id: u64,
+    window: &mut Window,
+    cx: &mut Context<NewSessionWindow>,
+    name: Option<&str>,
+    value: Option<&str>,
+) -> ProxyEnvRowState {
+    let row = new_env_row_state(id, window, cx, name, value);
+    ProxyEnvRowState {
+        id: row.id,
+        name_input: row.name_input,
+        value_input: row.value_input,
     }
 }
 
@@ -419,6 +451,105 @@ impl NewSessionWindow {
         }));
     }
 
+    fn subscribe_refresh_input(
+        subscriptions: &mut Vec<Subscription>,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        subscriptions.push(cx.subscribe_in(input, window, {
+            move |_this, _input, ev, window, cx| {
+                if matches!(ev, InputEvent::Change) {
+                    cx.notify();
+                    window.refresh();
+                }
+            }
+        }));
+    }
+
+    fn subscribe_env_row_inputs(
+        &mut self,
+        row: &EnvRowState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.name_input, window, cx);
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.value_input, window, cx);
+    }
+
+    fn subscribe_proxy_env_row_inputs(
+        &mut self,
+        row: &ProxyEnvRowState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.name_input, window, cx);
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.value_input, window, cx);
+    }
+
+    fn push_shell_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.shell.env_next_id;
+        self.shell.env_next_id += 1;
+
+        let row = new_env_row_state(id, window, cx, None, None);
+        self.subscribe_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.shell.env_rows.push(row);
+    }
+
+    fn push_ssh_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.ssh.env_next_id;
+        self.ssh.env_next_id += 1;
+
+        let row = new_env_row_state(id, window, cx, None, None);
+        self.subscribe_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.ssh.env_rows.push(row);
+    }
+
+    fn push_ssh_proxy_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.ssh.proxy_env_next_id;
+        self.ssh.proxy_env_next_id += 1;
+
+        let row = new_proxy_env_row_state(id, window, cx, None, None);
+        self.subscribe_proxy_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.ssh.proxy_env_rows.push(row);
+    }
+
     fn install_shell_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions
             .push(cx.subscribe_in(&self.shell.common.type_select, window, {
@@ -468,6 +599,19 @@ impl NewSessionWindow {
                     }
                 }
             }));
+        self._subscriptions.push(
+            cx.subscribe_in(&self.shell.common.colorterm_select, window, {
+                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+                    if let SelectEvent::Confirm(Some(colorterm)) = ev {
+                        this.shell
+                            .common
+                            .set_colorterm(colorterm.as_ref(), window, cx);
+                        cx.notify();
+                        window.refresh();
+                    }
+                }
+            }),
+        );
     }
 
     fn install_ssh_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -558,6 +702,18 @@ impl NewSessionWindow {
                     }
                 }
             }));
+        self._subscriptions
+            .push(cx.subscribe_in(&self.ssh.common.colorterm_select, window, {
+                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+                    if let SelectEvent::Confirm(Some(colorterm)) = ev {
+                        this.ssh
+                            .common
+                            .set_colorterm(colorterm.as_ref(), window, cx);
+                        cx.notify();
+                        window.refresh();
+                    }
+                }
+            }));
     }
 
     fn install_serial_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -635,6 +791,7 @@ impl NewSessionWindow {
         self.ssh.common.sync_localized_placeholders(window, cx);
         self.serial.common.sync_localized_placeholders(window, cx);
 
+        self.shell.sync_localized_placeholders(window, cx);
         self.ssh.sync_localized_placeholders(window, cx);
         self.serial.sync_localized_placeholders(window, cx);
 
@@ -735,14 +892,19 @@ impl SessionCommonState {
 
         let label_input = new_input(window, cx, t!("NewSession.Placeholder.Label").to_string());
         let group_input = new_input(window, cx, t!("NewSession.Placeholder.Group").to_string());
+        let colorterm_options = colorterm_options();
+        let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         Self {
             ty: default_backend,
             term: "xterm-256color".into(),
+            colorterm: DEFAULT_COLORTERM.into(),
             charset: "UTF-8".into(),
             label_input,
             group_input,
             type_select,
             term_select,
+            colorterm_options,
+            colorterm_select,
             charset_select,
         }
     }
@@ -782,6 +944,28 @@ impl SessionCommonState {
             select.set_selected_value(&charset, window, cx);
         });
     }
+
+    fn set_colorterm(
+        &mut self,
+        colorterm: &str,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) {
+        let colorterm = normalize_colorterm(colorterm);
+        self.colorterm = colorterm.clone();
+
+        if !self.colorterm_options.iter().any(|item| item == &colorterm) {
+            self.colorterm_options.push(colorterm.clone());
+            let items = SearchableVec::new(self.colorterm_options.clone());
+            self.colorterm_select.update(cx, |select, cx| {
+                select.set_items(items, window, cx);
+            });
+        }
+
+        self.colorterm_select.update(cx, |select, cx| {
+            select.set_selected_value(&colorterm, window, cx);
+        });
+    }
 }
 
 impl ShellSessionState {
@@ -816,6 +1000,8 @@ impl ShellSessionState {
             program,
             program_options,
             program_select,
+            env_rows: Vec::new(),
+            env_next_id: 1,
             common,
         };
 
@@ -870,6 +1056,27 @@ impl ShellSessionState {
             self.common.label_input.update(cx, move |input, cx| {
                 input.set_value(new_label.clone(), window, cx);
             });
+        }
+    }
+}
+
+impl ShellSessionState {
+    fn sync_localized_placeholders(&self, window: &mut Window, cx: &mut Context<NewSessionWindow>) {
+        for row in &self.env_rows {
+            sync_input_placeholders(
+                window,
+                cx,
+                &[
+                    (
+                        row.name_input.clone(),
+                        t!("NewSession.Placeholder.EnvVar").to_string(),
+                    ),
+                    (
+                        row.value_input.clone(),
+                        t!("NewSession.Placeholder.EnvValue").to_string(),
+                    ),
+                ],
+            );
         }
     }
 }
@@ -937,6 +1144,8 @@ impl SshSessionState {
 
         Self {
             common,
+            env_rows: Vec::new(),
+            env_next_id: 1,
             auth_type: SshAuthType::Password,
             auth_select,
             user_input,
@@ -1012,6 +1221,23 @@ impl SshSessionState {
                 ),
             ],
         );
+
+        for row in &self.env_rows {
+            sync_input_placeholders(
+                window,
+                cx,
+                &[
+                    (
+                        row.name_input.clone(),
+                        t!("NewSession.Placeholder.EnvVar").to_string(),
+                    ),
+                    (
+                        row.value_input.clone(),
+                        t!("NewSession.Placeholder.EnvValue").to_string(),
+                    ),
+                ],
+            );
+        }
 
         for row in &self.proxy_env_rows {
             sync_input_placeholders(

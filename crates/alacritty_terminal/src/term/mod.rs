@@ -3219,6 +3219,37 @@ mod tests {
     }
 
     #[test]
+    fn shrink_columns_prefers_empty_viewport_space_before_scrollback() {
+        fn visible_line(term: &Term<VoidListener>, line: i32) -> String {
+            term.line_to_string(Line(line), Column(0)..term.last_column(), true)
+                .trim_end_matches('\n')
+                .to_string()
+        }
+
+        let mut size = TermSize::new(30, 12);
+        let mut term = Term::new(Config::default(), &size, VoidListener);
+
+        term.goto(2, 0);
+        for ch in "$ abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars() {
+            term.input(ch);
+        }
+
+        size.columns = 10;
+        term.resize(size);
+
+        assert_eq!(term.history_size(), 0);
+        assert_eq!(term.grid.topmost_line(), Line(0));
+        assert_eq!(term.grid.cursor.point, Point::new(Line(8), Column(4)));
+        assert_eq!(visible_line(&term, 2), "$ abcdefgh");
+        assert_eq!(visible_line(&term, 3), "ijklmnopqr");
+        assert_eq!(visible_line(&term, 4), "stuvwxyz01");
+        assert_eq!(visible_line(&term, 5), "23456789AB");
+        assert_eq!(visible_line(&term, 6), "CDEFGHIJKL");
+        assert_eq!(visible_line(&term, 7), "MNOPQRSTUV");
+        assert_eq!(visible_line(&term, 8), "WXYZ");
+    }
+
+    #[test]
     fn damage_public_usage() {
         let size = TermSize::new(10, 10);
         let mut term = Term::new(Config::default(), &size, VoidListener);

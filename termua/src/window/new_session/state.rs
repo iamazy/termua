@@ -34,11 +34,14 @@ impl SessionEditorMode {
 pub(super) struct SessionCommonState {
     pub(super) ty: TermBackend,
     pub(super) term: SharedString,
+    pub(super) colorterm: SharedString,
     pub(super) charset: SharedString,
     pub(super) label_input: Entity<InputState>,
     pub(super) group_input: Entity<InputState>,
     pub(super) type_select: Entity<SelectState<SearchableVec<BackendSelectItem>>>,
     pub(super) term_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    pub(super) colorterm_options: Vec<SharedString>,
+    pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) charset_select: Entity<SelectState<SearchableVec<SharedString>>>,
 }
 
@@ -46,6 +49,8 @@ pub(super) struct ShellSessionState {
     pub(super) program: SharedString,
     pub(super) program_options: Vec<ShellProgramSelectItem>,
     pub(super) program_select: Entity<SelectState<SearchableVec<ShellProgramSelectItem>>>,
+    pub(super) env_rows: Vec<EnvRowState>,
+    pub(super) env_next_id: u64,
     pub(super) common: SessionCommonState,
 }
 
@@ -156,6 +161,8 @@ impl gpui_component::select::SelectItem for ShellProgramSelectItem {
 
 pub(super) struct SshSessionState {
     pub(super) common: SessionCommonState,
+    pub(super) env_rows: Vec<EnvRowState>,
+    pub(super) env_next_id: u64,
     pub(super) auth_type: SshAuthType,
     pub(super) auth_select: Entity<SelectState<SearchableVec<SshAuthSelectItem>>>,
     pub(super) user_input: Entity<InputState>,
@@ -191,6 +198,13 @@ pub(super) struct SerialSessionState {
     pub(super) ports_loading: bool,
     pub(super) ports_refresh_epoch: u64,
     pub(super) ports_pending: Option<Vec<String>>,
+}
+
+#[derive(Debug)]
+pub(super) struct EnvRowState {
+    pub(super) id: u64,
+    pub(super) name_input: Entity<InputState>,
+    pub(super) value_input: Entity<InputState>,
 }
 
 #[derive(Debug)]

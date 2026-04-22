@@ -1,4 +1,4 @@
-use gpui::{App, AppContext, Application, WindowDecorations, WindowOptions};
+use gpui::{App, AppContext, Application, WindowDecorations, WindowOptions, px, size};
 use gpui_common::TermuaAssets;
 use gpui_component::TitleBar;
 use gpui_transfer::TransferCenterState;
@@ -76,6 +76,7 @@ fn init_app(cx: &mut App, settings: &crate::settings::SettingsFile) {
             WindowOptions {
                 titlebar: Some(TitleBar::title_bar_options()),
                 window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
+                window_min_size: Some(size(px(600.0), px(400.0))),
                 ..Default::default()
             },
             move |window, cx| {

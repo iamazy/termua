@@ -40,8 +40,8 @@ use crate::{
     terminal::{
         Clear, Event, Paste, ScrollLineDown, ScrollLineUp, ScrollPageDown, ScrollPageUp,
         ScrollToBottom, ScrollToTop, Search, SearchClose, SearchNext, SearchPaste, SearchPrevious,
-        SearchTest, SelectAll, ShowCharacterPalette, StartCastRecording, StopCastRecording,
-        Terminal, TerminalBounds, ToggleCastRecording, ToggleViMode, UserInput,
+        SelectAll, ShowCharacterPalette, StartCastRecording, StopCastRecording, Terminal,
+        TerminalBounds, ToggleCastRecording, ToggleViMode, UserInput,
     },
     view::search::{SearchState, render_search},
 };
@@ -689,10 +689,6 @@ impl TerminalView {
 
         window.focus(&self.focus_handle, cx);
         cx.notify();
-    }
-
-    fn open_search_test(&mut self, _: &SearchTest, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_search(&Search, window, cx);
     }
 
     fn close_search(&mut self, _: &SearchClose, window: &mut Window, cx: &mut Context<Self>) {
@@ -2241,7 +2237,6 @@ impl TerminalView {
             .on_action(cx.listener(TerminalView::send_text))
             .on_action(cx.listener(TerminalView::send_keystroke))
             .on_action(cx.listener(TerminalView::open_search))
-            .on_action(cx.listener(TerminalView::open_search_test))
             .on_action(cx.listener(TerminalView::search_next))
             .on_action(cx.listener(TerminalView::search_previous))
             .on_action(cx.listener(TerminalView::close_search))

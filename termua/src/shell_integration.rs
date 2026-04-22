@@ -565,6 +565,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn fish_init_disables_reflow_only_in_termua() {
+        let init = write_fish_init(7).expect("write fish init");
+        let contents = std::fs::read_to_string(init).expect("read fish init");
+
+        assert!(
+            contents.contains("set -g fish_handle_reflow 0"),
+            "fish init should disable fish_handle_reflow for Termua sessions"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn nu_injection_writes_configs_and_sets_env() {
         let (config, env_config) = write_nu_config_dir(7).expect("write nu config dir");
         assert!(config.exists(), "nu config should exist");
