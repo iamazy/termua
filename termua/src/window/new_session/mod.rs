@@ -451,6 +451,105 @@ impl NewSessionWindow {
         }));
     }
 
+    fn subscribe_refresh_input(
+        subscriptions: &mut Vec<Subscription>,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        subscriptions.push(cx.subscribe_in(input, window, {
+            move |_this, _input, ev, window, cx| {
+                if matches!(ev, InputEvent::Change) {
+                    cx.notify();
+                    window.refresh();
+                }
+            }
+        }));
+    }
+
+    fn subscribe_env_row_inputs(
+        &mut self,
+        row: &EnvRowState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.name_input, window, cx);
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.value_input, window, cx);
+    }
+
+    fn subscribe_proxy_env_row_inputs(
+        &mut self,
+        row: &ProxyEnvRowState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.name_input, window, cx);
+        Self::subscribe_refresh_input(&mut self._subscriptions, &row.value_input, window, cx);
+    }
+
+    fn push_shell_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.shell.env_next_id;
+        self.shell.env_next_id += 1;
+
+        let row = new_env_row_state(id, window, cx, None, None);
+        self.subscribe_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.shell.env_rows.push(row);
+    }
+
+    fn push_ssh_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.ssh.env_next_id;
+        self.ssh.env_next_id += 1;
+
+        let row = new_env_row_state(id, window, cx, None, None);
+        self.subscribe_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.ssh.env_rows.push(row);
+    }
+
+    fn push_ssh_proxy_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.ssh.proxy_env_next_id;
+        self.ssh.proxy_env_next_id += 1;
+
+        let row = new_proxy_env_row_state(id, window, cx, None, None);
+        self.subscribe_proxy_env_row_inputs(&row, window, cx);
+        if let Some(name) = name {
+            set_input_value(&row.name_input, name, window, cx);
+        }
+        if let Some(value) = value {
+            set_input_value(&row.value_input, value, window, cx);
+        }
+        self.ssh.proxy_env_rows.push(row);
+    }
+
     fn install_shell_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions
             .push(cx.subscribe_in(&self.shell.common.type_select, window, {

@@ -2643,13 +2643,13 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let shell_program = session.shell_program.unwrap_or_default();
+        let shell_program = session.shell_program.clone().unwrap_or_default();
         let session_env = session.env.clone().unwrap_or_default();
         let env = build_terminal_env(
             shell_program.as_str(),
-            session.term.as_str(),
-            session.colorterm.as_deref(),
-            session.charset.as_str(),
+            session.term(),
+            session.colorterm(),
+            session.charset(),
             &session_env,
         );
         self.add_local_terminal_with_params(backend_type, env, window, cx);
@@ -2671,9 +2671,9 @@ impl TermuaWindow {
         let session_env = session.env.clone().unwrap_or_default();
         let env = build_terminal_env(
             "",
-            session.term.as_str(),
-            session.colorterm.as_deref(),
-            session.charset.as_str(),
+            session.term(),
+            session.colorterm(),
+            session.charset(),
             &session_env,
         );
         let proxy = ssh_proxy_from_session(&session);

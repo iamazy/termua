@@ -6,7 +6,31 @@ use gpui::{
 };
 
 use super::*;
-use crate::store::{Session, SessionType};
+use crate::store::{Session, SessionEnvVar, SessionType};
+
+fn test_session_env(
+    term: &str,
+    charset: &str,
+    colorterm: Option<&str>,
+) -> Option<Vec<SessionEnvVar>> {
+    let mut env = vec![
+        SessionEnvVar {
+            name: "TERM".to_string(),
+            value: term.to_string(),
+        },
+        SessionEnvVar {
+            name: "CHARSET".to_string(),
+            value: charset.to_string(),
+        },
+    ];
+    if let Some(colorterm) = colorterm {
+        env.push(SessionEnvVar {
+            name: "COLORTERM".to_string(),
+            value: colorterm.to_string(),
+        });
+    }
+    Some(env)
+}
 
 #[gpui::test]
 fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
@@ -537,8 +561,7 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             group_path: "ssh>prod".to_string(),
             label: "db".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
-            term: "xterm".to_string(),
-            charset: "UTF-8".to_string(),
+            env: test_session_env("xterm", "UTF-8", None),
             shell_program: None,
             ssh_host: Some("db.example.com".to_string()),
             ssh_port: Some(22),
@@ -559,8 +582,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             serial_parity: None,
             serial_stop_bits: None,
             serial_flow_control: None,
-            colorterm: None,
-            env: None,
         },
         Session {
             id: 2,
@@ -568,8 +589,7 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             group_path: "ssh>staging".to_string(),
             label: "api".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
-            term: "xterm".to_string(),
-            charset: "UTF-8".to_string(),
+            env: test_session_env("xterm", "UTF-8", None),
             shell_program: None,
             ssh_host: Some("api.example.com".to_string()),
             ssh_port: Some(22),
@@ -590,8 +610,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             serial_parity: None,
             serial_stop_bits: None,
             serial_flow_control: None,
-            colorterm: None,
-            env: None,
         },
     ];
 

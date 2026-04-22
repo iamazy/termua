@@ -3,7 +3,7 @@ use gpui_term::{Authentication, SshOptions, TerminalType};
 
 use super::{
     DEFAULT_COLORTERM, EnvRowState, NewSessionWindow, Protocol, SshAuthType, TermBackend,
-    new_env_row_state, new_proxy_env_row_state, new_proxy_jump_row_state, set_input_value, ssh,
+    new_proxy_jump_row_state, set_input_value, ssh,
 };
 use crate::{
     SerialParams, SshParams,
@@ -27,15 +27,76 @@ struct SshFormValues {
     group: String,
 }
 
+const SESSION_ENV_TERM: &str = "TERM";
+const SESSION_ENV_COLORTERM: &str = "COLORTERM";
+const SESSION_ENV_CHARSET: &str = "CHARSET";
+
+fn session_store_env_from_fields(
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    vars: &[SessionEnvVar],
+) -> Vec<SessionEnvVar> {
+    let mut env = Vec::new();
+    upsert_session_store_env(&mut env, SESSION_ENV_TERM, term.to_string());
+    if let Some(colorterm) = colorterm {
+        upsert_session_store_env(&mut env, SESSION_ENV_COLORTERM, colorterm.to_string());
+    }
+    upsert_session_store_env(&mut env, SESSION_ENV_CHARSET, charset.to_string());
+
+    for var in vars {
+        let name = var.name.trim();
+        if name.is_empty() || is_reserved_terminal_env_name(name) {
+            continue;
+        }
+        upsert_session_store_env(&mut env, name, var.value.clone());
+    }
+
+    env
+}
+
+fn upsert_session_store_env(env: &mut Vec<SessionEnvVar>, name: &str, value: String) {
+    if let Some(var) = env.iter_mut().find(|var| var.name == name) {
+        var.value = value;
+    } else {
+        env.push(SessionEnvVar {
+            name: name.to_string(),
+            value,
+        });
+    }
+}
+
+fn session_store_env_value<'a>(env: &'a [SessionEnvVar], name: &str) -> Option<&'a str> {
+    env.iter()
+        .find(|var| var.name == name)
+        .map(|var| var.value.as_str())
+}
+
+fn session_store_terminal_fields_from_env(
+    env: &[SessionEnvVar],
+) -> (String, Option<String>, String) {
+    let term = session_store_env_value(env, SESSION_ENV_TERM)
+        .unwrap_or("xterm-256color")
+        .to_string();
+    let colorterm = session_store_env_value(env, SESSION_ENV_COLORTERM).map(str::to_string);
+    let charset = session_store_env_value(env, SESSION_ENV_CHARSET)
+        .unwrap_or("UTF-8")
+        .to_string();
+    (term, colorterm, charset)
+}
+
+fn is_reserved_terminal_env_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(SESSION_ENV_TERM)
+        || name.eq_ignore_ascii_case(SESSION_ENV_COLORTERM)
+        || name.eq_ignore_ascii_case(SESSION_ENV_CHARSET)
+}
+
 enum SessionStoreOp {
     SaveLocal {
         group: String,
         label: String,
         backend: crate::settings::TerminalBackend,
         shell_program: String,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
     },
     UpdateLocal {
@@ -44,9 +105,6 @@ enum SessionStoreOp {
         label: String,
         backend: crate::settings::TerminalBackend,
         shell_program: String,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
     },
     SaveSshPassword {
@@ -57,9 +115,6 @@ enum SessionStoreOp {
         port: u16,
         user: String,
         password: String,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
         tcp_nodelay: bool,
         tcp_keepalive: bool,
@@ -78,9 +133,6 @@ enum SessionStoreOp {
         port: u16,
         user: String,
         password: String,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
         tcp_nodelay: bool,
         tcp_keepalive: bool,
@@ -96,9 +148,6 @@ enum SessionStoreOp {
         backend: crate::settings::TerminalBackend,
         host: String,
         port: u16,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
         tcp_nodelay: bool,
         tcp_keepalive: bool,
@@ -115,9 +164,6 @@ enum SessionStoreOp {
         backend: crate::settings::TerminalBackend,
         host: String,
         port: u16,
-        term: String,
-        colorterm: Option<String>,
-        charset: String,
         env: Vec<SessionEnvVar>,
         tcp_nodelay: bool,
         tcp_keepalive: bool,
@@ -137,8 +183,7 @@ enum SessionStoreOp {
         parity: crate::store::SerialParity,
         stop_bits: crate::store::SerialStopBits,
         flow_control: crate::store::SerialFlowControl,
-        term: String,
-        charset: String,
+        env: Vec<SessionEnvVar>,
     },
     UpdateSerial {
         session_id: i64,
@@ -151,8 +196,7 @@ enum SessionStoreOp {
         parity: crate::store::SerialParity,
         stop_bits: crate::store::SerialStopBits,
         flow_control: crate::store::SerialFlowControl,
-        term: String,
-        charset: String,
+        env: Vec<SessionEnvVar>,
     },
 }
 
@@ -164,11 +208,9 @@ impl SessionStoreOp {
                 label,
                 backend,
                 shell_program,
-                term,
-                colorterm,
-                charset,
                 env,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_local_session_with_env(
                     group.as_str(),
                     label.as_str(),
@@ -186,11 +228,9 @@ impl SessionStoreOp {
                 label,
                 backend,
                 shell_program,
-                term,
-                colorterm,
-                charset,
                 env,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_local_session_with_env(
                     session_id,
                     group.as_str(),
@@ -211,9 +251,6 @@ impl SessionStoreOp {
                 port,
                 user,
                 password,
-                term,
-                colorterm,
-                charset,
                 env,
                 tcp_nodelay,
                 tcp_keepalive,
@@ -223,6 +260,7 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_ssh_session_password_with_proxy_and_env(
                     group.as_str(),
                     label.as_str(),
@@ -253,9 +291,6 @@ impl SessionStoreOp {
                 port,
                 user,
                 password,
-                term,
-                colorterm,
-                charset,
                 env,
                 tcp_nodelay,
                 tcp_keepalive,
@@ -265,6 +300,7 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_ssh_session_password_with_proxy_and_env(
                     session_id,
                     group.as_str(),
@@ -293,9 +329,6 @@ impl SessionStoreOp {
                 backend,
                 host,
                 port,
-                term,
-                colorterm,
-                charset,
                 env,
                 tcp_nodelay,
                 tcp_keepalive,
@@ -305,6 +338,7 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_ssh_session_config_with_proxy_and_env(
                     group.as_str(),
                     label.as_str(),
@@ -331,9 +365,6 @@ impl SessionStoreOp {
                 backend,
                 host,
                 port,
-                term,
-                colorterm,
-                charset,
                 env,
                 tcp_nodelay,
                 tcp_keepalive,
@@ -343,6 +374,7 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
+                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_ssh_session_config_with_proxy_and_env(
                     session_id,
                     group.as_str(),
@@ -373,9 +405,9 @@ impl SessionStoreOp {
                 parity,
                 stop_bits,
                 flow_control,
-                term,
-                charset,
+                env,
             } => {
+                let (term, _, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_serial_session(
                     group.as_str(),
                     label.as_str(),
@@ -401,9 +433,9 @@ impl SessionStoreOp {
                 parity,
                 stop_bits,
                 flow_control,
-                term,
-                charset,
+                env,
             } => {
+                let (term, _, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_serial_session(
                     session_id,
                     group.as_str(),
@@ -484,7 +516,7 @@ impl NewSessionWindow {
         let mut env = Vec::new();
         for row in rows {
             let name = row.name_input.read(app).value().trim().to_string();
-            if name.is_empty() {
+            if name.is_empty() || is_reserved_terminal_env_name(name.as_str()) {
                 continue;
             }
             let value = row.value_input.read(app).value().to_string();
@@ -621,10 +653,12 @@ impl NewSessionWindow {
             label,
             backend: backend_for_store,
             shell_program: shell_program.to_string(),
-            term: term.to_string(),
-            colorterm: Self::trimmed_non_empty_option(colorterm.as_str()).map(str::to_string),
-            charset: charset.to_string(),
-            env: self.shell_session_env_for_store(cx),
+            env: session_store_env_from_fields(
+                term.as_ref(),
+                Self::trimmed_non_empty_option(colorterm.as_str()),
+                charset.as_ref(),
+                self.shell_session_env_for_store(cx).as_slice(),
+            ),
         })
     }
 
@@ -677,11 +711,12 @@ impl NewSessionWindow {
                     port,
                     user: user.to_string(),
                     password: pw.to_string(),
-                    term: values.term.to_string(),
-                    colorterm: Self::trimmed_non_empty_option(values.colorterm.as_str())
-                        .map(str::to_string),
-                    charset: values.charset.to_string(),
-                    env: self.ssh_session_env_for_store(cx),
+                    env: session_store_env_from_fields(
+                        values.term.as_ref(),
+                        Self::trimmed_non_empty_option(values.colorterm.as_str()),
+                        values.charset.as_ref(),
+                        self.ssh_session_env_for_store(cx).as_slice(),
+                    ),
                     tcp_nodelay: values.tcp_nodelay,
                     tcp_keepalive: values.tcp_keepalive,
                     proxy_mode,
@@ -705,11 +740,12 @@ impl NewSessionWindow {
                     backend: backend_for_store,
                     host: host_trimmed.to_string(),
                     port,
-                    term: values.term.to_string(),
-                    colorterm: Self::trimmed_non_empty_option(values.colorterm.as_str())
-                        .map(str::to_string),
-                    charset: values.charset.to_string(),
-                    env: self.ssh_session_env_for_store(cx),
+                    env: session_store_env_from_fields(
+                        values.term.as_ref(),
+                        Self::trimmed_non_empty_option(values.colorterm.as_str()),
+                        values.charset.as_ref(),
+                        self.ssh_session_env_for_store(cx).as_slice(),
+                    ),
                     tcp_nodelay: values.tcp_nodelay,
                     tcp_keepalive: values.tcp_keepalive,
                     proxy_mode,
@@ -793,10 +829,12 @@ impl NewSessionWindow {
                 label,
                 backend: backend_for_store,
                 shell_program: shell_program.to_string(),
-                term: term.to_string(),
-                colorterm: Self::trimmed_non_empty_option(colorterm.as_str()).map(str::to_string),
-                charset: charset.to_string(),
-                env: session_env,
+                env: session_store_env_from_fields(
+                    term.as_ref(),
+                    Self::trimmed_non_empty_option(colorterm.as_str()),
+                    charset.as_ref(),
+                    session_env.as_slice(),
+                ),
             },
             "persist local session",
             cx,
@@ -855,11 +893,12 @@ impl NewSessionWindow {
                 port,
                 user: user.clone(),
                 password: pw.clone(),
-                term: values.term.to_string(),
-                colorterm: Self::trimmed_non_empty_option(values.colorterm.as_str())
-                    .map(str::to_string),
-                charset: values.charset.to_string(),
-                env: session_env,
+                env: session_store_env_from_fields(
+                    values.term.as_ref(),
+                    Self::trimmed_non_empty_option(values.colorterm.as_str()),
+                    values.charset.as_ref(),
+                    session_env.as_slice(),
+                ),
                 tcp_nodelay: values.tcp_nodelay,
                 tcp_keepalive: values.tcp_keepalive,
                 proxy_mode,
@@ -874,11 +913,12 @@ impl NewSessionWindow {
                 backend: backend_for_store,
                 host: host.clone(),
                 port,
-                term: values.term.to_string(),
-                colorterm: Self::trimmed_non_empty_option(values.colorterm.as_str())
-                    .map(str::to_string),
-                charset: values.charset.to_string(),
-                env: persist_env,
+                env: session_store_env_from_fields(
+                    values.term.as_ref(),
+                    Self::trimmed_non_empty_option(values.colorterm.as_str()),
+                    values.charset.as_ref(),
+                    persist_env.as_slice(),
+                ),
                 tcp_nodelay: values.tcp_nodelay,
                 tcp_keepalive: values.tcp_keepalive,
                 proxy_mode,
@@ -992,8 +1032,7 @@ impl NewSessionWindow {
             parity,
             stop_bits,
             flow_control,
-            term: term.to_string(),
-            charset: charset.to_string(),
+            env: session_store_env_from_fields(term.as_ref(), None, charset.as_ref(), &[]),
         })
     }
 
@@ -1075,8 +1114,7 @@ impl NewSessionWindow {
                 parity,
                 stop_bits,
                 flow_control,
-                term: term.to_string(),
-                charset: charset.to_string(),
+                env: session_store_env_from_fields(term.as_ref(), None, charset.as_ref(), &[]),
             },
             "persist serial session",
             cx,
@@ -1137,8 +1175,8 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let term: gpui::SharedString = session.term.clone().into();
-        let charset: gpui::SharedString = session.charset.clone().into();
+        let term: gpui::SharedString = session.term().to_string().into();
+        let charset: gpui::SharedString = session.charset().to_string().into();
         let label = session.label.as_str();
         let group = session.group_path.as_str();
 
@@ -1216,11 +1254,8 @@ impl NewSessionWindow {
             window,
             cx,
         );
-        self.shell.set_colorterm(
-            session.colorterm.as_deref().unwrap_or(DEFAULT_COLORTERM),
-            window,
-            cx,
-        );
+        self.shell
+            .set_colorterm(session.colorterm().unwrap_or(DEFAULT_COLORTERM), window, cx);
         self.apply_shell_env_rows_for_edit(session, window, cx);
     }
 
@@ -1248,11 +1283,8 @@ impl NewSessionWindow {
         if let Some(pw) = session.ssh_password.clone() {
             set_input_value(&self.ssh.password_input, &pw, window, cx);
         }
-        self.ssh.set_colorterm(
-            session.colorterm.as_deref().unwrap_or(DEFAULT_COLORTERM),
-            window,
-            cx,
-        );
+        self.ssh
+            .set_colorterm(session.colorterm().unwrap_or(DEFAULT_COLORTERM), window, cx);
         self.apply_ssh_env_rows_for_edit(session, window, cx);
 
         self.ssh.tcp_nodelay = session.ssh_tcp_nodelay;
@@ -1278,15 +1310,15 @@ impl NewSessionWindow {
         };
 
         for var in vars {
-            let id = self.shell.env_next_id;
-            self.shell.env_next_id += 1;
-            self.shell.env_rows.push(new_env_row_state(
-                id,
+            if is_reserved_terminal_env_name(var.name.as_str()) {
+                continue;
+            }
+            self.push_shell_env_row(
                 window,
                 cx,
                 Some(var.name.as_str()),
                 Some(var.value.as_str()),
-            ));
+            );
         }
     }
 
@@ -1303,15 +1335,15 @@ impl NewSessionWindow {
         };
 
         for var in vars {
-            let id = self.ssh.env_next_id;
-            self.ssh.env_next_id += 1;
-            self.ssh.env_rows.push(new_env_row_state(
-                id,
+            if is_reserved_terminal_env_name(var.name.as_str()) {
+                continue;
+            }
+            self.push_ssh_env_row(
                 window,
                 cx,
                 Some(var.name.as_str()),
                 Some(var.value.as_str()),
-            ));
+            );
         }
     }
 
@@ -1342,16 +1374,12 @@ impl NewSessionWindow {
         };
 
         for var in vars {
-            let id = self.ssh.proxy_env_next_id;
-            self.ssh.proxy_env_next_id += 1;
-
-            self.ssh.proxy_env_rows.push(new_proxy_env_row_state(
-                id,
+            self.push_ssh_proxy_env_row(
                 window,
                 cx,
                 Some(var.name.as_str()),
                 Some(var.value.as_str()),
-            ));
+            );
         }
     }
 
@@ -1490,18 +1518,56 @@ impl NewSessionWindow {
             TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
             TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
         };
+        let env = session_store_env_from_fields(
+            term.as_ref(),
+            Self::trimmed_non_empty_option(colorterm.as_str()),
+            charset.as_ref(),
+            Self::session_env_rows_for_store(&self.shell.env_rows, app).as_slice(),
+        );
+        let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
 
         crate::store::save_local_session_with_env(
             group.as_str(),
             label.as_str(),
             backend_for_store,
             shell_program.as_ref(),
-            term.as_ref(),
-            Self::trimmed_non_empty_option(colorterm.as_str()),
-            charset.as_ref(),
-            Self::session_env_rows_for_store(&self.shell.env_rows, app),
+            term.as_str(),
+            colorterm.as_deref(),
+            charset.as_str(),
+            env,
         )?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_store_env_stores_terminal_fields_as_env_vars() {
+        let vars = vec![SessionEnvVar {
+            name: "FOO".to_string(),
+            value: "bar".to_string(),
+        }];
+
+        let env = session_store_env_from_fields(
+            "xterm-256color",
+            Some("truecolor"),
+            "UTF-8",
+            vars.as_slice(),
+        );
+
+        assert_eq!(
+            session_store_env_value(&env, "TERM"),
+            Some("xterm-256color")
+        );
+        assert_eq!(
+            session_store_env_value(&env, "COLORTERM"),
+            Some("truecolor")
+        );
+        assert_eq!(session_store_env_value(&env, "CHARSET"), Some("UTF-8"));
+        assert_eq!(session_store_env_value(&env, "FOO"), Some("bar"));
     }
 }

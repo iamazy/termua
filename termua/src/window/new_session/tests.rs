@@ -2,7 +2,31 @@ use gpui::{ParentElement, Render, Styled, div};
 use gpui_common::TermuaIcon;
 
 use super::*;
-use crate::env::build_terminal_env;
+use crate::{env::build_terminal_env, store::SessionEnvVar};
+
+fn test_session_env(
+    term: &str,
+    charset: &str,
+    colorterm: Option<&str>,
+) -> Option<Vec<SessionEnvVar>> {
+    let mut env = vec![
+        SessionEnvVar {
+            name: "TERM".to_string(),
+            value: term.to_string(),
+        },
+        SessionEnvVar {
+            name: "CHARSET".to_string(),
+            value: charset.to_string(),
+        },
+    ];
+    if let Some(colorterm) = colorterm {
+        env.push(SessionEnvVar {
+            name: "COLORTERM".to_string(),
+            value: colorterm.to_string(),
+        });
+    }
+    Some(env)
+}
 
 #[test]
 fn new_session_colorterm_field_label_uses_camel_case_locale() {
@@ -1436,8 +1460,7 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
                 group_path: "ssh".to_string(),
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
-                term: "xterm-256color".to_string(),
-                charset: "UTF-8".to_string(),
+                env: test_session_env("xterm-256color", "UTF-8", None),
                 shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
@@ -1458,8 +1481,6 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
-                colorterm: None,
-                env: None,
             };
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
             div().size_full().child(view)
@@ -1499,8 +1520,7 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
                 group_path: "ssh".to_string(),
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
-                term: "xterm-256color".to_string(),
-                charset: "UTF-8".to_string(),
+                env: test_session_env("xterm-256color", "UTF-8", None),
                 shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
@@ -1521,8 +1541,6 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
-                colorterm: None,
-                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
@@ -1577,8 +1595,7 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
                 group_path: "ssh".to_string(),
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
-                term: "xterm-256color".to_string(),
-                charset: "UTF-8".to_string(),
+                env: test_session_env("xterm-256color", "UTF-8", None),
                 shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
@@ -1599,8 +1616,6 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
-                colorterm: None,
-                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
@@ -1613,6 +1628,163 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
         win.debug_bounds("termua-edit-session-password-edit")
             .is_some(),
         "expected Edit Password button to be rendered for edit sessions"
+    );
+}
+
+#[gpui::test]
+fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(860.)),
+            gpui::AvailableSpace::Definite(gpui::px(640.)),
+        ),
+        move |window, app| {
+            let session = crate::store::Session {
+                id: 1,
+                protocol: crate::store::SessionType::Ssh,
+                group_path: "ssh".to_string(),
+                label: "prod".to_string(),
+                backend: crate::settings::TerminalBackend::Wezterm,
+                env: Some(vec![
+                    SessionEnvVar {
+                        name: "TERM".to_string(),
+                        value: "tmux-256color".to_string(),
+                    },
+                    SessionEnvVar {
+                        name: "COLORTERM".to_string(),
+                        value: "24bit".to_string(),
+                    },
+                    SessionEnvVar {
+                        name: "CHARSET".to_string(),
+                        value: "ASCII".to_string(),
+                    },
+                    SessionEnvVar {
+                        name: "FOO".to_string(),
+                        value: "bar".to_string(),
+                    },
+                ]),
+                shell_program: None,
+                ssh_host: Some("example.com".to_string()),
+                ssh_port: Some(22),
+                ssh_auth_type: Some(crate::store::SshAuthType::Password),
+                ssh_user: Some("root".to_string()),
+                ssh_credential_username: None,
+                ssh_password: Some("pw".to_string()),
+                ssh_tcp_nodelay: false,
+                ssh_tcp_keepalive: false,
+                ssh_proxy_mode: None,
+                ssh_proxy_command: None,
+                ssh_proxy_workdir: None,
+                ssh_proxy_env: None,
+                ssh_proxy_jump: None,
+                serial_port: None,
+                serial_baud: None,
+                serial_data_bits: None,
+                serial_parity: None,
+                serial_stop_bits: None,
+                serial_flow_control: None,
+            };
+
+            let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    win.update(|_window, app| {
+        let view = view.read(app);
+
+        assert_eq!(view.ssh.common.term.as_ref(), "tmux-256color");
+        assert_eq!(view.ssh.common.charset.as_ref(), "ASCII");
+        assert_eq!(view.ssh.colorterm.as_ref(), "24bit");
+        assert_eq!(view.ssh.env_rows.len(), 1);
+
+        let row = &view.ssh.env_rows[0];
+        assert_eq!(row.name_input.read(app).value().as_ref(), "FOO");
+        assert_eq!(row.value_input.read(app).value().as_ref(), "bar");
+    });
+}
+
+#[gpui::test]
+fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(860.)),
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| {
+                let mut view = NewSessionWindow::new(window, cx);
+                view.push_shell_env_row(window, cx, Some("TERM"), Some("screen-256color"));
+                view
+            });
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    win.update(|_window, app| {
+        let view = view.read(app);
+        assert_eq!(view.protocol, Protocol::Shell);
+        assert_eq!(view.shell.env_rows.len(), 1);
+        assert_eq!(
+            view.shell.env_rows[0].name_input.read(app).value().as_ref(),
+            "TERM"
+        );
+    });
+
+    assert!(
+        win.debug_bounds("termua-new-session-shell-term-select")
+            .is_some(),
+        "expected shell session page to render"
+    );
+    assert!(
+        win.debug_bounds("termua-new-session-shell-env").is_some(),
+        "expected shell env editor to render"
+    );
+
+    assert!(
+        win.debug_bounds("termua-new-session-shell-env-reserved")
+            .is_some(),
+        "expected reserved env variable hint to render"
     );
 }
 
@@ -1852,12 +2024,21 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
         .filter(|s| s.protocol == crate::store::SessionType::Local)
         .collect::<Vec<_>>();
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].colorterm.as_deref(), Some("truecolor"));
-    assert_eq!(sessions[0].env.as_ref().map(Vec::len), Some(2));
-    assert_eq!(sessions[0].env.as_ref().unwrap()[0].name, "COLORTERM");
-    assert_eq!(sessions[0].env.as_ref().unwrap()[0].value, "24bit");
-    assert_eq!(sessions[0].env.as_ref().unwrap()[1].name, "FOO");
-    assert_eq!(sessions[0].env.as_ref().unwrap()[1].value, "bar");
+    assert_eq!(sessions[0].term(), "xterm-256color");
+    assert_eq!(sessions[0].colorterm(), Some("truecolor"));
+    assert_eq!(sessions[0].charset(), "UTF-8");
+
+    let env = sessions[0].env.as_ref().unwrap();
+    let env_value = |name: &str| {
+        env.iter()
+            .find(|var| var.name == name)
+            .map(|var| var.value.as_str())
+    };
+    assert_eq!(env.len(), 4);
+    assert_eq!(env_value("TERM"), Some("xterm-256color"));
+    assert_eq!(env_value("COLORTERM"), Some("truecolor"));
+    assert_eq!(env_value("CHARSET"), Some("UTF-8"));
+    assert_eq!(env_value("FOO"), Some("bar"));
 }
 
 #[gpui::test]
@@ -2051,8 +2232,7 @@ fn edit_session_repeat_save_is_ignored_while_submit_is_in_flight(cx: &mut gpui::
                 group_path: "ssh".to_string(),
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
-                term: "xterm-256color".to_string(),
-                charset: "UTF-8".to_string(),
+                env: test_session_env("xterm-256color", "UTF-8", None),
                 shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
@@ -2073,8 +2253,6 @@ fn edit_session_repeat_save_is_ignored_while_submit_is_in_flight(cx: &mut gpui::
                 serial_parity: None,
                 serial_stop_bits: None,
                 serial_flow_control: None,
-                colorterm: None,
-                env: None,
             };
 
             let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));

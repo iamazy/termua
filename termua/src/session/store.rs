@@ -132,6 +132,10 @@ pub struct SessionEnvVar {
     pub value: String,
 }
 
+const SESSION_ENV_TERM: &str = "TERM";
+const SESSION_ENV_COLORTERM: &str = "COLORTERM";
+const SESSION_ENV_CHARSET: &str = "CHARSET";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Session {
     pub id: i64,
@@ -140,9 +144,6 @@ pub struct Session {
     pub label: String,
 
     pub backend: TerminalBackend,
-    pub term: String,
-    pub colorterm: Option<String>,
-    pub charset: String,
     pub env: Option<Vec<SessionEnvVar>>,
 
     // Local
@@ -172,6 +173,63 @@ pub struct Session {
     pub serial_parity: Option<SerialParity>,
     pub serial_stop_bits: Option<SerialStopBits>,
     pub serial_flow_control: Option<SerialFlowControl>,
+}
+
+impl Session {
+    pub fn term(&self) -> &str {
+        session_env_value(self.env.as_deref(), SESSION_ENV_TERM).unwrap_or("xterm-256color")
+    }
+
+    pub fn colorterm(&self) -> Option<&str> {
+        session_env_value(self.env.as_deref(), SESSION_ENV_COLORTERM)
+    }
+
+    pub fn charset(&self) -> &str {
+        session_env_value(self.env.as_deref(), SESSION_ENV_CHARSET).unwrap_or("UTF-8")
+    }
+}
+
+fn session_env_value<'a>(env: Option<&'a [SessionEnvVar]>, name: &str) -> Option<&'a str> {
+    env.and_then(|vars| {
+        vars.iter()
+            .find(|var| var.name == name)
+            .map(|var| var.value.as_str())
+    })
+}
+
+fn merge_terminal_fields_into_env(
+    term: &str,
+    colorterm: Option<&str>,
+    charset: &str,
+    env: Vec<SessionEnvVar>,
+) -> Vec<SessionEnvVar> {
+    let mut merged = Vec::new();
+    upsert_session_env_var(&mut merged, SESSION_ENV_TERM, term.to_string());
+    if let Some(colorterm) = colorterm.filter(|value| !value.trim().is_empty()) {
+        upsert_session_env_var(&mut merged, SESSION_ENV_COLORTERM, colorterm.to_string());
+    }
+    upsert_session_env_var(&mut merged, SESSION_ENV_CHARSET, charset.to_string());
+
+    for var in env {
+        let name = var.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        upsert_session_env_var(&mut merged, name, var.value);
+    }
+
+    merged
+}
+
+fn upsert_session_env_var(env: &mut Vec<SessionEnvVar>, name: &str, value: String) {
+    if let Some(var) = env.iter_mut().find(|var| var.name == name) {
+        var.value = value;
+    } else {
+        env.push(SessionEnvVar {
+            name: name.to_string(),
+            value,
+        });
+    }
 }
 
 fn termua_db_path() -> PathBuf {
@@ -228,9 +286,6 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
           group_path TEXT NOT NULL,
           label TEXT NOT NULL,
           backend TEXT NOT NULL,
-          term TEXT NOT NULL,
-          charset TEXT NOT NULL,
-          colorterm TEXT,
           session_env TEXT,
           shell_program TEXT,
           ssh_host TEXT,
@@ -269,7 +324,6 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_sessions_column(conn, "ssh_proxy_jump", "TEXT")?;
     ensure_sessions_column(conn, "ssh_tcp_nodelay", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_sessions_column(conn, "ssh_tcp_keepalive", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_sessions_column(conn, "colorterm", "TEXT")?;
     ensure_sessions_column(conn, "session_env", "TEXT")?;
     ensure_sessions_column(conn, "serial_port", "TEXT")?;
     ensure_sessions_column(conn, "serial_baud", "INTEGER")?;
@@ -277,10 +331,21 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_sessions_column(conn, "serial_parity", "TEXT")?;
     ensure_sessions_column(conn, "serial_stop_bits", "INTEGER")?;
     ensure_sessions_column(conn, "serial_flow_control", "TEXT")?;
+    migrate_legacy_session_terminal_fields(conn)?;
     Ok(())
 }
 
 fn ensure_sessions_column(conn: &Connection, name: &str, ty: &str) -> anyhow::Result<()> {
+    if sessions_has_column(conn, name)? {
+        return Ok(());
+    }
+
+    conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {name} {ty}"), [])
+        .with_context(|| format!("add sessions column {name}"))?;
+    Ok(())
+}
+
+fn sessions_has_column(conn: &Connection, name: &str) -> anyhow::Result<bool> {
     let mut stmt = conn
         .prepare("PRAGMA table_info(sessions)")
         .context("prepare sessions table_info")?;
@@ -288,12 +353,49 @@ fn ensure_sessions_column(conn: &Connection, name: &str, ty: &str) -> anyhow::Re
     while let Some(row) = rows.next().context("read sessions table_info row")? {
         let col_name: String = row.get(1)?;
         if col_name == name {
-            return Ok(());
+            return Ok(true);
         }
     }
+    Ok(false)
+}
 
-    conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {name} {ty}"), [])
-        .with_context(|| format!("add sessions column {name}"))?;
+fn migrate_legacy_session_terminal_fields(conn: &Connection) -> anyhow::Result<()> {
+    let has_term = sessions_has_column(conn, "term")?;
+    let has_charset = sessions_has_column(conn, "charset")?;
+    let has_colorterm = sessions_has_column(conn, "colorterm")?;
+    if !has_term || !has_charset || !has_colorterm {
+        return Ok(());
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT id, term, charset, colorterm, session_env FROM sessions")
+        .context("prepare migrate legacy terminal fields")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .context("query migrate legacy terminal fields")?;
+
+    for row in rows {
+        let (id, term, charset, colorterm, session_env_raw) = row?;
+        let env = session_env_raw
+            .and_then(|raw| serde_json_lenient::from_str::<Vec<SessionEnvVar>>(&raw).ok())
+            .unwrap_or_default();
+        let merged = merge_terminal_fields_into_env(&term, colorterm.as_deref(), &charset, env);
+        let merged_json = serialize_session_env(&merged)?;
+        conn.execute(
+            "UPDATE sessions SET session_env = ?2 WHERE id = ?1",
+            params![id, merged_json],
+        )
+        .with_context(|| format!("migrate legacy terminal fields for session {id}"))?;
+    }
+
     Ok(())
 }
 
@@ -417,9 +519,6 @@ struct SessionWrite<'a> {
     group_path: &'a str,
     label: &'a str,
     backend: TerminalBackend,
-    term: &'a str,
-    colorterm: Option<&'a str>,
-    charset: &'a str,
     env: Vec<SessionEnvVar>,
     shell_program: Option<&'a str>,
     ssh_host: Option<&'a str>,
@@ -458,10 +557,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            term,
-            colorterm,
-            charset,
-            env,
+            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
             shell_program: Some(shell_program),
             ssh_host: None,
             ssh_port: None,
@@ -510,10 +606,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            term,
-            colorterm,
-            charset,
-            env,
+            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
             shell_program: None,
             ssh_host: Some(host),
             ssh_port: Some(port),
@@ -560,10 +653,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            term,
-            colorterm,
-            charset,
-            env,
+            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
             shell_program: None,
             ssh_host: Some(host),
             ssh_port: Some(port),
@@ -605,10 +695,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            term,
-            colorterm: None,
-            charset,
-            env: Vec::new(),
+            env: merge_terminal_fields_into_env(term, None, charset, Vec::new()),
             shell_program: None,
             ssh_host: None,
             ssh_port: None,
@@ -672,22 +759,19 @@ fn insert_session_row(conn: &Connection, session: &SessionWrite<'_>) -> anyhow::
         r#"
         INSERT INTO sessions (
           protocol, group_path, label,
-          backend, term, charset, colorterm, session_env,
+          backend, session_env,
           shell_program,
           ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
           ssh_tcp_nodelay, ssh_tcp_keepalive,
           ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
           serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
         "#,
         params![
             protocol_to_str(&session.protocol),
             session.group_path,
             session.label,
             backend_to_str(session.backend),
-            session.term,
-            session.charset,
-            session.colorterm,
             session_env_json,
             session.shell_program,
             session.ssh_host,
@@ -730,29 +814,26 @@ fn update_session_row(
           group_path = ?3,
           label = ?4,
           backend = ?5,
-          term = ?6,
-          charset = ?7,
-          colorterm = ?8,
-          session_env = ?9,
-          shell_program = ?10,
-          ssh_host = ?11,
-          ssh_port = ?12,
-          ssh_auth_type = ?13,
-          ssh_user = ?14,
+          session_env = ?6,
+          shell_program = ?7,
+          ssh_host = ?8,
+          ssh_port = ?9,
+          ssh_auth_type = ?10,
+          ssh_user = ?11,
           ssh_credential_username = NULL,
-          ssh_tcp_nodelay = ?15,
-          ssh_tcp_keepalive = ?16,
-          ssh_proxy_mode = ?17,
-          ssh_proxy_command = ?18,
-          ssh_proxy_workdir = ?19,
-          ssh_proxy_env = ?20,
-          ssh_proxy_jump = ?21,
-          serial_port = ?22,
-          serial_baud = ?23,
-          serial_data_bits = ?24,
-          serial_parity = ?25,
-          serial_stop_bits = ?26,
-          serial_flow_control = ?27,
+          ssh_tcp_nodelay = ?12,
+          ssh_tcp_keepalive = ?13,
+          ssh_proxy_mode = ?14,
+          ssh_proxy_command = ?15,
+          ssh_proxy_workdir = ?16,
+          ssh_proxy_env = ?17,
+          ssh_proxy_jump = ?18,
+          serial_port = ?19,
+          serial_baud = ?20,
+          serial_data_bits = ?21,
+          serial_parity = ?22,
+          serial_stop_bits = ?23,
+          serial_flow_control = ?24,
           updated_at = unixepoch()
         WHERE id = ?1
         "#,
@@ -762,9 +843,6 @@ fn update_session_row(
             session.group_path,
             session.label,
             backend_to_str(session.backend),
-            session.term,
-            session.charset,
-            session.colorterm,
             session_env_json,
             session.shell_program,
             session.ssh_host,
@@ -1119,7 +1197,7 @@ pub fn load_all_sessions() -> anyhow::Result<Vec<Session>> {
             r#"
 	            SELECT
 	              id, protocol, group_path, label,
-	              backend, term, charset, colorterm, session_env,
+	              backend, session_env,
               shell_program,
               ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
               ssh_tcp_nodelay, ssh_tcp_keepalive,
@@ -1148,7 +1226,7 @@ pub fn load_session(id: i64) -> anyhow::Result<Option<Session>> {
         r#"
 	    SELECT
 	      id, protocol, group_path, label,
-	      backend, term, charset, colorterm, session_env,
+	      backend, session_env,
               shell_program,
               ssh_host, ssh_port, ssh_auth_type, ssh_user, ssh_credential_username,
               ssh_tcp_nodelay, ssh_tcp_keepalive,
@@ -1182,30 +1260,27 @@ fn parse_session_row(row: &rusqlite::Row<'_>, include_password: bool) -> rusqlit
         group_path: row.get(2)?,
         label: row.get(3)?,
         backend,
-        term: row.get(5)?,
-        colorterm: row.get(7)?,
-        charset: row.get(6)?,
         env: parse_session_env(row)?,
-        shell_program: row.get(9)?,
-        ssh_host: row.get(10)?,
-        ssh_port: row.get::<_, Option<i64>>(11)?.map(|v| v as u16),
+        shell_program: row.get(6)?,
+        ssh_host: row.get(7)?,
+        ssh_port: row.get::<_, Option<i64>>(8)?.map(|v| v as u16),
         ssh_auth_type,
-        ssh_user: row.get(13)?,
-        ssh_credential_username: row.get(14)?,
+        ssh_user: row.get(10)?,
+        ssh_credential_username: row.get(11)?,
         ssh_password,
 
-        ssh_tcp_nodelay: row.get::<_, i64>(15)? != 0,
-        ssh_tcp_keepalive: row.get::<_, i64>(16)? != 0,
+        ssh_tcp_nodelay: row.get::<_, i64>(12)? != 0,
+        ssh_tcp_keepalive: row.get::<_, i64>(13)? != 0,
 
         ssh_proxy_mode: parse_ssh_proxy_mode(row)?,
-        ssh_proxy_command: row.get(18)?,
-        ssh_proxy_workdir: row.get(19)?,
+        ssh_proxy_command: row.get(15)?,
+        ssh_proxy_workdir: row.get(16)?,
         ssh_proxy_env: parse_ssh_proxy_env(row)?,
         ssh_proxy_jump: parse_ssh_proxy_jump(row)?,
 
-        serial_port: row.get(22)?,
-        serial_baud: row.get::<_, Option<i64>>(23)?.map(|v| v as u32),
-        serial_data_bits: row.get::<_, Option<i64>>(24)?.map(|v| v as u8),
+        serial_port: row.get(19)?,
+        serial_baud: row.get::<_, Option<i64>>(20)?.map(|v| v as u32),
+        serial_data_bits: row.get::<_, Option<i64>>(21)?.map(|v| v as u8),
         serial_parity: parse_serial_parity(row)?,
         serial_stop_bits: parse_serial_stop_bits(row)?,
         serial_flow_control: parse_serial_flow_control(row)?,
@@ -1225,56 +1300,56 @@ fn parse_backend(row: &rusqlite::Row<'_>) -> rusqlite::Result<TerminalBackend> {
 }
 
 fn parse_ssh_auth_type(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SshAuthType>> {
-    let ssh_auth_s: Option<String> = row.get(12)?;
+    let ssh_auth_s: Option<String> = row.get(9)?;
     ssh_auth_s
         .map(|s| {
             ssh_auth_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(12, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(9, ParseError(e.to_string())))
         })
         .transpose()
 }
 
 fn parse_session_env(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SessionEnvVar>>> {
-    let session_env_s: Option<String> = row.get(8)?;
+    let session_env_s: Option<String> = row.get(5)?;
     Ok(session_env_s.and_then(|raw| serde_json_lenient::from_str::<Vec<SessionEnvVar>>(&raw).ok()))
 }
 
 fn parse_ssh_proxy_mode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SshProxyMode>> {
-    let ssh_proxy_mode_s: Option<String> = row.get(17)?;
+    let ssh_proxy_mode_s: Option<String> = row.get(14)?;
     ssh_proxy_mode_s
         .map(|s| {
             ssh_proxy_mode_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(17, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(14, ParseError(e.to_string())))
         })
         .transpose()
 }
 
 fn parse_ssh_proxy_env(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SshProxyEnvVar>>> {
-    let ssh_proxy_env_s: Option<String> = row.get(20)?;
+    let ssh_proxy_env_s: Option<String> = row.get(17)?;
     Ok(ssh_proxy_env_s
         .and_then(|raw| serde_json_lenient::from_str::<Vec<SshProxyEnvVar>>(&raw).ok()))
 }
 
 fn parse_ssh_proxy_jump(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Vec<SshJumpHop>>> {
-    let ssh_proxy_jump_s: Option<String> = row.get(21)?;
+    let ssh_proxy_jump_s: Option<String> = row.get(18)?;
     Ok(ssh_proxy_jump_s.and_then(|raw| serde_json_lenient::from_str::<Vec<SshJumpHop>>(&raw).ok()))
 }
 
 fn parse_serial_parity(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SerialParity>> {
-    let serial_parity_s: Option<String> = row.get(25)?;
+    let serial_parity_s: Option<String> = row.get(22)?;
     serial_parity_s
         .map(|s| {
             serial_parity_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(25, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(22, ParseError(e.to_string())))
         })
         .transpose()
 }
 
 fn parse_serial_stop_bits(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<SerialStopBits>> {
-    row.get::<_, Option<i64>>(26)?
+    row.get::<_, Option<i64>>(23)?
         .map(|v| {
             serial_stop_bits_from_i64(v)
-                .map_err(|e| from_sql_int_parse_error(26, ParseError(e.to_string())))
+                .map_err(|e| from_sql_int_parse_error(23, ParseError(e.to_string())))
         })
         .transpose()
 }
@@ -1282,11 +1357,11 @@ fn parse_serial_stop_bits(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Se
 fn parse_serial_flow_control(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<Option<SerialFlowControl>> {
-    let serial_flow_control_s: Option<String> = row.get(27)?;
+    let serial_flow_control_s: Option<String> = row.get(24)?;
     serial_flow_control_s
         .map(|s| {
             serial_flow_control_from_str(&s)
-                .map_err(|e| from_sql_text_parse_error(27, ParseError(e.to_string())))
+                .map_err(|e| from_sql_text_parse_error(24, ParseError(e.to_string())))
         })
         .transpose()
 }
@@ -1783,6 +1858,27 @@ pub(crate) mod tests {
         assert!(names.iter().any(|n| n == "ssh_tcp_keepalive"));
     }
 
+    #[test]
+    fn sessions_schema_stores_terminal_fields_in_session_env_only() {
+        let db_path = unique_test_db_path("session-env-schema");
+        let _guard = override_termua_db_path(db_path);
+
+        let conn = open().unwrap();
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let mut rows = stmt.query([]).unwrap();
+
+        let mut names = Vec::new();
+        while let Some(row) = rows.next().unwrap() {
+            let name: String = row.get(1).unwrap();
+            names.push(name);
+        }
+
+        assert!(names.iter().any(|n| n == "session_env"));
+        assert!(!names.iter().any(|n| n == "term"));
+        assert!(!names.iter().any(|n| n == "charset"));
+        assert!(!names.iter().any(|n| n == "colorterm"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn termua_db_is_private_on_unix() {
@@ -1893,8 +1989,8 @@ pub(crate) mod tests {
         assert_eq!(local.label, "zsh");
         assert_eq!(local.backend, TerminalBackend::Alacritty);
         assert_eq!(local.shell_program.as_deref(), Some("zsh"));
-        assert_eq!(local.term, "screen-256color");
-        assert_eq!(local.charset, "ASCII");
+        assert_eq!(local.term(), "screen-256color");
+        assert_eq!(local.charset(), "ASCII");
 
         let ssh_id = save_ssh_session_password(
             "ssh",
@@ -1929,7 +2025,7 @@ pub(crate) mod tests {
         assert_eq!(ssh.ssh_host.as_deref(), Some("api.example.com"));
         assert_eq!(ssh.ssh_port, Some(2222));
         assert_eq!(ssh.ssh_user.as_deref(), Some("alice"));
-        assert_eq!(ssh.term, "tmux-256color");
+        assert_eq!(ssh.term(), "tmux-256color");
     }
 
     #[test]
@@ -1996,13 +2092,31 @@ pub(crate) mod tests {
             "xterm-256color",
             Some("truecolor"),
             "UTF-8",
-            env.clone(),
+            env,
         )
         .unwrap();
 
         let local = load_session(id).unwrap().unwrap();
-        assert_eq!(local.colorterm.as_deref(), Some("truecolor"));
-        assert_eq!(local.env.as_deref(), Some(env.as_slice()));
+        assert_eq!(local.term(), "xterm-256color");
+        assert_eq!(local.colorterm(), Some("24bit"));
+        assert_eq!(local.charset(), "UTF-8");
+        let env = local.env.as_deref().unwrap();
+        assert!(
+            env.iter()
+                .any(|var| var.name == "TERM" && var.value == "xterm-256color")
+        );
+        assert!(
+            env.iter()
+                .any(|var| var.name == "COLORTERM" && var.value == "24bit")
+        );
+        assert!(
+            env.iter()
+                .any(|var| var.name == "CHARSET" && var.value == "UTF-8")
+        );
+        assert!(
+            env.iter()
+                .any(|var| var.name == "FOO" && var.value == "bar")
+        );
     }
 
     #[test]
@@ -2031,13 +2145,33 @@ pub(crate) mod tests {
             None,
             Vec::new(),
             Vec::new(),
-            env.clone(),
+            env,
         )
         .unwrap();
 
         let ssh = load_session(id).unwrap().unwrap();
-        assert_eq!(ssh.colorterm.as_deref(), Some("truecolor"));
-        assert_eq!(ssh.env.as_deref(), Some(env.as_slice()));
+        assert_eq!(ssh.colorterm(), Some("truecolor"));
+        let session_env = ssh.env.as_deref().unwrap();
+        assert!(
+            session_env
+                .iter()
+                .any(|var| var.name == "TERM" && var.value == "xterm-256color")
+        );
+        assert!(
+            session_env
+                .iter()
+                .any(|var| var.name == "COLORTERM" && var.value == "truecolor")
+        );
+        assert!(
+            session_env
+                .iter()
+                .any(|var| var.name == "CHARSET" && var.value == "UTF-8")
+        );
+        assert!(
+            session_env
+                .iter()
+                .any(|var| var.name == "LANG" && var.value == "C.UTF-8")
+        );
     }
 
     #[test]

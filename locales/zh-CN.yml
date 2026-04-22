@@ -63,6 +63,8 @@ NewSession:
     EnvironmentVariables: "环境变量："
     Host: "主机："
     Port: "端口："
+  Hint:
+    ReservedTerminalEnv: "TERM、COLORTERM 和 CHARSET 由上方字段管理。"
   Nav:
     Session: "会话"
     Ssh:
