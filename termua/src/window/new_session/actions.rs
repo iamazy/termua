@@ -469,9 +469,7 @@ impl NewSessionWindow {
             tcp_nodelay: self.ssh.tcp_nodelay,
             tcp_keepalive: self.ssh.tcp_keepalive,
             term: self.ssh.common.term.clone(),
-            colorterm: Self::selected_colorterm_string(
-                self.ssh.colorterm_select.read(cx).selected_value(),
-            ),
+            colorterm: self.ssh.common.colorterm.to_string(),
             charset: self.ssh.common.charset.clone(),
             label: self.ssh.common.label_input.read(cx).value().to_string(),
             group: self.ssh.common.group_input.read(cx).value().to_string(),
@@ -504,12 +502,6 @@ impl NewSessionWindow {
     fn trimmed_non_empty_option(raw: &str) -> Option<&str> {
         let raw = raw.trim();
         (!raw.is_empty()).then_some(raw)
-    }
-
-    fn selected_colorterm_string(selected: Option<&gpui::SharedString>) -> String {
-        selected
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| DEFAULT_COLORTERM.to_string())
     }
 
     fn session_env_rows_for_store(rows: &[EnvRowState], app: &App) -> Vec<SessionEnvVar> {
@@ -619,7 +611,7 @@ impl NewSessionWindow {
             self.shell.common.ty,
             self.shell.program.clone(),
             self.shell.common.term.clone(),
-            Self::selected_colorterm_string(self.shell.colorterm_select.read(cx).selected_value()),
+            self.shell.common.colorterm.to_string(),
             self.shell.common.charset.clone(),
             self.shell.common.label_input.read(cx).value().to_string(),
             self.shell.common.group_input.read(cx).value().to_string(),
@@ -775,7 +767,7 @@ impl NewSessionWindow {
             self.shell.common.ty,
             self.shell.program.clone(),
             self.shell.common.term.clone(),
-            Self::selected_colorterm_string(self.shell.colorterm_select.read(cx).selected_value()),
+            self.shell.common.colorterm.to_string(),
             self.shell.common.charset.clone(),
         );
 
@@ -1176,6 +1168,11 @@ impl NewSessionWindow {
         cx: &mut Context<Self>,
     ) {
         let term: gpui::SharedString = session.term().to_string().into();
+        let colorterm: gpui::SharedString = session
+            .colorterm()
+            .unwrap_or(DEFAULT_COLORTERM)
+            .to_string()
+            .into();
         let charset: gpui::SharedString = session.charset().to_string().into();
         let label = session.label.as_str();
         let group = session.group_path.as_str();
@@ -1184,6 +1181,7 @@ impl NewSessionWindow {
             &mut self.shell.common,
             backend,
             &term,
+            &colorterm,
             &charset,
             label,
             group,
@@ -1194,6 +1192,7 @@ impl NewSessionWindow {
             &mut self.ssh.common,
             backend,
             &term,
+            &colorterm,
             &charset,
             label,
             group,
@@ -1204,6 +1203,7 @@ impl NewSessionWindow {
             &mut self.serial.common,
             backend,
             &term,
+            &colorterm,
             &charset,
             label,
             group,
@@ -1216,6 +1216,7 @@ impl NewSessionWindow {
         common: &mut super::state::SessionCommonState,
         backend: TermBackend,
         term: &gpui::SharedString,
+        colorterm: &gpui::SharedString,
         charset: &gpui::SharedString,
         label: &str,
         group: &str,
@@ -1224,6 +1225,7 @@ impl NewSessionWindow {
     ) {
         common.set_type(backend, window, cx);
         common.set_term(term.clone(), window, cx);
+        common.set_colorterm(colorterm.as_ref(), window, cx);
         common.set_charset(charset.clone(), window, cx);
         set_input_value(&common.label_input, label, window, cx);
         set_input_value(&common.group_input, group, window, cx);
@@ -1254,8 +1256,6 @@ impl NewSessionWindow {
             window,
             cx,
         );
-        self.shell
-            .set_colorterm(session.colorterm().unwrap_or(DEFAULT_COLORTERM), window, cx);
         self.apply_shell_env_rows_for_edit(session, window, cx);
     }
 
@@ -1283,8 +1283,6 @@ impl NewSessionWindow {
         if let Some(pw) = session.ssh_password.clone() {
             set_input_value(&self.ssh.password_input, &pw, window, cx);
         }
-        self.ssh
-            .set_colorterm(session.colorterm().unwrap_or(DEFAULT_COLORTERM), window, cx);
         self.apply_ssh_env_rows_for_edit(session, window, cx);
 
         self.ssh.tcp_nodelay = session.ssh_tcp_nodelay;
@@ -1490,7 +1488,7 @@ impl NewSessionWindow {
             self.shell.common.ty,
             self.shell.program.clone(),
             self.shell.common.term.clone(),
-            Self::selected_colorterm_string(self.shell.colorterm_select.read(app).selected_value()),
+            self.shell.common.colorterm.to_string(),
             self.shell.common.charset.clone(),
             self.shell.common.label_input.read(app).value().to_string(),
             self.shell.common.group_input.read(app).value().to_string(),

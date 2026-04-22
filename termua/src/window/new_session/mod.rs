@@ -599,16 +599,19 @@ impl NewSessionWindow {
                     }
                 }
             }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.shell.colorterm_select, window, {
+        self._subscriptions.push(
+            cx.subscribe_in(&self.shell.common.colorterm_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
                     if let SelectEvent::Confirm(Some(colorterm)) = ev {
-                        this.shell.set_colorterm(colorterm.as_ref(), window, cx);
+                        this.shell
+                            .common
+                            .set_colorterm(colorterm.as_ref(), window, cx);
                         cx.notify();
                         window.refresh();
                     }
                 }
-            }));
+            }),
+        );
     }
 
     fn install_ssh_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -700,10 +703,12 @@ impl NewSessionWindow {
                 }
             }));
         self._subscriptions
-            .push(cx.subscribe_in(&self.ssh.colorterm_select, window, {
+            .push(cx.subscribe_in(&self.ssh.common.colorterm_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
                     if let SelectEvent::Confirm(Some(colorterm)) = ev {
-                        this.ssh.set_colorterm(colorterm.as_ref(), window, cx);
+                        this.ssh
+                            .common
+                            .set_colorterm(colorterm.as_ref(), window, cx);
                         cx.notify();
                         window.refresh();
                     }
@@ -887,14 +892,19 @@ impl SessionCommonState {
 
         let label_input = new_input(window, cx, t!("NewSession.Placeholder.Label").to_string());
         let group_input = new_input(window, cx, t!("NewSession.Placeholder.Group").to_string());
+        let colorterm_options = colorterm_options();
+        let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         Self {
             ty: default_backend,
             term: "xterm-256color".into(),
+            colorterm: DEFAULT_COLORTERM.into(),
             charset: "UTF-8".into(),
             label_input,
             group_input,
             type_select,
             term_select,
+            colorterm_options,
+            colorterm_select,
             charset_select,
         }
     }
@@ -934,6 +944,28 @@ impl SessionCommonState {
             select.set_selected_value(&charset, window, cx);
         });
     }
+
+    fn set_colorterm(
+        &mut self,
+        colorterm: &str,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) {
+        let colorterm = normalize_colorterm(colorterm);
+        self.colorterm = colorterm.clone();
+
+        if !self.colorterm_options.iter().any(|item| item == &colorterm) {
+            self.colorterm_options.push(colorterm.clone());
+            let items = SearchableVec::new(self.colorterm_options.clone());
+            self.colorterm_select.update(cx, |select, cx| {
+                select.set_items(items, window, cx);
+            });
+        }
+
+        self.colorterm_select.update(cx, |select, cx| {
+            select.set_selected_value(&colorterm, window, cx);
+        });
+    }
 }
 
 impl ShellSessionState {
@@ -963,17 +995,11 @@ impl ShellSessionState {
             .unwrap_or_else(Self::program_default_value);
 
         let program_select = new_select(window, cx, program_options.clone(), Some(0));
-        let colorterm_options = colorterm_options();
-        let colorterm = SharedString::from(DEFAULT_COLORTERM);
-        let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
 
         let this = Self {
             program,
             program_options,
             program_select,
-            colorterm,
-            colorterm_options,
-            colorterm_select,
             env_rows: Vec::new(),
             env_next_id: 1,
             common,
@@ -1035,28 +1061,6 @@ impl ShellSessionState {
 }
 
 impl ShellSessionState {
-    fn set_colorterm(
-        &mut self,
-        colorterm: &str,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        let colorterm = normalize_colorterm(colorterm);
-        self.colorterm = colorterm.clone();
-
-        if !self.colorterm_options.iter().any(|item| item == &colorterm) {
-            self.colorterm_options.push(colorterm.clone());
-            let items = SearchableVec::new(self.colorterm_options.clone());
-            self.colorterm_select.update(cx, |select, cx| {
-                select.set_items(items, window, cx);
-            });
-        }
-
-        self.colorterm_select.update(cx, |select, cx| {
-            select.set_selected_value(&colorterm, window, cx);
-        });
-    }
-
     fn sync_localized_placeholders(&self, window: &mut Window, cx: &mut Context<NewSessionWindow>) {
         for row in &self.env_rows {
             sync_input_placeholders(
@@ -1102,9 +1106,6 @@ impl SshSessionState {
 
         let user_input = new_input(window, cx, t!("NewSession.Placeholder.SshUser").to_string());
         let host_input = new_input(window, cx, t!("NewSession.Placeholder.SshHost").to_string());
-        let colorterm_options = colorterm_options();
-        let colorterm = SharedString::from(DEFAULT_COLORTERM);
-        let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         let port_input = new_input_with_value(
             window,
             cx,
@@ -1143,9 +1144,6 @@ impl SshSessionState {
 
         Self {
             common,
-            colorterm,
-            colorterm_options,
-            colorterm_select,
             env_rows: Vec::new(),
             env_next_id: 1,
             auth_type: SshAuthType::Password,
@@ -1190,28 +1188,6 @@ impl SshSessionState {
         cx: &mut Context<NewSessionWindow>,
     ) {
         self.set_auth_type(auth_type, window, cx);
-    }
-
-    fn set_colorterm(
-        &mut self,
-        colorterm: &str,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        let colorterm = normalize_colorterm(colorterm);
-        self.colorterm = colorterm.clone();
-
-        if !self.colorterm_options.iter().any(|item| item == &colorterm) {
-            self.colorterm_options.push(colorterm.clone());
-            let items = SearchableVec::new(self.colorterm_options.clone());
-            self.colorterm_select.update(cx, |select, cx| {
-                select.set_items(items, window, cx);
-            });
-        }
-
-        self.colorterm_select.update(cx, |select, cx| {
-            select.set_selected_value(&colorterm, window, cx);
-        });
     }
 
     fn sync_localized_placeholders(&self, window: &mut Window, cx: &mut Context<NewSessionWindow>) {

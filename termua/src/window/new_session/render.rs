@@ -615,7 +615,7 @@ impl ShellSessionState {
                 div()
                     .w_full()
                     .debug_selector(|| "termua-new-session-shell-colorterm-select".to_string())
-                    .child(Select::new(&self.colorterm_select)),
+                    .child(Select::new(&self.common.colorterm_select)),
                 cx,
             ))
             .child(render_form_row(
@@ -1118,7 +1118,7 @@ impl SshSessionState {
                 div()
                     .w_full()
                     .debug_selector(|| "termua-new-session-ssh-colorterm-select".to_string())
-                    .child(Select::new(&self.colorterm_select)),
+                    .child(Select::new(&self.common.colorterm_select)),
                 cx,
             )
             .into_any_element(),

@@ -34,11 +34,14 @@ impl SessionEditorMode {
 pub(super) struct SessionCommonState {
     pub(super) ty: TermBackend,
     pub(super) term: SharedString,
+    pub(super) colorterm: SharedString,
     pub(super) charset: SharedString,
     pub(super) label_input: Entity<InputState>,
     pub(super) group_input: Entity<InputState>,
     pub(super) type_select: Entity<SelectState<SearchableVec<BackendSelectItem>>>,
     pub(super) term_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    pub(super) colorterm_options: Vec<SharedString>,
+    pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) charset_select: Entity<SelectState<SearchableVec<SharedString>>>,
 }
 
@@ -46,9 +49,6 @@ pub(super) struct ShellSessionState {
     pub(super) program: SharedString,
     pub(super) program_options: Vec<ShellProgramSelectItem>,
     pub(super) program_select: Entity<SelectState<SearchableVec<ShellProgramSelectItem>>>,
-    pub(super) colorterm: SharedString,
-    pub(super) colorterm_options: Vec<SharedString>,
-    pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) env_rows: Vec<EnvRowState>,
     pub(super) env_next_id: u64,
     pub(super) common: SessionCommonState,
@@ -161,9 +161,6 @@ impl gpui_component::select::SelectItem for ShellProgramSelectItem {
 
 pub(super) struct SshSessionState {
     pub(super) common: SessionCommonState,
-    pub(super) colorterm: SharedString,
-    pub(super) colorterm_options: Vec<SharedString>,
-    pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) env_rows: Vec<EnvRowState>,
     pub(super) env_next_id: u64,
     pub(super) auth_type: SshAuthType,

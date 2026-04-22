@@ -80,6 +80,7 @@ fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) 
     let shell_colorterm = win.update(|_window, app| {
         view.read(app)
             .shell
+            .common
             .colorterm_select
             .read(app)
             .selected_value()
@@ -98,6 +99,7 @@ fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) 
     let ssh_colorterm = win.update(|_window, app| {
         view.read(app)
             .ssh
+            .common
             .colorterm_select
             .read(app)
             .selected_value()
@@ -1715,7 +1717,7 @@ fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) 
 
         assert_eq!(view.ssh.common.term.as_ref(), "tmux-256color");
         assert_eq!(view.ssh.common.charset.as_ref(), "ASCII");
-        assert_eq!(view.ssh.colorterm.as_ref(), "24bit");
+        assert_eq!(view.ssh.common.colorterm.as_ref(), "24bit");
         assert_eq!(view.ssh.env_rows.len(), 1);
 
         let row = &view.ssh.env_rows[0];
@@ -1989,7 +1991,7 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
 
     win.update(|window, app| {
         view.update(app, |this, cx| {
-            this.shell.set_colorterm("truecolor", window, cx);
+            this.shell.common.set_colorterm("truecolor", window, cx);
 
             let env_id = this.shell.env_next_id;
             this.shell.env_next_id += 1;
