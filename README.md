@@ -104,7 +104,7 @@ It is not recommended to edit `settings.json` directly. Prefer changing settings
 
 ### Release 🦀
 
-You can download the binary from the [artifacts page](https://github.com/iamazy/termua/actions)
+You can download the binary from the [Releases page](https://github.com/iamazy/termua/releases)
 
 ### Acknowledgements ❤️
 

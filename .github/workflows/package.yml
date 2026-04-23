@@ -3,6 +3,8 @@ name: Cross-Platform Package
 on:
   push:
     branches: [main]
+    tags:
+      - "**"
   pull_request:
     branches: [main]
 
@@ -144,3 +146,31 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           path: target/msi/${{ matrix.arch }}/*.msi
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*.AppImage
+            dist/**/*.deb
+            dist/**/*.rpm
+            dist/**/*.dmg
+            dist/**/*.msi
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
