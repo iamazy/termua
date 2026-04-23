@@ -108,7 +108,7 @@ termua-relay --listen 127.0.0.1:7231
 
 ### 发布 🦀
 
-你可以在 [artifacts 页](https://github.com/iamazy/nxshell/actions) 下载二进制产物。
+你可以在 [Releases 页](https://github.com/iamazy/nxshell/actions) 下载二进制产物。
 
 ### 致谢 ❤️
 
