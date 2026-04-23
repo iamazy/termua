@@ -56,7 +56,7 @@ miow = "0.6"
 notify-rust = "4"
 parking_lot = "0.12"
 passfd = "0.1.6"
-portable-pty = { package = "portable-pty", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+portable-pty = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
 piper = "0.2"
 polling = "3"
 regex = "1"
@@ -85,7 +85,7 @@ url = "2"
 urlencoding = "2"
 vte = { version = "0.15", default-features = false }
 async_ossl = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
-wezterm-uds = { package = "wezterm-uds", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+wezterm-uds = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
 windows = "0.62"
 windows-sys = "0.62"
 
