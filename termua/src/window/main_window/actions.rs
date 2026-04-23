@@ -277,16 +277,16 @@ impl TermuaWindow {
                 return false;
             }
 
-            if terminal_panel.kind() != PanelKind::Ssh {
-                return true;
+            match terminal_panel.kind() {
+                PanelKind::Recorder => false,
+                PanelKind::Ssh => !terminal_panel
+                    .terminal_view()
+                    .read(cx)
+                    .terminal
+                    .read(cx)
+                    .has_exited(),
+                PanelKind::Local | PanelKind::Serial => true,
             }
-
-            !terminal_panel
-                .terminal_view()
-                .read(cx)
-                .terminal
-                .read(cx)
-                .has_exited()
         }) else {
             return;
         };

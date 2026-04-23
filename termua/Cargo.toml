@@ -20,7 +20,6 @@ env_logger.workspace = true
 futures.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
-gpui-component-assets.workspace = true
 gpui_common.workspace = true
 termua_zeroclaw.workspace = true
 log.workspace = true
@@ -31,7 +30,6 @@ gpui_transfer = { path = "../crates/gpui_transfer" }
 menubar = { path = "../crates/menubar" }
 termua_relay.workspace = true
 smol.workspace = true
-rust-embed.workspace = true
 rustix.workspace = true
 wezterm_ssh = { package = "wezterm-ssh", path = "../crates/wezterm-ssh", features = ["vendored-openssl"] }
 home.workspace = true
@@ -42,7 +40,6 @@ rusqlite.workspace = true
 libc.workspace = true
 rust-i18n.workspace = true
 rand = "0.9"
-url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = ["Win32", "Win32_Foundation", "Win32_Security", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_System", "Win32_System_Registry", "Win32_System_Threading"] }
