@@ -2810,8 +2810,12 @@ impl TermuaWindow {
             window,
             move |this, _, event, window, cx| match event {
                 TerminalEvent::UserInput(input) => {
-                    if this.close_exited_ssh_panel(&source_terminal_view_for_cb, input, window, cx)
-                    {
+                    if this.close_exited_terminal_panel(
+                        &source_terminal_view_for_cb,
+                        input,
+                        window,
+                        cx,
+                    ) {
                         return;
                     }
                     this.on_terminal_user_input(
@@ -3034,7 +3038,7 @@ impl TermuaWindow {
         cx.notify();
     }
 
-    fn close_exited_ssh_panel(
+    fn close_exited_terminal_panel(
         &mut self,
         source: &gpui::Entity<TerminalView>,
         input: &TerminalUserInput,
@@ -3055,7 +3059,7 @@ impl TermuaWindow {
         }
 
         let Some(panel) = self.find_visible_terminal_panel(cx, |terminal_panel, cx| {
-            terminal_panel.kind() == PanelKind::Ssh
+            matches!(terminal_panel.kind(), PanelKind::Ssh | PanelKind::Recorder)
                 && terminal_panel.terminal_view().entity_id() == source.entity_id()
                 && terminal_panel
                     .terminal_view()
