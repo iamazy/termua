@@ -38,12 +38,7 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-folder-icons-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-icons");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
@@ -104,12 +99,7 @@ fn local_session_icon_is_debuggable(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-local-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-local-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -162,12 +152,7 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-double-click-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-double-click");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -258,12 +243,7 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-connecting-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-connecting");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_ssh_session_password(
@@ -395,12 +375,7 @@ fn sessions_can_be_deleted_via_right_click_menu(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-delete-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-delete");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -644,12 +619,7 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-edit-menu-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-edit-menu");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -724,12 +694,7 @@ fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-pwsh-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-pwsh-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -769,12 +734,7 @@ fn nushell_sessions_show_nushell_icon(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-nushell-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-nushell-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -814,12 +774,7 @@ fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppCont
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-blank-new-session-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-blank-new-session");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let (root, cx) = cx.add_window_view(|window, cx| {
@@ -872,12 +827,7 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-folder-new-session-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-new-session");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
@@ -948,16 +898,7 @@ fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::T
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-load-error-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-load-error");
     let _guard = crate::store::tests::override_termua_db_path(db_path.clone());
 
     let session_id = crate::store::save_local_session(
@@ -1002,12 +943,7 @@ fn session_labels_do_not_wrap_when_sidebar_is_narrow(cx: &mut gpui::TestAppConte
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-nowrap-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-nowrap");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
@@ -1071,16 +1007,7 @@ fn reload_coalesces_while_previous_reload_is_in_flight(cx: &mut gpui::TestAppCon
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-reload-coalesce-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-reload-coalesce");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
@@ -1168,16 +1095,7 @@ fn repeated_delete_requests_for_same_session_are_ignored(cx: &mut gpui::TestAppC
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-delete-dedupe-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-delete-dedupe");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(

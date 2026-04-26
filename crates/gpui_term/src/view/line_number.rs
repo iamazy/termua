@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::fmt::Write;
 
 use gpui::{App, Bounds, Pixels, TextAlign, TextRun, TextStyle, Window, point, px};
 use gpui_component::ActiveTheme;
@@ -232,7 +232,9 @@ pub(crate) fn paint_line_numbers(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use gpui::{Pixels, px};
+
+    use super::{compute_line_number_layout, format_line_number};
 
     #[test]
     fn reserves_minimum_gutter_without_line_numbers() {

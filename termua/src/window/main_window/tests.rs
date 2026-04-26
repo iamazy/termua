@@ -494,12 +494,7 @@ fn ssh_connect_clears_sessions_sidebar_connecting_state(cx: &mut gpui::TestAppCo
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-ssh-sidebar-connecting-cleared-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("ssh-sidebar-connecting-cleared");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_ssh_session_config(
@@ -2184,12 +2179,7 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-click-through-fullscreen-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-click-through-fullscreen");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id_1 = crate::store::save_ssh_session_password(
@@ -2547,12 +2537,7 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-test-missing-password-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("missing-password");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let id = crate::store::save_ssh_session_password(

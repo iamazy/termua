@@ -1774,7 +1774,7 @@ pub(crate) mod tests {
         TermuaDbPathOverrideGuard { prev }
     }
 
-    fn unique_test_db_path(name: &str) -> PathBuf {
+    pub fn unique_test_db_path(name: &str) -> PathBuf {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
         let nonce = NEXT_ID.fetch_add(1, Ordering::Relaxed);

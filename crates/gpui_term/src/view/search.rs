@@ -1,21 +1,27 @@
+use std::{ops::Range, time::Duration};
+
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, ReadGlobal, Styled, Window, div, point,
-    px,
+    AnyElement, Context, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, ReadGlobal, Styled,
+    Window, div, point, px,
 };
 use gpui_component::ActiveTheme;
+use smol::Timer;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{
-    ImeState, TerminalView,
-    scrollbar::{
+    ImeState, SearchOverlayDelete, SearchOverlayKeyDown, SearchOverlayMove, TerminalView,
+    scrolling::{
         SCROLLBAR_WIDTH, scroll_offset_for_line_coord_centered, scroll_offset_for_thumb_center_y,
         scrollbar_bounds_for_terminal, scrollbar_track_bounds,
         search_match_index_for_scrollbar_click, search_match_index_for_scrollbar_hover,
         thumb_bounds_for_track,
     },
 };
-use crate::{settings::TerminalSettings, terminal::SearchClose};
+use crate::{
+    settings::TerminalSettings,
+    terminal::{Search, SearchClose, SearchNext, SearchPaste, SearchPrevious},
+};
 
 fn search_match_counter(view: &TerminalView, cx: &mut Context<TerminalView>) -> String {
     let terminal = view.terminal.read(cx);
@@ -660,6 +666,329 @@ pub(crate) fn render_search(
             ))
             .into_any_element(),
     )
+}
+
+impl TerminalView {
+    pub(super) fn open_search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.search_open = true;
+        self.search.search_panel_dragging = false;
+        self.search.search_panel_drag_start_mouse = None;
+        self.search.search_panel_drag_start_pos = None;
+        self.search.search_expected_commit = None;
+        self.search.search.end();
+
+        // Default position: near the top, centered within the current window.
+        let viewport = window.viewport_size();
+        let panel_w = px(520.0)
+            .min((viewport.width - px(24.0)).max(Pixels::ZERO))
+            .max(px(320.0).min(viewport.width.max(Pixels::ZERO)));
+        let keep = px(32.0);
+        if !self.search.search_panel_pos_initialized {
+            let x = (viewport.width - panel_w).max(Pixels::ZERO) / 2.0;
+            self.search.search_panel_pos = gpui::point(x, px(72.0));
+            self.search.search_panel_pos_initialized = true;
+        } else {
+            // If the window size changed since the last open, keep the panel reachable.
+            let mut pos = self.search.search_panel_pos;
+            pos.x = pos
+                .x
+                .clamp((Pixels::ZERO - panel_w) + keep, viewport.width - keep);
+            pos.y = pos.y.clamp(px(0.0), viewport.height - keep);
+            self.search.search_panel_pos = pos;
+        }
+
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    pub(super) fn close_search(
+        &mut self,
+        _: &SearchClose,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search.search_open = false;
+        self.clear_scrollbar_preview(cx);
+        self.search.search_epoch = self.search.search_epoch.wrapping_add(1);
+        self.search.search.clear();
+        self.search.search_ime_state = None;
+        self.search.search_expected_commit = None;
+        self.search.search_panel_dragging = false;
+        self.search.search_panel_drag_start_mouse = None;
+        self.search.search_panel_drag_start_pos = None;
+
+        window.focus(&self.focus_handle, cx);
+
+        self.terminal.update(cx, |term, _| {
+            term.set_search_query(None);
+            term.select_matches(&[]);
+        });
+        cx.notify();
+    }
+
+    pub(super) fn search_next(
+        &mut self,
+        _: &SearchNext,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.jump_search(true, cx);
+    }
+
+    pub(super) fn search_previous(
+        &mut self,
+        _: &SearchPrevious,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.jump_search(false, cx);
+    }
+
+    pub(super) fn jump_search(&mut self, forward: bool, cx: &mut Context<Self>) {
+        self.terminal.update(cx, |term, _| {
+            let matches_len = term.matches().len();
+            if matches_len == 0 {
+                return;
+            }
+
+            let cur = term.active_match_index().unwrap_or(0) % matches_len;
+            let next = if forward {
+                (cur + 1) % matches_len
+            } else {
+                cur.checked_sub(1).unwrap_or(matches_len - 1)
+            };
+            term.activate_match(next);
+            term.jump_to_match(next);
+        });
+        cx.notify();
+    }
+
+    pub(super) fn search_paste(&mut self, _: &SearchPaste, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.search.search.insert(&text);
+            self.schedule_search_update(cx);
+        }
+    }
+
+    pub(crate) fn commit_search_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        if self.search.search_expected_commit.as_deref() == Some(text) {
+            self.search.search_expected_commit = None;
+            return;
+        }
+        self.search.search_expected_commit = None;
+        self.search.search_ime_state = None;
+        self.search.search.insert(text);
+        self.schedule_search_update(cx);
+    }
+
+    pub(crate) fn set_search_marked_text(
+        &mut self,
+        text: String,
+        range: Option<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.search.search_ime_state = Some(ImeState {
+            marked_text: text,
+            marked_range_utf16: range,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn clear_search_marked_text(&mut self, cx: &mut Context<Self>) {
+        self.search.search_ime_state = None;
+        cx.notify();
+    }
+
+    pub(crate) fn is_search_open(&self) -> bool {
+        self.search.search_open
+    }
+
+    pub(crate) fn search_marked_text_range(&self) -> Option<Range<usize>> {
+        self.search
+            .search_ime_state
+            .as_ref()
+            .and_then(|state| state.marked_range_utf16.clone())
+    }
+
+    pub(crate) fn search_panel_pos(&self) -> gpui::Point<Pixels> {
+        self.search.search_panel_pos
+    }
+
+    fn schedule_search_update(&mut self, cx: &mut Context<Self>) {
+        let epoch = self.search.search_epoch.wrapping_add(1);
+        self.search.search_epoch = epoch;
+        cx.spawn(async move |this, cx| {
+            Timer::after(Duration::from_millis(150)).await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.search.search_open || this.search.search_epoch != epoch {
+                    return;
+                }
+
+                // Only treat all-whitespace as empty; otherwise keep the query exactly as typed.
+                let q = this.search.search.text().to_string();
+                this.terminal.update(cx, |term, _| {
+                    if q.chars().all(|c| c.is_whitespace()) {
+                        term.set_search_query(None);
+                    } else {
+                        term.set_search_query(Some(q));
+                        if !term.matches().is_empty() {
+                            term.activate_match(0);
+                        }
+                    }
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn search_cursor_utf16(&self) -> usize {
+        self.search.search.cursor_utf16()
+    }
+
+    pub(super) fn handle_search_overlay_key_down_for_terminal_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match self.handle_search_overlay_key_down(event, window, cx) {
+            SearchOverlayKeyDown::NotOpen => false,
+            SearchOverlayKeyDown::Return => true,
+            SearchOverlayKeyDown::StopAndReturn => {
+                // Search is a overlay; don't forward keystrokes to the terminal.
+                cx.stop_propagation();
+                true
+            }
+        }
+    }
+
+    fn handle_search_overlay_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> SearchOverlayKeyDown {
+        if !self.search.search_open {
+            return SearchOverlayKeyDown::NotOpen;
+        }
+
+        match event.keystroke.key.as_str() {
+            "escape" => {
+                self.close_search(&SearchClose, window, cx);
+            }
+            "enter" => {
+                self.jump_search(!event.keystroke.modifiers.shift, cx);
+            }
+            "left" => self.search_overlay_move_cursor(SearchOverlayMove::Left, event, cx),
+            "right" => self.search_overlay_move_cursor(SearchOverlayMove::Right, event, cx),
+            "home" => self.search_overlay_move_cursor(SearchOverlayMove::Home, event, cx),
+            "end" => self.search_overlay_move_cursor(SearchOverlayMove::End, event, cx),
+            "backspace" => self.search_overlay_delete(SearchOverlayDelete::Prev, event, cx),
+            "delete" => self.search_overlay_delete(SearchOverlayDelete::Next, event, cx),
+            // Common terminal muscle memory: cmd/ctrl+a moves to start of the input.
+            "a" if event.keystroke.modifiers.secondary() => {
+                self.search.search.home();
+                cx.notify();
+            }
+            // Support cmd/ctrl+v paste into the query even if keybinding dispatch is skipped.
+            "v" if event.keystroke.modifiers.secondary() => {
+                self.search_paste(&SearchPaste, window, cx);
+            }
+            // Support cmd/ctrl+g next/prev even if keybinding dispatch is skipped.
+            "g" if event.keystroke.modifiers.secondary() => {
+                self.jump_search(!event.keystroke.modifiers.shift, cx);
+            }
+            _ => {
+                // Text input (including IME) is handled via the InputHandler installed by the
+                // terminal element while the search is open.
+                //
+                // However, on some platforms plain latin text does *not* go through the IME
+                // callbacks; in that case we fall back to `key_char`.
+                if self.search_overlay_is_composing(event) {
+                    // IME is actively composing; don't insert raw keystrokes.
+                    return SearchOverlayKeyDown::Return;
+                }
+
+                if event.keystroke.modifiers.control
+                    || event.keystroke.modifiers.platform
+                    || event.keystroke.modifiers.function
+                    || event.keystroke.modifiers.alt
+                {
+                    return SearchOverlayKeyDown::Return;
+                }
+
+                if let Some(ch) = event.keystroke.key_char.as_ref()
+                    && !ch.is_empty()
+                {
+                    self.search.search_expected_commit = Some(ch.clone());
+                    self.search.search.insert(ch);
+                    self.schedule_search_update(cx);
+                }
+            }
+        }
+
+        SearchOverlayKeyDown::StopAndReturn
+    }
+
+    fn search_overlay_is_composing(&self, event: &KeyDownEvent) -> bool {
+        self.search_overlay_has_marked_text() || event.keystroke.is_ime_in_progress()
+    }
+
+    fn search_overlay_has_marked_text(&self) -> bool {
+        self.search
+            .search_ime_state
+            .as_ref()
+            .is_some_and(|ime| !ime.marked_text.is_empty())
+    }
+
+    fn search_overlay_move_cursor(
+        &mut self,
+        movement: SearchOverlayMove,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if self.search_overlay_is_composing(event) {
+            // Let the IME handle caret movement inside an active composition.
+            return;
+        }
+
+        match movement {
+            SearchOverlayMove::Left => self.search.search.move_left(),
+            SearchOverlayMove::Right => self.search.search.move_right(),
+            SearchOverlayMove::Home => self.search.search.home(),
+            SearchOverlayMove::End => self.search.search.end(),
+        }
+        cx.notify();
+    }
+
+    fn search_overlay_delete(
+        &mut self,
+        delete: SearchOverlayDelete,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let should_ignore = match delete {
+            SearchOverlayDelete::Prev => self.search_overlay_has_marked_text(),
+            SearchOverlayDelete::Next => self.search_overlay_is_composing(event),
+        };
+        if should_ignore {
+            // Let the platform IME drive composition edits via the InputHandler.
+            return;
+        }
+
+        let changed = match delete {
+            SearchOverlayDelete::Prev => self.search.search.delete_prev(),
+            SearchOverlayDelete::Next => self.search.search.delete_next(),
+        };
+        if changed {
+            self.schedule_search_update(cx);
+        }
+        cx.notify();
+    }
 }
 
 #[cfg(test)]

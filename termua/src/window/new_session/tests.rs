@@ -1879,16 +1879,7 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-persist-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-persist");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let win = cx.add_empty_window();
@@ -1953,16 +1944,7 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-env-persist-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-env-persist");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let win = cx.add_empty_window();
@@ -2068,16 +2050,7 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
         app.set_global(crate::TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-reload-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-reload");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let (_root, main_window_cx) = cx.add_window_view(|window, cx| {

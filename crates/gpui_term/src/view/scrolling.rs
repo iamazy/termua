@@ -1,10 +1,21 @@
-use std::{ops::RangeInclusive, rc::Rc};
+use std::{cmp, ops::RangeInclusive, rc::Rc, time::Duration};
 
-use gpui::{BorderStyle, Bounds, Pixels, Point, Window, fill, outline, point, px, size};
+use gpui::{
+    App, BorderStyle, Bounds, Context, Pixels, Point, ReadGlobal, ScrollWheelEvent, Window, fill,
+    outline, point, px, size,
+};
 use gpui_component::ActiveTheme;
+use smol::Timer;
 
-use super::BlockProperties;
-use crate::GridPoint;
+use super::{BlockProperties, TerminalScrollState, TerminalView};
+use crate::{
+    GridPoint, point_to_viewport,
+    settings::TerminalSettings,
+    terminal::{
+        ScrollLineDown, ScrollLineUp, ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop,
+        ToggleViMode,
+    },
+};
 
 pub(crate) const SCROLLBAR_WIDTH: Pixels = px(14.0);
 pub(crate) const SCROLLBAR_PAD: Pixels = px(2.0);
@@ -495,9 +506,544 @@ pub(crate) fn paint_overlay_scrollbar(
     }
 }
 
+impl TerminalView {
+    pub(super) fn max_scroll_top(&self, cx: &App) -> Pixels {
+        let terminal = self.terminal.read(cx);
+
+        let Some(block) = self.scroll.block_below_cursor.as_ref() else {
+            return Pixels::ZERO;
+        };
+
+        let content = terminal.last_content();
+        let line_height = content.terminal_bounds.line_height;
+        let viewport_lines = terminal.viewport_lines();
+        let cursor =
+            point_to_viewport(content.display_offset, content.cursor.point).unwrap_or_default();
+        let max_scroll_top_in_lines =
+            (block.height as usize).saturating_sub(viewport_lines.saturating_sub(cursor.line + 1));
+
+        max_scroll_top_in_lines as f32 * line_height
+    }
+
+    /// Zed-like behavior: if the user is looking at history (terminal scrollback) or has scrolled
+    /// away from the live block content, any input that is forwarded to the PTY should snap the
+    /// view back to the bottom.
+    pub(super) fn snap_to_bottom_on_input(&mut self, cx: &mut Context<Self>) {
+        let TerminalScrollState {
+            display_offset,
+            line_height,
+            ..
+        } = self.terminal_scroll_state(cx);
+
+        // History scrolling: ensure we immediately return to the live viewport on any PTY input.
+        // (Some input paths, like `try_keystroke`, don't go through backend `input()`.)
+        if display_offset != 0 {
+            self.terminal.update(cx, |term, _| term.scroll_to_bottom());
+            self.scroll.scroll_top = Pixels::ZERO;
+            self.scroll.stick_to_bottom = true;
+            cx.notify();
+            return;
+        }
+
+        // Block-below-cursor extra scroll space (e.g. prompt block). Only applies in live view.
+        if self.scroll.block_below_cursor.is_some() {
+            let max = self.max_scroll_top(cx);
+            let at_bottom = self.scroll.scroll_top + line_height / 2.0 >= max;
+
+            if !at_bottom {
+                self.scroll.scroll_top = max;
+            }
+        }
+
+        // Typing implies "follow output" unless the user scrolls away again.
+        self.scroll.stick_to_bottom = true;
+        cx.notify();
+    }
+
+    pub(crate) fn set_mouse_left_down_in_terminal(&mut self, down: bool) {
+        self.scroll.mouse_left_down_in_terminal = down;
+    }
+
+    pub(crate) fn mouse_left_down_in_terminal(&self) -> bool {
+        self.scroll.mouse_left_down_in_terminal
+    }
+
+    pub(crate) fn scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Scroll-wheel usage should reveal the overlay scrollbar briefly, even if the pointer
+        // isn't within the scrollbar lane.
+        //
+        // Note: This is kept view-local so we can avoid allocating dedicated layout space.
+        // The element decides whether to paint the scrollbar based on this flag.
+        // (Timer-based auto-hide happens in `reveal_scrollbar_for_scroll`.)
+        //
+        // We don't require focus checks here; callers already gate on focus.
+        self.reveal_scrollbar_for_scroll(window, cx);
+
+        let TerminalScrollState {
+            is_remote_mirror,
+            display_offset,
+            line_height,
+        } = self.terminal_scroll_state(cx);
+
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_wheel(event));
+            return;
+        }
+
+        if self.scroll.block_below_cursor.is_some() && display_offset == 0 {
+            let y_delta = event.delta.pixel_delta(line_height).y;
+            if y_delta < Pixels::ZERO || self.scroll.scroll_top > Pixels::ZERO {
+                let max = self.max_scroll_top(cx);
+                self.scroll.scroll_top = cmp::max(
+                    Pixels::ZERO,
+                    cmp::min(self.scroll.scroll_top - y_delta, max),
+                );
+                self.scroll.stick_to_bottom = self.scroll.scroll_top + line_height / 2.0 >= max;
+                cx.notify();
+                return;
+            }
+        }
+        // Scrolling the terminal history should never keep a block-scroll offset.
+        self.scroll.scroll_top = Pixels::ZERO;
+        self.scroll.stick_to_bottom = false;
+        self.terminal.update(cx, |term, _| term.scroll_wheel(event));
+    }
+
+    pub(crate) fn scrollbar_dragging(&self) -> bool {
+        self.scroll.scrollbar_dragging
+    }
+
+    pub(crate) fn scrollbar_hovered(&self) -> bool {
+        self.scroll.scrollbar_hovered
+    }
+
+    pub(crate) fn scrollbar_revealed(&self) -> bool {
+        self.scroll.scrollbar_revealed
+    }
+
+    pub(crate) fn set_scrollbar_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.scroll.scrollbar_hovered != hovered {
+            self.scroll.scrollbar_hovered = hovered;
+            cx.notify();
+        }
+    }
+
+    fn reveal_scrollbar_for_scroll(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if !TerminalSettings::global(cx).show_scrollbar {
+            return;
+        }
+        self.scroll.scrollbar_revealed = true;
+        self.scroll.scrollbar_reveal_epoch = self.scroll.scrollbar_reveal_epoch.wrapping_add(1);
+        let epoch = self.scroll.scrollbar_reveal_epoch;
+        cx.notify();
+
+        // Auto-hide after a short delay. If the user is hovering/dragging at that time, the
+        // scrollbar stays visible due to those signals (not this temporary reveal flag).
+        cx.spawn(async move |this, cx| {
+            Timer::after(Duration::from_millis(900)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.scroll.scrollbar_reveal_epoch != epoch {
+                    return;
+                }
+                if this.scroll.scrollbar_revealed {
+                    this.scroll.scrollbar_revealed = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn scroll_top(&self) -> Pixels {
+        self.scroll.scroll_top
+    }
+
+    pub(crate) fn scrollbar_virtual_offset(&self) -> Option<usize> {
+        self.scroll.scrollbar_virtual_offset
+    }
+
+    pub(crate) fn scrollbar_drag_origin(&self) -> Option<(Pixels, usize)> {
+        Some((
+            self.scroll.scrollbar_drag_start_y?,
+            self.scroll.scrollbar_drag_start_offset?,
+        ))
+    }
+
+    pub(crate) fn set_scrollbar_drag_origin(&mut self, mouse_y: Pixels, offset: usize) {
+        self.scroll.scrollbar_drag_start_y = Some(mouse_y);
+        self.scroll.scrollbar_drag_start_offset = Some(offset);
+    }
+
+    pub(crate) fn begin_scrollbar_drag(&mut self, mouse_y: Pixels, cx: &mut Context<Self>) {
+        self.scroll.scrollbar_dragging = true;
+        let current = {
+            let terminal = self.terminal.read(cx);
+            terminal.last_content().display_offset
+        };
+        self.scroll.scrollbar_virtual_offset = Some(current);
+        self.scroll.scrollbar_last_target_offset = Some(current);
+        self.set_scrollbar_drag_origin(mouse_y, current);
+    }
+
+    pub(crate) fn end_scrollbar_drag(&mut self) {
+        self.scroll.scrollbar_dragging = false;
+        self.scroll.scrollbar_last_target_offset = None;
+        self.scroll.scrollbar_virtual_offset = None;
+        self.scroll.scrollbar_drag_start_y = None;
+        self.scroll.scrollbar_drag_start_offset = None;
+    }
+
+    pub(crate) fn scrollbar_preview(&self) -> Option<&ScrollbarPreview> {
+        self.scroll.scrollbar_preview.as_ref()
+    }
+
+    pub(crate) fn clear_scrollbar_preview(&mut self, cx: &mut Context<Self>) {
+        if self.scroll.scrollbar_preview.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_scrollbar_preview_for_match(
+        &mut self,
+        match_index: usize,
+        anchor: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((start, cols, rows, cells, match_range)) = (|| {
+            let terminal = self.terminal.read(cx);
+            let matches = terminal.matches();
+            if match_index >= matches.len() {
+                return None;
+            }
+
+            let total_lines = terminal.total_lines();
+            let viewport_lines = terminal.viewport_lines();
+            let match_range = matches[match_index].clone();
+
+            let start_line_coord = match_range.start().line;
+            let end_line_coord = match_range.end().line;
+            let start_line_from_top =
+                buffer_index_for_line_coord(total_lines, viewport_lines, start_line_coord);
+            let end_line_from_top =
+                buffer_index_for_line_coord(total_lines, viewport_lines, end_line_coord);
+
+            let context_above = 3usize;
+            let total = 7usize;
+            let start = start_line_from_top.saturating_sub(context_above);
+
+            let (cols, rows, cells) = terminal.preview_cells_from_top(start, total);
+            if rows == 0 || cells.is_empty() {
+                return None;
+            }
+
+            // Convert the match range into preview-local coordinates (preview starts at line 0).
+            let local_start_line = start_line_from_top.saturating_sub(start);
+            let local_end_line = end_line_from_top.saturating_sub(start);
+            let local_range = RangeInclusive::new(
+                GridPoint::new(local_start_line as i32, match_range.start().column),
+                GridPoint::new(local_end_line as i32, match_range.end().column),
+            );
+
+            Some((start, cols, rows, cells, local_range))
+        })() else {
+            self.clear_scrollbar_preview(cx);
+            return;
+        };
+
+        // Avoid re-fetching preview text while the pointer moves within the same marker.
+        if let Some(prev) = self.scroll.scrollbar_preview.as_mut()
+            && prev.match_index == match_index
+            && prev.start_line_from_top == start
+        {
+            prev.anchor = anchor;
+            cx.notify();
+            return;
+        }
+
+        self.scroll.scrollbar_preview = Some(ScrollbarPreview {
+            match_index,
+            anchor,
+            start_line_from_top: start,
+            cols,
+            rows,
+            cells,
+            match_range,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn apply_scrollbar_target_offset(
+        &mut self,
+        target_offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if self.scroll.scrollbar_last_target_offset == Some(target_offset) {
+            return;
+        }
+        self.scroll.scrollbar_last_target_offset = Some(target_offset);
+        let current = self.scroll.scrollbar_virtual_offset.unwrap_or_else(|| {
+            let terminal = self.terminal.read(cx);
+            terminal.last_content().display_offset
+        });
+        self.scroll_to_display_offset_from_current(current, target_offset, cx);
+        self.scroll.scrollbar_virtual_offset = Some(target_offset);
+    }
+
+    fn scroll_to_display_offset_from_current(
+        &mut self,
+        current_offset: usize,
+        target_offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let (is_remote_mirror, max_offset) = {
+            let terminal = self.terminal.read(cx);
+            let total_lines = terminal.total_lines();
+            let viewport_lines = terminal.viewport_lines();
+            (
+                terminal.is_remote_mirror(),
+                total_lines.saturating_sub(viewport_lines),
+            )
+        };
+
+        let current_offset = current_offset.min(max_offset);
+        let target_offset = target_offset.min(max_offset);
+        if target_offset == current_offset {
+            if !is_remote_mirror {
+                self.scroll.scroll_top = Pixels::ZERO;
+                self.scroll.stick_to_bottom = target_offset == 0;
+            }
+            return;
+        }
+
+        if !is_remote_mirror {
+            // Scrolling the terminal history should never keep the extra "block below cursor"
+            // scroll.
+            self.scroll.scroll_top = Pixels::ZERO;
+        }
+
+        self.terminal.update(cx, |term, _| {
+            if target_offset == 0 {
+                term.scroll_to_bottom();
+            } else if target_offset == max_offset {
+                term.scroll_to_top();
+            } else if target_offset > current_offset {
+                term.scroll_up_by(target_offset - current_offset);
+            } else {
+                term.scroll_down_by(current_offset - target_offset);
+            }
+        });
+
+        if !is_remote_mirror {
+            self.scroll.stick_to_bottom = target_offset == 0;
+            cx.notify();
+        }
+    }
+
+    // `scroll_to_display_offset_from_current` is the only implementation we need right now.
+
+    pub(super) fn scroll_line_up(
+        &mut self,
+        _: &ScrollLineUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let TerminalScrollState {
+            is_remote_mirror,
+            display_offset,
+            line_height,
+        } = self.terminal_scroll_state(cx);
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_line_up());
+            return;
+        }
+        if self.scroll.block_below_cursor.is_some()
+            && display_offset == 0
+            && self.scroll.scroll_top > Pixels::ZERO
+        {
+            self.scroll.scroll_top = cmp::max(self.scroll.scroll_top - line_height, Pixels::ZERO);
+            let max = self.max_scroll_top(cx);
+            self.scroll.stick_to_bottom = self.scroll.scroll_top + line_height / 2.0 >= max;
+            return;
+        }
+
+        self.terminal.update(cx, |term, _| term.scroll_line_up());
+        // Terminal scrollback and block scrolling are mutually exclusive.
+        self.scroll.scroll_top = Pixels::ZERO;
+        self.scroll.stick_to_bottom = false;
+        cx.notify();
+    }
+
+    pub(super) fn scroll_line_down(
+        &mut self,
+        _: &ScrollLineDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let TerminalScrollState {
+            is_remote_mirror,
+            display_offset,
+            line_height,
+        } = self.terminal_scroll_state(cx);
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_line_down());
+            return;
+        }
+        if self.scroll.block_below_cursor.is_some() && display_offset == 0 {
+            let max_scroll_top = self.max_scroll_top(cx);
+            if self.scroll.scroll_top < max_scroll_top {
+                self.scroll.scroll_top =
+                    cmp::min(self.scroll.scroll_top + line_height, max_scroll_top);
+            }
+            self.scroll.stick_to_bottom =
+                self.scroll.scroll_top + line_height / 2.0 >= max_scroll_top;
+            return;
+        }
+
+        self.terminal.update(cx, |term, _| term.scroll_line_down());
+        // Terminal scrollback and block scrolling are mutually exclusive.
+        self.scroll.scroll_top = Pixels::ZERO;
+        self.scroll.stick_to_bottom = false;
+        cx.notify();
+    }
+
+    pub(super) fn scroll_page_up(
+        &mut self,
+        _: &ScrollPageUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let (is_remote_mirror, line_height, viewport_lines) = {
+            let terminal = self.terminal.read(cx);
+            (
+                terminal.is_remote_mirror(),
+                terminal.last_content().terminal_bounds.line_height(),
+                terminal.viewport_lines(),
+            )
+        };
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_page_up());
+            return;
+        }
+        if self.scroll.scroll_top == Pixels::ZERO {
+            self.terminal.update(cx, |term, _| term.scroll_page_up());
+            self.scroll.scroll_top = Pixels::ZERO;
+            self.scroll.stick_to_bottom = false;
+        } else {
+            let visible_block_lines = (self.scroll.scroll_top / line_height) as usize;
+            let visible_content_lines = viewport_lines - visible_block_lines;
+
+            if visible_block_lines >= viewport_lines {
+                self.scroll.scroll_top =
+                    ((visible_block_lines - viewport_lines) as f32) * line_height;
+            } else {
+                self.scroll.scroll_top = px(0.);
+                self.terminal
+                    .update(cx, |term, _| term.scroll_up_by(visible_content_lines));
+            }
+            self.scroll.stick_to_bottom =
+                self.scroll.scroll_top + line_height / 2.0 >= self.max_scroll_top(cx);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn scroll_page_down(
+        &mut self,
+        _: &ScrollPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let TerminalScrollState {
+            is_remote_mirror,
+            display_offset,
+            ..
+        } = self.terminal_scroll_state(cx);
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_page_down());
+            return;
+        }
+        self.terminal.update(cx, |term, _| term.scroll_page_down());
+        // Scrolling the terminal history should not apply block scrolling offsets.
+        // `scroll_top` is only meaningful while we're at the live view.
+        if self.scroll.block_below_cursor.is_some() && display_offset == 0 {
+            self.scroll.scroll_top = self.max_scroll_top(cx);
+            self.scroll.stick_to_bottom = true;
+        } else {
+            self.scroll.scroll_top = Pixels::ZERO;
+            self.scroll.stick_to_bottom = false;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn scroll_to_top(
+        &mut self,
+        _: &ScrollToTop,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let is_remote_mirror = self.terminal_scroll_state(cx).is_remote_mirror;
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_to_top());
+            return;
+        }
+        self.terminal.update(cx, |term, _| term.scroll_to_top());
+        self.scroll.scroll_top = Pixels::ZERO;
+        self.scroll.stick_to_bottom = false;
+        cx.notify();
+    }
+
+    pub(super) fn scroll_to_bottom(
+        &mut self,
+        _: &ScrollToBottom,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_scrollbar_for_scroll(window, cx);
+        let is_remote_mirror = self.terminal_scroll_state(cx).is_remote_mirror;
+        if is_remote_mirror {
+            self.terminal.update(cx, |term, _| term.scroll_to_bottom());
+            return;
+        }
+        self.terminal.update(cx, |term, _| term.scroll_to_bottom());
+        if self.scroll.block_below_cursor.is_some() {
+            self.scroll.scroll_top = self.max_scroll_top(cx);
+        } else {
+            self.scroll.scroll_top = Pixels::ZERO;
+        }
+        self.scroll.stick_to_bottom = true;
+        cx.notify();
+    }
+
+    pub(super) fn toggle_vi_mode(
+        &mut self,
+        _: &ToggleViMode,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.terminal.update(cx, |term, _| term.toggle_vi_mode());
+        cx.notify();
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use gpui::{Bounds, point, px, size};
+
+    use super::{
+        buffer_index_for_line_coord, scroll_offset_for_line_coord_centered,
+        scrollbar_marker_y_for_line_coord, search_match_index_for_scrollbar_click,
+        search_match_index_for_scrollbar_hover,
+    };
+    use crate::GridPoint;
 
     #[test]
     fn scrollbar_marker_y_maps_entire_buffer_top_to_bottom() {
