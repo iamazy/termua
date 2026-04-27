@@ -7285,6 +7285,7 @@ dependencies = [
  "smol",
  "termua_relay",
  "termua_zeroclaw",
+ "thiserror 2.0.17",
  "wezterm-ssh",
  "windows 0.62.2",
 ]

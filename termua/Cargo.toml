@@ -36,6 +36,7 @@ home.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_json_lenient.workspace = true
+thiserror.workspace = true
 rusqlite.workspace = true
 libc.workspace = true
 rust-i18n.workspace = true

@@ -24,6 +24,45 @@ use crate::{
     },
 };
 
+#[derive(thiserror::Error, Debug, Eq, PartialEq)]
+enum JoinSharingInputError {
+    #[error("Relay URL / Share Key cannot be empty.")]
+    EmptyFields,
+    #[error("Relay URL must start with ws:// or wss://")]
+    InvalidRelayUrl,
+    #[error("Invalid Share Key: {0}")]
+    InvalidShareKey(String),
+}
+
+fn build_join_sharing_pending_command(
+    relay_url: &str,
+    share_key: &str,
+) -> Result<PendingCommand, JoinSharingInputError> {
+    let relay_url = relay_url.trim().to_string();
+    let share_key = share_key.trim();
+
+    if relay_url.is_empty() || share_key.is_empty() {
+        return Err(JoinSharingInputError::EmptyFields);
+    }
+    if !relay_url.starts_with("ws://") && !relay_url.starts_with("wss://") {
+        return Err(JoinSharingInputError::InvalidRelayUrl);
+    }
+
+    let (room_id, join_key) = parse_share_key(share_key)
+        .map_err(|err| JoinSharingInputError::InvalidShareKey(err.to_string()))?;
+    if room_id.is_empty() || join_key.is_empty() {
+        return Err(JoinSharingInputError::InvalidShareKey(
+            share_key.to_string(),
+        ));
+    }
+
+    Ok(PendingCommand::JoinRelaySharing {
+        relay_url,
+        room_id,
+        join_key,
+    })
+}
+
 impl TermuaWindow {
     pub(in crate::window::main_window) fn on_start_sharing(
         &mut self,
@@ -1026,54 +1065,21 @@ impl TermuaWindow {
                                 let relay_url = relay_input.read(app).value().trim().to_string();
                                 let share_key =
                                     share_key_input.read(app).value().trim().to_string();
-                                if relay_url.is_empty() || share_key.is_empty() {
-                                    notification::notify_app(
-                                        notification::MessageKind::Warning,
-                                        "Relay URL / Share Key cannot be empty.",
-                                        window,
-                                        app,
-                                    );
-                                    return false;
-                                }
-                                if !relay_url.starts_with("ws://")
-                                    && !relay_url.starts_with("wss://")
-                                {
-                                    notification::notify_app(
-                                        notification::MessageKind::Warning,
-                                        "Relay URL must start with ws:// or wss://",
-                                        window,
-                                        app,
-                                    );
-                                    return false;
-                                }
-                                let (room_id, join_key) = match parse_share_key(&share_key) {
-                                    Ok(parsed) => parsed,
+                                let command = match build_join_sharing_pending_command(
+                                    &relay_url, &share_key,
+                                ) {
+                                    Ok(command) => command,
                                     Err(err) => {
                                         notification::notify_app(
                                             notification::MessageKind::Warning,
-                                            format!("Invalid Share Key: {err}"),
+                                            err.to_string(),
                                             window,
                                             app,
                                         );
                                         return false;
                                     }
                                 };
-                                if room_id.is_empty() || join_key.is_empty() {
-                                    notification::notify_app(
-                                        notification::MessageKind::Warning,
-                                        "Invalid Share Key.",
-                                        window,
-                                        app,
-                                    );
-                                    return false;
-                                }
-                                app.global_mut::<TermuaAppState>().pending_command(
-                                    PendingCommand::JoinRelaySharing {
-                                        relay_url,
-                                        room_id,
-                                        join_key,
-                                    },
-                                );
+                                app.global_mut::<TermuaAppState>().pending_command(command);
                                 app.refresh_windows();
                                 let _ = window;
                                 true
@@ -1088,5 +1094,63 @@ impl TermuaWindow {
 
         let focus = share_key_input.read(cx).focus_handle(cx);
         window.defer(cx, move |window, cx| window.focus(&focus, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JoinSharingInputError, build_join_sharing_pending_command};
+    use crate::PendingCommand;
+
+    #[test]
+    fn build_join_sharing_pending_command_accepts_valid_share_key() {
+        let command =
+            build_join_sharing_pending_command(" wss://relay.example/ws ", " AbC234xYz-k3Y9a2 ")
+                .expect("valid join sharing input");
+
+        match command {
+            PendingCommand::JoinRelaySharing {
+                relay_url,
+                room_id,
+                join_key,
+            } => {
+                assert_eq!(relay_url, "wss://relay.example/ws");
+                assert_eq!(room_id, "AbC234xYz");
+                assert_eq!(join_key, "k3Y9a2");
+            }
+            other => panic!("expected JoinRelaySharing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_join_sharing_pending_command_rejects_empty_fields() {
+        assert_eq!(
+            build_join_sharing_pending_command("", "AbC234xYz-k3Y9a2")
+                .expect_err("empty relay URL"),
+            JoinSharingInputError::EmptyFields
+        );
+        assert_eq!(
+            build_join_sharing_pending_command("ws://relay.example/ws", " ")
+                .expect_err("empty share key"),
+            JoinSharingInputError::EmptyFields
+        );
+    }
+
+    #[test]
+    fn build_join_sharing_pending_command_rejects_non_websocket_relay_url() {
+        assert_eq!(
+            build_join_sharing_pending_command("https://relay.example/ws", "AbC234xYz-k3Y9a2")
+                .expect_err("non-websocket relay URL"),
+            JoinSharingInputError::InvalidRelayUrl
+        );
+    }
+
+    #[test]
+    fn build_join_sharing_pending_command_rejects_invalid_share_key() {
+        let err = build_join_sharing_pending_command("ws://relay.example/ws", "bad-key")
+            .expect_err("invalid share key");
+
+        assert!(matches!(err, JoinSharingInputError::InvalidShareKey(_)));
+        assert!(err.to_string().starts_with("Invalid Share Key: "));
     }
 }
