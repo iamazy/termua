@@ -956,7 +956,7 @@ impl SessionCommonState {
 
 impl ShellSessionState {
     fn program_default_value() -> SharedString {
-        gpui_term::shell::ui_default_shell_program().into()
+        gpui_term::shell::default_shell_program().into()
     }
 
     fn new(

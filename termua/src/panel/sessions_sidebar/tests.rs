@@ -729,46 +729,6 @@ fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn nushell_sessions_show_nushell_icon(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        gpui_component::init(app);
-    });
-
-    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-nushell-icon");
-    let _guard = crate::store::tests::override_termua_db_path(db_path);
-
-    let session_id = crate::store::save_local_session(
-        "local",
-        "nushell",
-        crate::settings::TerminalBackend::Wezterm,
-        "nu",
-        "xterm-256color",
-        "UTF-8",
-    )
-    .unwrap();
-
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
-        gpui_component::Root::new(sidebar, window, cx)
-    });
-
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    let icon_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-icon-nushell-{session_id}").into_boxed_str());
-    cx.debug_bounds(icon_selector)
-        .expect("expected Nushell sessions to render nushell.png as their icon");
-}
-
-#[gpui::test]
 fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);

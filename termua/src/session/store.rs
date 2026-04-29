@@ -2086,9 +2086,9 @@ pub(crate) mod tests {
 
         let id = save_local_session_with_env(
             "local",
-            "fish",
+            "bash",
             TerminalBackend::Wezterm,
-            "fish",
+            "bash",
             "xterm-256color",
             Some("truecolor"),
             "UTF-8",

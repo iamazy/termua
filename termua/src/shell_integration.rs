@@ -388,27 +388,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fish_does_not_inject_osc133_integration() {
-        let mut env = HashMap::new();
-        env.insert("SHELL".to_string(), "fish".to_string());
-
-        let env = maybe_inject_local_shell_osc133(env, 7);
-        assert_eq!(env.get("TERMUA_SHELL").map(String::as_str), None);
-        assert_eq!(env.get("TERMUA_FISH_INIT").map(String::as_str), None);
-    }
-
-    #[test]
-    fn nu_does_not_inject_osc133_integration() {
-        let mut env = HashMap::new();
-        env.insert("SHELL".to_string(), "nu".to_string());
-
-        let env = maybe_inject_local_shell_osc133(env, 7);
-        assert_eq!(env.get("TERMUA_SHELL").map(String::as_str), None);
-        assert_eq!(env.get("TERMUA_NU_CONFIG").map(String::as_str), None);
-        assert_eq!(env.get("TERMUA_NU_ENV_CONFIG").map(String::as_str), None);
-    }
-
     #[cfg(windows)]
     #[test]
     fn pwsh_injection_writes_init_and_sets_env() {

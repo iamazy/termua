@@ -54,7 +54,6 @@ pub(super) struct ShellSessionState {
 
 pub(super) fn shell_program_title(program: &str) -> SharedString {
     match program {
-        "nu" => SharedString::from("nushell"),
         "pwsh" => SharedString::from("powershell"),
         other => SharedString::from(other.to_string()),
     }

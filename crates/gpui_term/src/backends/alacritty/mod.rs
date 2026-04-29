@@ -62,7 +62,7 @@ mod serial;
 pub mod ssh;
 
 fn local_pty_options_for_program_exists(
-    env: std::collections::HashMap<String, String>,
+    env: HashMap<String, String>,
     program_exists: impl FnOnce(&str) -> bool,
 ) -> Options {
     let shell_program = crate::shell::pick_shell_program_from_env(&env);
@@ -1861,9 +1861,9 @@ mod shell_tests {
     #[test]
     fn local_pty_options_uses_termua_shell_when_available() {
         let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
+        env.insert("TERMUA_SHELL".to_string(), "bash".to_string());
 
-        let opts = local_pty_options_for_program_exists(env, |p| p == "fish");
+        let opts = local_pty_options_for_program_exists(env, |p| p == "bash");
         assert!(opts.shell.is_some());
     }
 
@@ -1887,7 +1887,7 @@ mod shell_tests {
 
     #[test]
     fn local_pty_options_falls_back_when_shell_not_found() {
-        let mut env = std::collections::HashMap::new();
+        let mut env = HashMap::new();
         env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
 
         let opts = local_pty_options_for_program_exists(env, |_p| false);
