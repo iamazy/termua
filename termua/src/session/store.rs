@@ -754,7 +754,7 @@ fn insert_session_row(conn: &Connection, session: &SessionWrite<'_>) -> anyhow::
           ssh_tcp_nodelay, ssh_tcp_keepalive,
           ssh_proxy_mode, ssh_proxy_command, ssh_proxy_workdir, ssh_proxy_env, ssh_proxy_jump,
           serial_port, serial_baud, serial_data_bits, serial_parity, serial_stop_bits, serial_flow_control
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
         "#,
         params![
             protocol_to_str(&session.protocol),
@@ -1905,6 +1905,28 @@ pub(crate) mod tests {
 
         delete_session(id).unwrap();
         assert!(load_session(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn ssh_password_sessions_preserve_user_on_initial_save() {
+        let db_path = unique_test_db_path("ssh-user-save");
+        let _guard = override_termua_db_path(db_path);
+
+        let ssh_id = save_ssh_session_password(
+            "ssh",
+            "prod",
+            TerminalBackend::Wezterm,
+            "example.com",
+            22,
+            "iamazy",
+            "pw123",
+            "xterm-256color",
+            "UTF-8",
+        )
+        .unwrap();
+
+        let ssh = load_session(ssh_id).unwrap().unwrap();
+        assert_eq!(ssh.ssh_user.as_deref(), Some("iamazy"));
     }
 
     #[test]
