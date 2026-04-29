@@ -1055,7 +1055,6 @@ impl SshSessionState {
         view: Entity<NewSessionWindow>,
         cx: &mut Context<NewSessionWindow>,
     ) -> Vec<gpui::AnyElement> {
-        let view_sftp = view.clone();
         let env_editor = self.render_env_editor(view, cx);
         vec![
             render_form_row(
@@ -1117,20 +1116,6 @@ impl SshSessionState {
             render_form_row(
                 t!("NewSession.Field.EnvironmentVariables").to_string(),
                 env_editor,
-                cx,
-            )
-            .into_any_element(),
-            render_form_row(
-                t!("NewSession.Ssh.Field.Sftp").to_string(),
-                Switch::new("termua-new-session-ssh-sftp")
-                    .checked(self.sftp)
-                    .on_click(move |checked, window, app| {
-                        view_sftp.update(app, |this, cx| {
-                            this.ssh.sftp = *checked;
-                            cx.notify();
-                        });
-                        window.refresh();
-                    }),
                 cx,
             )
             .into_any_element(),

@@ -1111,7 +1111,6 @@ impl SshSessionState {
             port_input,
             password_input,
             password_edit_unlocked: true,
-            sftp: true,
             tcp_nodelay: true,
             tcp_keepalive: false,
 

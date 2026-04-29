@@ -70,7 +70,6 @@ pub(super) struct SshSessionState {
     pub(super) port_input: Entity<InputState>,
     pub(super) password_input: Entity<InputState>,
     pub(super) password_edit_unlocked: bool,
-    pub(super) sftp: bool,
     pub(super) tcp_nodelay: bool,
     pub(super) tcp_keepalive: bool,
 
