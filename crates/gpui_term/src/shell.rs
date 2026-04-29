@@ -10,7 +10,7 @@ pub enum ShellKind {
     Bash,
     Zsh,
     Pwsh,
-    WindowsPowerShell,
+    PowerShell,
     Cmd,
     Other,
 }
@@ -50,7 +50,7 @@ pub fn shell_kind(program: &str) -> ShellKind {
         "bash" => ShellKind::Bash,
         "zsh" => ShellKind::Zsh,
         "pwsh" => ShellKind::Pwsh,
-        "powershell" => ShellKind::WindowsPowerShell,
+        "powershell" => ShellKind::PowerShell,
         "cmd" => ShellKind::Cmd,
         _ => ShellKind::Other,
     }
@@ -60,7 +60,7 @@ pub fn shell_display_name(program: &str) -> String {
     match shell_kind(program) {
         ShellKind::Bash => "bash".to_string(),
         ShellKind::Zsh => "zsh".to_string(),
-        ShellKind::Pwsh | ShellKind::WindowsPowerShell => "powershell".to_string(),
+        ShellKind::Pwsh | ShellKind::PowerShell => "powershell".to_string(),
         ShellKind::Cmd => "cmd".to_string(),
         ShellKind::Other => std::path::Path::new(program.trim())
             .file_name()
@@ -102,10 +102,7 @@ pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, Strin
             .filter(|s| !s.is_empty())
             .map(|_init| powershell_integration_args(cfg!(windows)))
             .unwrap_or_default(),
-        ShellKind::Zsh
-        | ShellKind::WindowsPowerShell
-        | ShellKind::Cmd
-        | ShellKind::Other => Vec::new(),
+        ShellKind::Zsh | ShellKind::PowerShell | ShellKind::Cmd | ShellKind::Other => Vec::new(),
     }
 }
 
@@ -244,7 +241,7 @@ mod tests {
         assert_eq!(shell_kind("/bin/bash"), ShellKind::Bash);
         assert_eq!(shell_kind("zsh"), ShellKind::Zsh);
         assert_eq!(shell_kind("pwsh"), ShellKind::Pwsh);
-        assert_eq!(shell_kind("powershell"), ShellKind::WindowsPowerShell);
+        assert_eq!(shell_kind("powershell"), ShellKind::PowerShell);
         assert_eq!(shell_kind("cmd"), ShellKind::Cmd);
         assert_eq!(shell_kind("unknown"), ShellKind::Other);
     }
