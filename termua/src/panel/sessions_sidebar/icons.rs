@@ -11,34 +11,25 @@ use crate::store::{Session, SessionType};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SessionIconKind {
     Terminal,
-    Nushell,
     Pwsh,
-    Fish,
-    Sh,
 }
 
 impl SessionIconKind {
     fn icon_path(self) -> TermuaIcon {
         match self {
             Self::Terminal => TermuaIcon::Terminal,
-            Self::Nushell => TermuaIcon::Nushell,
             Self::Pwsh => TermuaIcon::Pwsh,
-            Self::Fish => TermuaIcon::Fish,
-            Self::Sh => TermuaIcon::Sh,
         }
     }
 
     pub(super) fn into_element_for_session_id(self, session_id: i64) -> AnyElement {
         match self {
-            Self::Terminal | Self::Nushell | Self::Fish | Self::Sh => div()
+            Self::Terminal => div()
                 .w(px(16.))
                 .h(px(16.))
                 .flex_shrink_0()
                 .debug_selector(move || match self {
                     Self::Terminal => format!("termua-sessions-session-icon-local-{session_id}"),
-                    Self::Nushell => format!("termua-sessions-session-icon-nushell-{session_id}"),
-                    Self::Fish => format!("termua-sessions-session-icon-fish-{session_id}"),
-                    Self::Sh => format!("termua-sessions-session-icon-sh-{session_id}"),
                     Self::Pwsh => unreachable!(),
                 })
                 .child(Icon::default().path(self.icon_path()).size_4())
@@ -69,10 +60,7 @@ pub(super) fn build_session_icon_kinds(sessions: &[Session]) -> BTreeMap<i64, Se
             .as_deref()
             .map(strip_exe_suffix)
             .map(|program| match program {
-                "sh" => SessionIconKind::Sh,
-                "nu" | "nushell" => SessionIconKind::Nushell,
                 "pwsh" | "powershell" => SessionIconKind::Pwsh,
-                "fish" => SessionIconKind::Fish,
                 _ => SessionIconKind::Terminal,
             })
             .unwrap();

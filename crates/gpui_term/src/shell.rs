@@ -3,9 +3,6 @@ use std::collections::HashMap;
 pub const SHELL_ENV_KEY: &str = "SHELL";
 pub const TERMUA_SHELL_ENV_KEY: &str = "TERMUA_SHELL";
 pub const TERMUA_BASH_RCFILE_ENV_KEY: &str = "TERMUA_BASH_RCFILE";
-pub const TERMUA_FISH_INIT_ENV_KEY: &str = "TERMUA_FISH_INIT";
-pub const TERMUA_NU_CONFIG_ENV_KEY: &str = "TERMUA_NU_CONFIG";
-pub const TERMUA_NU_ENV_CONFIG_ENV_KEY: &str = "TERMUA_NU_ENV_CONFIG";
 pub const TERMUA_PWSH_INIT_ENV_KEY: &str = "TERMUA_PWSH_INIT";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,7 +11,9 @@ pub enum ShellKind {
     Zsh,
     Fish,
     Nu,
-    PowerShell,
+    Pwsh,
+    WindowsPowerShell,
+    Cmd,
     Other,
 }
 
@@ -54,7 +53,9 @@ pub fn shell_kind(program: &str) -> ShellKind {
         "zsh" => ShellKind::Zsh,
         "fish" => ShellKind::Fish,
         "nu" | "nushell" => ShellKind::Nu,
-        "pwsh" | "powershell" => ShellKind::PowerShell,
+        "pwsh" => ShellKind::Pwsh,
+        "powershell" => ShellKind::WindowsPowerShell,
+        "cmd" => ShellKind::Cmd,
         _ => ShellKind::Other,
     }
 }
@@ -65,7 +66,8 @@ pub fn shell_display_name(program: &str) -> String {
         ShellKind::Zsh => "zsh".to_string(),
         ShellKind::Fish => "fish".to_string(),
         ShellKind::Nu => "nushell".to_string(),
-        ShellKind::PowerShell => "powershell".to_string(),
+        ShellKind::Pwsh | ShellKind::WindowsPowerShell => "powershell".to_string(),
+        ShellKind::Cmd => "cmd".to_string(),
         ShellKind::Other => std::path::Path::new(program.trim())
             .file_name()
             .and_then(|s| s.to_str())
@@ -100,46 +102,18 @@ pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, Strin
                 ]
             })
             .unwrap_or_default(),
-        ShellKind::Fish => env
-            .get(TERMUA_FISH_INIT_ENV_KEY)
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|_init| {
-                vec![
-                    "--init-command".to_string(),
-                    "source \"$TERMUA_FISH_INIT\"".to_string(),
-                    "--interactive".to_string(),
-                ]
-            })
-            .unwrap_or_default(),
-        ShellKind::Nu => {
-            let config = env
-                .get(TERMUA_NU_CONFIG_ENV_KEY)
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty());
-            let env_config = env
-                .get(TERMUA_NU_ENV_CONFIG_ENV_KEY)
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty());
-
-            match (config, env_config) {
-                (Some(config), Some(env_config)) => vec![
-                    "--config".to_string(),
-                    config.to_string(),
-                    "--env-config".to_string(),
-                    env_config.to_string(),
-                    "--interactive".to_string(),
-                ],
-                _ => Vec::new(),
-            }
-        }
-        ShellKind::PowerShell => env
+        ShellKind::Pwsh => env
             .get(TERMUA_PWSH_INIT_ENV_KEY)
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|_init| powershell_integration_args(cfg!(windows)))
             .unwrap_or_default(),
-        ShellKind::Zsh | ShellKind::Other => Vec::new(),
+        ShellKind::Zsh
+        | ShellKind::Fish
+        | ShellKind::Nu
+        | ShellKind::WindowsPowerShell
+        | ShellKind::Cmd
+        | ShellKind::Other => Vec::new(),
     }
 }
 
@@ -157,6 +131,16 @@ pub fn shell_program_candidates() -> &'static [&'static str] {
     } else {
         // Linux/*nix: bash is commonly available and expected.
         &["bash", "zsh", "fish", "nu", "pwsh", "sh"]
+    }
+}
+
+pub fn ui_default_shell_program() -> &'static str {
+    if cfg!(windows) {
+        "pwsh"
+    } else if cfg!(target_os = "macos") {
+        "zsh"
+    } else {
+        "bash"
     }
 }
 
@@ -314,8 +298,9 @@ mod tests {
         assert_eq!(shell_kind("zsh"), ShellKind::Zsh);
         assert_eq!(shell_kind("fish"), ShellKind::Fish);
         assert_eq!(shell_kind("nu"), ShellKind::Nu);
-        assert_eq!(shell_kind("pwsh"), ShellKind::PowerShell);
-        assert_eq!(shell_kind("powershell"), ShellKind::PowerShell);
+        assert_eq!(shell_kind("pwsh"), ShellKind::Pwsh);
+        assert_eq!(shell_kind("powershell"), ShellKind::WindowsPowerShell);
+        assert_eq!(shell_kind("cmd"), ShellKind::Cmd);
         assert_eq!(shell_kind("unknown"), ShellKind::Other);
     }
 
@@ -330,47 +315,40 @@ mod tests {
     }
 
     #[test]
-    fn shell_integration_args_build_for_fish() {
+    fn ui_default_shell_matches_platform_policy() {
+        #[cfg(windows)]
+        assert_eq!(ui_default_shell_program(), "pwsh");
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(ui_default_shell_program(), "zsh");
+
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        assert_eq!(ui_default_shell_program(), "bash");
+    }
+
+    #[test]
+    fn shell_integration_args_do_not_build_for_fish() {
         let mut env = HashMap::new();
         env.insert(
-            TERMUA_FISH_INIT_ENV_KEY.to_string(),
+            "TERMUA_FISH_INIT".to_string(),
             "/tmp/it doesn't matter.fish".to_string(),
         );
-        assert_eq!(
-            shell_integration_args_for_env("fish", &env),
-            vec![
-                "--init-command".to_string(),
-                "source \"$TERMUA_FISH_INIT\"".to_string(),
-                "--interactive".to_string(),
-            ]
-        );
+        assert!(shell_integration_args_for_env("fish", &env).is_empty());
     }
 
     #[test]
-    fn shell_integration_args_build_for_nu() {
+    fn shell_integration_args_do_not_build_for_nu() {
         let mut env = HashMap::new();
+        env.insert("TERMUA_NU_CONFIG".to_string(), "/tmp/config.nu".to_string());
         env.insert(
-            TERMUA_NU_CONFIG_ENV_KEY.to_string(),
-            "/tmp/config.nu".to_string(),
-        );
-        env.insert(
-            TERMUA_NU_ENV_CONFIG_ENV_KEY.to_string(),
+            "TERMUA_NU_ENV_CONFIG".to_string(),
             "/tmp/env.nu".to_string(),
         );
-        assert_eq!(
-            shell_integration_args_for_env("nu", &env),
-            vec![
-                "--config".to_string(),
-                "/tmp/config.nu".to_string(),
-                "--env-config".to_string(),
-                "/tmp/env.nu".to_string(),
-                "--interactive".to_string(),
-            ]
-        );
+        assert!(shell_integration_args_for_env("nu", &env).is_empty());
     }
 
     #[test]
-    fn shell_integration_args_build_for_powershell() {
+    fn shell_integration_args_build_for_pwsh() {
         let mut env = HashMap::new();
         env.insert(
             TERMUA_PWSH_INIT_ENV_KEY.to_string(),
@@ -380,6 +358,17 @@ mod tests {
             shell_integration_args_for_env("pwsh", &env),
             powershell_integration_args(cfg!(windows))
         );
+    }
+
+    #[test]
+    fn shell_integration_args_do_not_build_for_windows_powershell() {
+        let mut env = HashMap::new();
+        env.insert(
+            TERMUA_PWSH_INIT_ENV_KEY.to_string(),
+            "/tmp/init.ps1".to_string(),
+        );
+
+        assert!(shell_integration_args_for_env("powershell", &env).is_empty());
     }
 
     #[test]

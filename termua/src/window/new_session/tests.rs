@@ -1,5 +1,4 @@
 use gpui::{ParentElement, Render, Styled, div};
-use gpui_common::TermuaIcon;
 
 use super::*;
 use crate::{env::build_terminal_env, store::SessionEnvVar};
@@ -1319,72 +1318,6 @@ fn new_session_type_select_is_left_aligned(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn new_session_shell_program_control_uses_select_component(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-program-select")
-            .is_some()
-    );
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-program")
-            .is_none()
-    );
-}
-
-#[gpui::test]
-fn new_session_shell_program_select_value_is_left_aligned(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-
-    let select_bounds = shell
-        .debug_bounds("termua-new-session-shell-program-select")
-        .expect("shell program select should exist");
-    let content_bounds = shell
-        .debug_bounds("termua-new-session-shell-program-display-title")
-        .expect("shell program display title should exist");
-    let left_gap = content_bounds.left() - select_bounds.left();
-    assert!(
-        left_gap <= gpui::px(60.0),
-        "expected shell program select value to be left-aligned"
-    );
-}
-
-#[gpui::test]
 fn new_session_shell_label_follows_shell_program(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
@@ -1803,45 +1736,6 @@ fn local_terminal_env_includes_shell_term_and_locale() {
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERM"), Some(&"screen-256color".to_string()));
     assert_eq!(env.get("LANG"), Some(&"C".to_string()));
-}
-
-#[test]
-fn shell_program_select_item_shows_full_name_and_shell_icons() {
-    let nu = ShellProgramSelectItem::new("nu".into());
-    assert_eq!(nu.title().as_ref(), "nushell");
-    assert_eq!(nu.icon_path(), Some(TermuaIcon::Nushell));
-
-    let pwsh = ShellProgramSelectItem::new("pwsh".into());
-    assert_eq!(pwsh.title().as_ref(), "powershell");
-    assert_eq!(pwsh.icon_path(), Some(TermuaIcon::Pwsh));
-
-    let powershell = ShellProgramSelectItem::new("powershell".into());
-    assert_eq!(powershell.title().as_ref(), "powershell");
-    assert_eq!(powershell.icon_path(), Some(TermuaIcon::Pwsh));
-
-    let bash = ShellProgramSelectItem::new("bash".into());
-    assert_eq!(bash.title().as_ref(), "bash");
-    assert_eq!(bash.icon_path(), Some(TermuaIcon::Terminal));
-
-    let sh = ShellProgramSelectItem::new("sh".into());
-    assert_eq!(sh.title().as_ref(), "sh");
-    assert_eq!(sh.icon_path(), Some(TermuaIcon::Sh));
-
-    let zsh = ShellProgramSelectItem::new("zsh".into());
-    assert_eq!(zsh.title().as_ref(), "zsh");
-    assert_eq!(zsh.icon_path(), Some(TermuaIcon::Terminal));
-}
-
-#[test]
-fn shell_program_select_item_uses_themed_icon_renderer() {
-    let bash = ShellProgramSelectItem::new("bash".into());
-    assert!(bash.uses_themed_icon());
-
-    let nu = ShellProgramSelectItem::new("nu".into());
-    assert!(nu.uses_themed_icon());
-
-    let pwsh = ShellProgramSelectItem::new("pwsh".into());
-    assert!(!pwsh.uses_themed_icon());
 }
 
 #[test]

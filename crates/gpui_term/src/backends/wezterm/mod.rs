@@ -3285,7 +3285,7 @@ mod tests {
     }
 
     #[test]
-    fn local_shell_candidates_uses_fish_init_when_configured() {
+    fn local_shell_candidates_do_not_add_args_for_fish() {
         let mut env = std::collections::HashMap::new();
         env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
         env.insert(
@@ -3300,19 +3300,11 @@ mod tests {
             .map(|s| s.to_string_lossy().to_string())
             .collect();
 
-        assert_eq!(
-            argv,
-            vec![
-                "fish",
-                "--init-command",
-                "source \"$TERMUA_FISH_INIT\"",
-                "--interactive"
-            ]
-        );
+        assert_eq!(argv, vec!["fish"]);
     }
 
     #[test]
-    fn local_shell_candidates_uses_nu_configs_when_configured() {
+    fn local_shell_candidates_do_not_add_args_for_nu() {
         let mut env = std::collections::HashMap::new();
         env.insert("TERMUA_SHELL".to_string(), "nu".to_string());
         env.insert(
@@ -3331,17 +3323,7 @@ mod tests {
             .map(|s| s.to_string_lossy().to_string())
             .collect();
 
-        assert_eq!(
-            argv,
-            vec![
-                "nu",
-                "--config",
-                "/tmp/termua-config.nu",
-                "--env-config",
-                "/tmp/termua-env.nu",
-                "--interactive"
-            ]
-        );
+        assert_eq!(argv, vec!["nu"]);
     }
 
     #[test]

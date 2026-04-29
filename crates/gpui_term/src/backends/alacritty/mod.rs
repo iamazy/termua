@@ -1870,19 +1870,19 @@ mod shell_tests {
     #[test]
     fn local_pty_options_uses_shell_integration_args() {
         let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
+        env.insert("TERMUA_SHELL".to_string(), "pwsh".to_string());
         env.insert(
-            "TERMUA_FISH_INIT".to_string(),
-            "/tmp/termua-test.fish".to_string(),
+            "TERMUA_PWSH_INIT".to_string(),
+            "/tmp/termua-test.ps1".to_string(),
         );
 
-        let opts = local_pty_options_for_program_exists(env, |p| p == "fish");
+        let opts = local_pty_options_for_program_exists(env, |p| p == "pwsh");
         let shell = opts.shell.expect("expected shell");
         let shell_debug = format!("{shell:?}");
-        assert!(shell_debug.contains("fish"));
-        assert!(shell_debug.contains("--init-command"));
-        assert!(shell_debug.contains("source \\\"$TERMUA_FISH_INIT\\\""));
-        assert!(shell_debug.contains("--interactive"));
+        assert!(shell_debug.contains("pwsh"));
+        assert!(shell_debug.contains("-NoLogo"));
+        assert!(shell_debug.contains("-NoExit"));
+        assert!(shell_debug.contains(". \\\"$env:TERMUA_PWSH_INIT\\\""));
     }
 
     #[test]

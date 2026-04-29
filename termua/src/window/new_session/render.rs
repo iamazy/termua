@@ -561,14 +561,6 @@ impl ShellSessionState {
             .id("termua-new-session-shell-session")
             .gap_3()
             .child(render_form_row(
-                t!("NewSession.Field.Shell").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-shell-program-select".to_string())
-                    .child(Select::new(&self.program_select)),
-                cx,
-            ))
-            .child(render_form_row(
                 t!("NewSession.Field.Type").to_string(),
                 div()
                     .w_full()
