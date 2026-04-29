@@ -45,7 +45,6 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
         "Group",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -106,7 +105,6 @@ fn local_session_icon_is_debuggable(cx: &mut gpui::TestAppContext) {
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -159,7 +157,6 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -382,7 +379,6 @@ fn sessions_can_be_deleted_via_right_click_menu(cx: &mut gpui::TestAppContext) {
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -537,7 +533,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             label: "db".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
             env: test_session_env("xterm", "UTF-8", None),
-            shell_program: None,
             ssh_host: Some("db.example.com".to_string()),
             ssh_port: Some(22),
             ssh_auth_type: None,
@@ -565,7 +560,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             label: "api".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
             env: test_session_env("xterm", "UTF-8", None),
-            shell_program: None,
             ssh_host: Some("api.example.com".to_string()),
             ssh_port: Some(22),
             ssh_auth_type: None,
@@ -626,7 +620,6 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -689,7 +682,7 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
+fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
     });
@@ -701,7 +694,6 @@ fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
         "local",
         "powershell",
         crate::settings::TerminalBackend::Wezterm,
-        "pwsh",
         "xterm-256color",
         "UTF-8",
     )
@@ -723,9 +715,9 @@ fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
     cx.run_until_parked();
 
     let icon_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-icon-pwsh-{session_id}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-icon-local-{session_id}").into_boxed_str());
     cx.debug_bounds(icon_selector)
-        .expect("expected PowerShell sessions to render pwsh.svg as their icon");
+        .expect("expected local sessions to render the generic terminal icon");
 }
 
 #[gpui::test]
@@ -794,7 +786,6 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
         "Group",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -865,7 +856,6 @@ fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::T
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -910,7 +900,6 @@ fn session_labels_do_not_wrap_when_sidebar_is_narrow(cx: &mut gpui::TestAppConte
         "Group",
         "This is a very long session name that should not wrap",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -974,7 +963,6 @@ fn reload_coalesces_while_previous_reload_is_in_flight(cx: &mut gpui::TestAppCon
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -1062,7 +1050,6 @@ fn repeated_delete_requests_for_same_session_are_ignored(cx: &mut gpui::TestAppC
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )

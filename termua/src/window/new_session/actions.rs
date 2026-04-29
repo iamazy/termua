@@ -96,7 +96,6 @@ enum SessionStoreOp {
         group: String,
         label: String,
         backend: crate::settings::TerminalBackend,
-        shell_program: String,
         env: Vec<SessionEnvVar>,
     },
     UpdateLocal {
@@ -104,7 +103,6 @@ enum SessionStoreOp {
         group: String,
         label: String,
         backend: crate::settings::TerminalBackend,
-        shell_program: String,
         env: Vec<SessionEnvVar>,
     },
     SaveSshPassword {
@@ -207,7 +205,6 @@ impl SessionStoreOp {
                 group,
                 label,
                 backend,
-                shell_program,
                 env,
             } => {
                 let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
@@ -215,7 +212,6 @@ impl SessionStoreOp {
                     group.as_str(),
                     label.as_str(),
                     backend,
-                    shell_program.as_str(),
                     term.as_str(),
                     colorterm.as_deref(),
                     charset.as_str(),
@@ -227,7 +223,6 @@ impl SessionStoreOp {
                 group,
                 label,
                 backend,
-                shell_program,
                 env,
             } => {
                 let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
@@ -236,7 +231,6 @@ impl SessionStoreOp {
                     group.as_str(),
                     label.as_str(),
                     backend,
-                    shell_program.as_str(),
                     term.as_str(),
                     colorterm.as_deref(),
                     charset.as_str(),
@@ -644,7 +638,6 @@ impl NewSessionWindow {
             group,
             label,
             backend: backend_for_store,
-            shell_program: shell_program.to_string(),
             env: session_store_env_from_fields(
                 term.as_ref(),
                 Self::trimmed_non_empty_option(colorterm.as_str()),
@@ -820,7 +813,6 @@ impl NewSessionWindow {
                 group,
                 label,
                 backend: backend_for_store,
-                shell_program: shell_program.to_string(),
                 env: session_store_env_from_fields(
                     term.as_ref(),
                     Self::trimmed_non_empty_option(colorterm.as_str()),
@@ -1237,11 +1229,9 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let program = session
-            .shell_program
-            .as_deref()
-            .unwrap_or(gpui_term::shell::default_shell_program());
-        self.shell.set_program(program, window, cx);
+        let _ = session;
+        self.shell
+            .set_program(gpui_term::shell::default_shell_program(), window, cx);
 
         // The shell program may auto-sync the label; restore the persisted label/group.
         set_input_value(
@@ -1528,7 +1518,6 @@ impl NewSessionWindow {
             group.as_str(),
             label.as_str(),
             backend_for_store,
-            shell_program.as_ref(),
             term.as_str(),
             colorterm.as_deref(),
             charset.as_str(),

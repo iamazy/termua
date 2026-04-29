@@ -337,10 +337,9 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let shell_program = session.shell_program.clone().unwrap_or_default();
         let session_env = session.env.clone().unwrap_or_default();
         let env = build_terminal_env(
-            shell_program.as_str(),
+            gpui_term::shell::default_shell_program(),
             session.term(),
             session.colorterm(),
             session.charset(),

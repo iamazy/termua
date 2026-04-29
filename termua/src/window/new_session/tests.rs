@@ -1396,7 +1396,6 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1456,7 +1455,6 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1531,7 +1529,6 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1610,7 +1607,6 @@ fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) 
                         value: "bar".to_string(),
                     },
                 ]),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1799,12 +1795,9 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         .unwrap()
         .clone()
         .expect("expected view to be captured");
-    let (expected_label, expected_shell_program) = win.update(|_window, app| {
+    let expected_label = win.update(|_window, app| {
         let view = view.read(app);
-        (
-            view.shell.common.label_input.read(app).value().to_string(),
-            view.shell.program.to_string(),
-        )
+        view.shell.common.label_input.read(app).value().to_string()
     });
 
     win.update(|_window, app| {
@@ -1822,10 +1815,6 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].group_path, "local");
     assert_eq!(sessions[0].label, expected_label);
-    assert_eq!(
-        sessions[0].shell_program.as_deref(),
-        Some(expected_shell_program.as_str())
-    );
 }
 
 #[gpui::test]
@@ -2102,7 +2091,6 @@ fn edit_session_repeat_save_is_ignored_while_submit_is_in_flight(cx: &mut gpui::
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),

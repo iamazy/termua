@@ -129,18 +129,6 @@ pub fn default_shell_program() -> &'static str {
     }
 }
 
-pub fn fallback_shell_program() -> &'static str {
-    if cfg!(windows) {
-        "powershell"
-    } else if cfg!(target_os = "macos") {
-        "zsh"
-    } else if cfg!(target_os = "linux") {
-        "bash"
-    } else {
-        "sh"
-    }
-}
-
 #[cfg(any(windows, test))]
 fn split_pathext(pathext: &str) -> Vec<String> {
     pathext
