@@ -450,12 +450,11 @@ impl Protocol {
         }
     }
 
-    pub(super) fn from_tab_index(ix: usize) -> Self {
-        match ix {
-            0 => Protocol::Shell,
-            1 => Protocol::Ssh,
-            2 => Protocol::Serial,
-            _ => Protocol::Shell,
+    pub(super) fn debug_id(self) -> &'static str {
+        match self {
+            Protocol::Shell => "shell",
+            Protocol::Ssh => "ssh",
+            Protocol::Serial => "serial",
         }
     }
 }

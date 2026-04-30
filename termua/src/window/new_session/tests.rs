@@ -661,6 +661,51 @@ fn new_session_protocol_tabs_fill_available_width(cx: &mut gpui::TestAppContext)
 }
 
 #[gpui::test]
+fn new_session_protocol_tabs_switch_on_click(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    let ssh_tab = win
+        .debug_bounds("termua-new-session-tab-ssh")
+        .expect("ssh tab should exist");
+    win.simulate_click(ssh_tab.center(), gpui::Modifiers::none());
+    win.run_until_parked();
+
+    win.update(|_window, app| {
+        assert_eq!(view.read(app).protocol, Protocol::Ssh);
+        assert_eq!(view.read(app).selected_item_id.as_ref(), "ssh.session");
+    });
+}
+
+#[gpui::test]
 fn new_session_tabs_include_serial(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         menubar::init(app);
