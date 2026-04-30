@@ -1,4 +1,4 @@
-use gpui::{App, AppContext, Application, WindowDecorations, WindowOptions, px, size};
+use gpui::{App, AppContext, WindowBounds, WindowDecorations, WindowOptions, px, size};
 use gpui_common::TermuaAssets;
 use gpui_component::TitleBar;
 use gpui_transfer::TransferCenterState;
@@ -6,7 +6,7 @@ use gpui_transfer::TransferCenterState;
 use crate::TermuaAppState;
 
 pub(crate) fn run(settings: crate::settings::SettingsFile) {
-    Application::new()
+    gpui_platform::application()
         .with_assets(TermuaAssets)
         .run(move |cx: &mut App| {
             init_app(cx, &settings);
@@ -74,9 +74,10 @@ fn init_app(cx: &mut App, settings: &crate::settings::SettingsFile) {
     let main_window = cx
         .open_window(
             WindowOptions {
+                window_bounds: Some(WindowBounds::centered(size(px(1500.0), px(900.0)), cx)),
                 titlebar: Some(TitleBar::title_bar_options()),
                 window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
-                window_min_size: Some(size(px(600.0), px(400.0))),
+                window_min_size: Some(size(px(1000.0), px(600.0))),
                 ..Default::default()
             },
             move |window, cx| {

@@ -1288,7 +1288,6 @@ impl SettingsWindow {
                                     use gpui_component::dialog::DialogButtonProps;
 
                                     dialog
-                                        .confirm()
                                         .title(
                                             t!("Settings.Assistant.DisableZeroClawTitle")
                                                 .to_string(),
@@ -1310,7 +1309,8 @@ impl SettingsWindow {
                                                     t!("Settings.Assistant.\
                                                         DisableZeroClawKeepRunning")
                                                     .to_string(),
-                                                ),
+                                                )
+                                                .show_cancel(true),
                                         )
                                         .on_ok({
                                             let settings_entity = settings_entity.clone();

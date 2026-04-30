@@ -8,6 +8,7 @@ use gpui_common::TermuaIcon;
 use gpui_component::{
     Icon,
     button::{Button, ButtonVariants},
+    dialog::DialogFooter,
     h_flex, v_flex,
 };
 use gpui_dock::{DockPlacement, PanelView};
@@ -57,7 +58,8 @@ impl TermuaWindow {
                         .button_props(
                             gpui_component::dialog::DialogButtonProps::default()
                                 .ok_text(t!("SshHostVerify.Button.TrustContinue").to_string())
-                                .cancel_text(t!("SshHostVerify.Button.Reject").to_string()),
+                                .cancel_text(t!("SshHostVerify.Button.Reject").to_string())
+                                .show_cancel(true),
                         )
                         .on_ok(move |_, _window, _app| {
                             let _ = decision_tx_ok.try_send(true);
@@ -67,7 +69,6 @@ impl TermuaWindow {
                             let _ = decision_tx_cancel.try_send(false);
                             true
                         })
-                        .confirm()
                 },
                 window,
                 cx,
@@ -271,19 +272,13 @@ impl TermuaWindow {
         app.refresh_windows();
     }
 
-    fn ssh_host_key_mismatch_dialog_footer_elements<C>(
+    fn ssh_host_key_mismatch_dialog_footer(
         backend_type: TerminalType,
         params: SshParams,
         known_hosts_path: Option<std::path::PathBuf>,
         host: String,
         port: u16,
-        cancel: C,
-        window: &mut Window,
-        app: &mut App,
-    ) -> Vec<gpui::AnyElement>
-    where
-        C: FnOnce(&mut Window, &mut App) -> gpui::AnyElement,
-    {
+    ) -> DialogFooter {
         let retry_params = params.clone();
         let retry_button = Button::new("termua-ssh-hostkey-mismatch-retry")
             .label(t!("SshHostKeyMismatch.Button.Retry").to_string())
@@ -340,11 +335,16 @@ impl TermuaWindow {
                 Self::queue_open_ssh_terminal(backend_type, remove_params.clone(), app);
             });
 
-        vec![
-            cancel(window, app),
-            retry_button.into_any_element(),
-            remove_and_retry_button.into_any_element(),
-        ]
+        let cancel_button = Button::new("termua-ssh-hostkey-mismatch-cancel")
+            .label("Cancel")
+            .on_click(|_, window, app| {
+                Self::close_dialog(window, app);
+            });
+
+        DialogFooter::new()
+            .child(cancel_button)
+            .child(retry_button)
+            .child(remove_and_retry_button)
     }
 
     pub(crate) fn open_ssh_host_key_mismatch_dialog(
@@ -408,18 +408,13 @@ impl TermuaWindow {
                             known_hosts_label.clone(),
                             fix_cmd.clone(),
                         ))
-                        .footer(move |_ok, cancel, window, app| {
-                            Self::ssh_host_key_mismatch_dialog_footer_elements(
-                                backend_type,
-                                params_for_footer.clone(),
-                                known_hosts_path_for_footer.clone(),
-                                host_for_footer.clone(),
-                                port_for_footer,
-                                cancel,
-                                window,
-                                app,
-                            )
-                        })
+                        .footer(Self::ssh_host_key_mismatch_dialog_footer(
+                            backend_type,
+                            params_for_footer,
+                            known_hosts_path_for_footer,
+                            host_for_footer,
+                            port_for_footer,
+                        ))
                 },
                 window,
                 cx,

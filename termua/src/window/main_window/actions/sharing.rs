@@ -963,7 +963,8 @@ impl TermuaWindow {
                         .button_props(
                             gpui_component::dialog::DialogButtonProps::default()
                                 .ok_text("Grant".to_string())
-                                .cancel_text("Deny".to_string()),
+                                .cancel_text("Deny".to_string())
+                                .show_cancel(true),
                         )
                         .on_ok({
                             let viewer_id = viewer_id.clone();
@@ -1001,7 +1002,6 @@ impl TermuaWindow {
                                 true
                             }
                         })
-                        .confirm()
                 },
                 window,
                 cx,
@@ -1055,7 +1055,8 @@ impl TermuaWindow {
                         .button_props(
                             gpui_component::dialog::DialogButtonProps::default()
                                 .ok_text("Join".to_string())
-                                .cancel_text("Cancel".to_string()),
+                                .cancel_text("Cancel".to_string())
+                                .show_cancel(true),
                         )
                         .on_ok({
                             let relay_input = relay_input.clone();
@@ -1085,7 +1086,6 @@ impl TermuaWindow {
                                 true
                             }
                         })
-                        .confirm()
                 },
                 window,
                 cx,

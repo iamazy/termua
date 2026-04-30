@@ -26,10 +26,6 @@ categories = ["terminal", "gpui"]
 keywords = ["terminal", "gpui"]
 
 [workspace.dependencies]
-alacritty_terminal = { path = "crates/alacritty_terminal" }
-gpui_common = { path = "crates/gpui_common" }
-termua_zeroclaw = { path = "crates/termua_zeroclaw" }
-termua_relay = { path = "crates/termua_relay" }
 anyhow = "1"
 async-tungstenite = "0.34"
 atomic-write-file = "0.3"
@@ -38,15 +34,12 @@ bitflags = "2"
 camino = "1"
 core-text = "=21.0.0"
 dirs-next = "2.0"
+embed-resource = "3"
 env_logger = "0.11"
-filedescriptor = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
 filenamegen = "0.2.6"
 futures = "0.3"
 gethostname = "0.5"
 hex = { version = "0.4", features = ["std"] }
-gpui = { git = "https://github.com/iamazy/zed", branch = "main" }
-gpui-component = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
-gpui-component-assets = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
 home = "0.5"
 itertools = "0.14"
 libc = "0.2"
@@ -56,9 +49,9 @@ miow = "0.6"
 notify-rust = "4"
 parking_lot = "0.12"
 passfd = "0.1.6"
-portable-pty = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
 piper = "0.2"
 polling = "3"
+rand = "0.9"
 regex = "1"
 regex-automata = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
@@ -70,6 +63,7 @@ schemars = "1"
 serde = "1"
 serde_json = "1"
 serde_json_lenient = "0.2"
+serial2 = "0.2.33"
 sha2 = "0.10"
 signal-hook = "0.4"
 socket2 = "0.5"
@@ -83,14 +77,39 @@ thiserror = "2"
 unicode-width = "0.2"
 url = "2"
 urlencoding = "2"
+unicode-segmentation = "1.12.0"
 vte = { version = "0.15", default-features = false }
-async_ossl = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
-wezterm-uds = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
 windows = "0.62"
 windows-sys = "0.62"
 
+# gpui dependencies
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component.git" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git" }
+
+# termua dependencies
+alacritty_terminal = { path = "crates/alacritty_terminal" }
+gpui_common = { path = "crates/gpui_common" }
+termua_zeroclaw = { path = "crates/termua_zeroclaw" }
+termua_relay = { path = "crates/termua_relay" }
+gpui_dock = { path = "crates/gpui_dock" }
+gpui_term = { path = "crates/gpui_term" }
+gpui_sftp = { path = "crates/gpui_sftp" }
+gpui_transfer = { path = "crates/gpui_transfer" }
+menubar = { path = "crates/menubar" }
+
+# wezterm dependencies
+async_ossl = { git = "https://github.com/wezterm/wezterm.git" }
+filedescriptor = { git = "https://github.com/wezterm/wezterm.git" }
+portable-pty = { git = "https://github.com/wezterm/wezterm.git" }
+wezterm-ssh = { path = "crates/wezterm-ssh" }
+wezterm-surface = { git = "https://github.com/wezterm/wezterm.git" }
+wezterm-term = { git = "https://github.com/wezterm/wezterm.git" }
+wezterm-uds = { git = "https://github.com/wezterm/wezterm.git" }
+
 [patch.crates-io]
-gpui-component-macros = { git = "https://github.com/iamazy/gpui-component.git", rev = "fe8656975f3143537f2795925c4884405f0e50f2" }
+gpui-component-macros = { git = "https://github.com/longbridge/gpui-component.git" }
 
 [profile.release]
 strip = true

@@ -44,13 +44,13 @@ impl TermuaWindow {
                                     .ok_text(t!("MainWindow.QuitConfirm.Button.Quit").to_string())
                                     .cancel_text(
                                         t!("MainWindow.QuitConfirm.Button.Cancel").to_string(),
-                                    ),
+                                    )
+                                    .show_cancel(true),
                             )
                             .on_ok(|_, _window, app| {
                                 app.quit();
                                 true
                             })
-                            .confirm()
                     },
                     window,
                     cx,

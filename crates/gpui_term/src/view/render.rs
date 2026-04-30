@@ -2,7 +2,7 @@ use gpui::{
     Context, Entity, Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, Styled, Window, div,
 };
-use gpui_component::menu::ContextMenu;
+use gpui_component::menu::ContextMenuExt;
 
 use super::TerminalView;
 use crate::{element::TerminalElement, terminal::Terminal};
@@ -35,20 +35,19 @@ impl Render for TerminalView {
         let terminal_view = terminal_view_handle.clone();
         let context_menu_provider = self.context_menu_provider.clone();
 
-        ContextMenu::new("terminal-view-context-menu", root)
-            .menu(move |menu, window, cx| {
-                Self::build_terminal_context_menu(
-                    context_menu_enabled,
-                    action_context.clone(),
-                    menu_terminal_handle.clone(),
-                    terminal_view.clone(),
-                    context_menu_provider.clone(),
-                    menu,
-                    window,
-                    cx,
-                )
-            })
-            .into_any_element()
+        root.context_menu(move |menu, window, cx| {
+            Self::build_terminal_context_menu(
+                context_menu_enabled,
+                action_context.clone(),
+                menu_terminal_handle.clone(),
+                terminal_view.clone(),
+                context_menu_provider.clone(),
+                menu,
+                window,
+                cx,
+            )
+        })
+        .into_any_element()
     }
 }
 

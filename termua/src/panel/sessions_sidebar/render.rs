@@ -9,7 +9,7 @@ use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable as _, StyledExt, h_flex,
     input::Input,
     list::ListItem,
-    menu::{ContextMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     tree::{TreeEntry, tree},
     v_flex,
 };
@@ -461,43 +461,40 @@ impl Render for SessionsSidebarView {
                 )
             })
             .child(
-                ContextMenu::new(
-                    "termua-sessions-sidebar-context-menu",
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .child(tree(
-                            &self.tree_state,
-                            move |ix, entry: &TreeEntry, selected, _window, _app| {
-                                SessionsSidebarView::render_tree_row(
-                                    ix,
-                                    entry,
-                                    selected,
-                                    &entity,
-                                    &session_icon_kinds,
-                                    &connecting_ids,
-                                    muted_fg,
-                                )
-                            },
-                        ))
-                        .when(self.tree_items.is_empty(), |this| {
-                            this.child(
-                                div()
-                                    .p_3()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t!("SessionsSidebar.Empty").to_string()),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(tree(
+                        &self.tree_state,
+                        move |ix, entry: &TreeEntry, selected, _window, _app| {
+                            SessionsSidebarView::render_tree_row(
+                                ix,
+                                entry,
+                                selected,
+                                &entity,
+                                &session_icon_kinds,
+                                &connecting_ids,
+                                muted_fg,
                             )
-                        }),
-                )
-                .menu(move |menu: PopupMenu, _window, cx| {
-                    SessionsSidebarView::build_context_menu(
-                        menu,
-                        &menu_entity,
-                        action_context.clone(),
-                        cx,
-                    )
-                }),
+                        },
+                    ))
+                    .when(self.tree_items.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .p_3()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(t!("SessionsSidebar.Empty").to_string()),
+                        )
+                    })
+                    .context_menu(move |menu: PopupMenu, _window, cx| {
+                        SessionsSidebarView::build_context_menu(
+                            menu,
+                            &menu_entity,
+                            action_context.clone(),
+                            cx,
+                        )
+                    }),
             )
     }
 }

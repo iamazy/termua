@@ -119,7 +119,7 @@ impl SftpView {
                     )
                 }
             })
-            .child(Table::new(&table).bordered(false))
+            .child(DataTable::new(&table).bordered(false))
             .into_any_element()
     }
 

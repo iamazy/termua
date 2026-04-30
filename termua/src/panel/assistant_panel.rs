@@ -991,7 +991,8 @@ impl AssistantPanelView {
                     .button_props(
                         gpui_component::dialog::DialogButtonProps::default()
                             .ok_text(t!("Assistant.Dialog.RunInTerminalOk").to_string())
-                            .cancel_text(t!("Assistant.Dialog.RunInTerminalCancel").to_string()),
+                            .cancel_text(t!("Assistant.Dialog.RunInTerminalCancel").to_string())
+                            .show_cancel(true),
                     )
                     .on_ok({
                         let this = this.clone();
@@ -1008,7 +1009,6 @@ impl AssistantPanelView {
                             true
                         }
                     })
-                    .confirm()
             },
             window,
             cx,
@@ -1194,7 +1194,7 @@ mod tests {
             let view = assistant.read(app);
             (
                 view.scroll_handle.offset().y,
-                view.scroll_handle.max_offset().height,
+                view.scroll_handle.max_offset().y,
             )
         });
 
