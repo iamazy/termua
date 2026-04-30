@@ -70,7 +70,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl dpkg rpm
-          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
+          sudo apt-get install -y libfontconfig1-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
 
       - uses: taiki-e/install-action@nextest
       - name: Test
