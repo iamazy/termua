@@ -71,8 +71,7 @@ impl FootbarView {
                     .open(self.transfers_open)
                     .on_open_change(move |open, window, app| {
                         view.update(app, |this, cx| {
-                            this.transfers_open = *open;
-                            cx.notify();
+                            this.set_transfers_open(*open, cx);
                         });
                         window.refresh();
                     })

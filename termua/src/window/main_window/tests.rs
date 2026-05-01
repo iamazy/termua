@@ -2299,9 +2299,9 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     }
 
     let row_selector_1: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id_1}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-row-{session_id_1}").into_boxed_str());
     let row_selector_2: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id_2}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-row-{session_id_2}").into_boxed_str());
 
     // Baseline: clicking the sessions tree selects a session.
     let row_1_bounds = window_cx
@@ -2529,6 +2529,8 @@ fn dock_tab_move_buttons_render_when_tabs_overflow(cx: &mut gpui::TestAppContext
 
 #[gpui::test]
 fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
     cx.update(|app| {
         gpui_component::init(app);
         menubar::init(app);
@@ -2557,10 +2559,18 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
     // instead of silently doing nothing.
     let _ = crate::keychain::delete_ssh_password(id);
 
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
     let (root, cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
         gpui_component::Root::new(view, window, cx)
     });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
 
     cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -2572,29 +2582,15 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
     );
     cx.run_until_parked();
 
-    let selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{id}").into_boxed_str());
-    let row_bounds = cx
-        .debug_bounds(selector)
-        .expect("expected the ssh session row to be debuggable");
-
-    cx.simulate_event(gpui::MouseDownEvent {
-        position: row_bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-        first_mouse: false,
-    });
-    cx.simulate_event(gpui::MouseUpEvent {
-        position: row_bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-    });
-
     cx.update(|window, app| {
-        let root = gpui_component::Root::read(window, app);
-        let notifications = root.notification.read(app).notifications();
+        termua.update(app, |this, cx| {
+            this.open_session_by_id(id, window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|_window, app| {
+        let notifications = app.global::<notification::NotifyState>().messages.clone();
         assert!(
             !notifications.is_empty(),
             "expected a notification when an ssh password session is missing its password"

@@ -1,7 +1,11 @@
 use std::time::Duration;
 
 use gpui::{AppContext, ParentElement, Styled, div};
-use gpui_component::{ActiveTheme, WindowExt, input::InputState, select::SearchableVec};
+use gpui_component::{
+    ActiveTheme, WindowExt,
+    input::{InputEvent, InputState},
+    select::SearchableVec,
+};
 
 use super::{
     state::{build_nav_tree_items, sidebar_nav_specs},
@@ -961,7 +965,10 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
         let Some(input) = window.focused_input(app) else {
             panic!("expected background input to be focused");
         };
-        input.update(app, |state, cx| state.set_value("#000000ff", window, cx));
+        input.update(app, |state, cx| {
+            state.set_value("#000000ff", window, cx);
+            cx.emit(InputEvent::PressEnter { secondary: false });
+        });
     });
     cx.run_until_parked();
 
@@ -1103,7 +1110,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         let Some(input) = window.focused_input(app) else {
             panic!("expected background input to be focused");
         };
-        input.update(app, |state, cx| state.set_value("#000000ff", window, cx));
+        input.update(app, |state, cx| {
+            state.set_value("#000000ff", window, cx);
+            cx.emit(InputEvent::PressEnter { secondary: false });
+        });
     });
     cx.run_until_parked();
 
@@ -1118,7 +1128,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         let Some(input) = window.focused_input(app) else {
             panic!("expected muted input to be focused");
         };
-        input.update(app, |state, cx| state.set_value("#ffffff", window, cx));
+        input.update(app, |state, cx| {
+            state.set_value("#ffffff", window, cx);
+            cx.emit(InputEvent::PressEnter { secondary: false });
+        });
     });
     cx.run_until_parked();
 

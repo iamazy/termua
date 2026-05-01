@@ -15,10 +15,16 @@ use gpui_component::{
 };
 use rust_i18n::t;
 
-use super::{
-    SessionsSidebarEvent, SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree,
-};
+use super::{SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree};
 use crate::new_session::NewSessionWindow;
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SessionsSidebarContextMenuItem {
+    NewSession,
+    Edit,
+    Delete,
+}
 
 impl SessionsSidebarView {
     fn render_tree_row(
@@ -76,21 +82,7 @@ impl SessionsSidebarView {
             row = row.on_click(move |ev, window, cx| {
                 let should_open = ev.standard_click() && ev.click_count() >= 2;
                 entity.update(cx, |this, cx| {
-                    this.selected_item_id = item_id.clone();
-                    this.hovered_session_id = Some(id);
-                    this.sync_tree_selection(cx);
-                    if should_open {
-                        if item_id.as_ref().starts_with("session:ssh:") && this.is_connecting(id) {
-                            // Prevent hammering the same unreachable host and spawning
-                            // many slow connection attempts.
-                        } else {
-                            if item_id.as_ref().starts_with("session:ssh:") {
-                                this.set_connecting(id, true, cx);
-                            }
-                            cx.emit(SessionsSidebarEvent::OpenSession(id));
-                        }
-                    }
-                    cx.notify();
+                    this.handle_session_click(item_id.clone(), id, should_open, cx);
                 });
                 window.refresh();
             });
@@ -114,12 +106,21 @@ impl SessionsSidebarView {
             .w_full()
             .id(format!("termua-sessions-tree-row-wrapper-{ix}"));
         if is_folder {
+            if let Some(folder_debug_name) = folder_debug_name.clone() {
+                wrapper = wrapper.debug_selector(move || {
+                    format!("termua-sessions-folder-hit-{folder_debug_name}")
+                });
+            }
+        } else if let Some(id) = session_id {
+            wrapper = wrapper.debug_selector(move || format!("termua-sessions-session-row-{id}"));
+        }
+
+        if is_folder {
             let entity = entity.clone();
             wrapper = wrapper.on_mouse_down(MouseButton::Right, move |_ev, _window, app| {
                 // Right-click on folders uses the "new session" menu.
                 entity.update(app, |this, cx| {
-                    this.hovered_session_id = None;
-                    cx.notify();
+                    this.handle_background_context_click(cx);
                 });
             });
         } else if let Some(id) = session_id {
@@ -138,10 +139,7 @@ impl SessionsSidebarView {
             let entity_for_right_click = entity.clone();
             wrapper = wrapper.on_mouse_down(MouseButton::Right, move |_ev, window, app| {
                 entity_for_right_click.update(app, |this, cx| {
-                    this.selected_item_id = item_id_for_click.clone();
-                    this.hovered_session_id = Some(id);
-                    this.sync_tree_selection(cx);
-                    cx.notify();
+                    this.handle_session_context_click(item_id_for_click.clone(), id, cx);
                 });
                 window.refresh();
             });
@@ -308,6 +306,19 @@ impl SessionsSidebarView {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn context_menu_items_for_hovered_session(
+        hovered_session_id: Option<i64>,
+    ) -> &'static [SessionsSidebarContextMenuItem] {
+        match hovered_session_id {
+            Some(_) => &[
+                SessionsSidebarContextMenuItem::Edit,
+                SessionsSidebarContextMenuItem::Delete,
+            ],
+            None => &[SessionsSidebarContextMenuItem::NewSession],
+        }
+    }
+
     fn build_context_menu_for_session(
         menu: PopupMenu,
         menu_entity: &Entity<SessionsSidebarView>,
@@ -462,6 +473,8 @@ impl Render for SessionsSidebarView {
             })
             .child(
                 div()
+                    .id("termua-sessions-tree-area")
+                    .debug_selector(|| "termua-sessions-tree-area".to_string())
                     .flex_1()
                     .min_h_0()
                     .child(tree(

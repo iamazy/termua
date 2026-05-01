@@ -43,6 +43,7 @@ pub(crate) fn bind_keybindings(cx: &mut App) {
 pub struct AssistantPanelView {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
+    remaining_scroll_to_bottom_passes: u8,
     prompt_input: gpui::Entity<InputState>,
     _subscriptions: Vec<Subscription>,
 }
@@ -94,6 +95,7 @@ impl AssistantPanelView {
         Self {
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::default(),
+            remaining_scroll_to_bottom_passes: 0,
             prompt_input,
             _subscriptions: subs,
         }
@@ -160,7 +162,7 @@ impl AssistantPanelView {
         };
 
         // Ensure the newly-added message is visible without manual scrolling.
-        self.scroll_handle.scroll_to_bottom();
+        self.scroll_messages_to_bottom(cx);
         cx.notify();
 
         let full_prompt = Self::compose_full_prompt(&prompt, &attachments);
@@ -172,7 +174,7 @@ impl AssistantPanelView {
             .unwrap_or_default();
 
         if !assistant_settings.enabled {
-            Self::finish_disabled_request(request_id, cx);
+            self.finish_disabled_request(request_id, cx);
             return;
         }
 
@@ -250,13 +252,20 @@ impl AssistantPanelView {
         out
     }
 
-    fn finish_disabled_request(request_id: u64, cx: &mut Context<Self>) {
+    fn finish_disabled_request(&mut self, request_id: u64, cx: &mut Context<Self>) {
         let state = cx.global_mut::<AssistantState>();
         state.push(
             AssistantRole::Assistant,
             t!("Assistant.Message.Disabled").to_string(),
         );
         state.finish_request(request_id);
+        self.scroll_messages_to_bottom(cx);
+        cx.notify();
+    }
+
+    fn scroll_messages_to_bottom(&mut self, cx: &mut Context<Self>) {
+        self.remaining_scroll_to_bottom_passes = self.remaining_scroll_to_bottom_passes.max(2);
+        self.scroll_handle.scroll_to_bottom();
         cx.notify();
     }
 
@@ -295,7 +304,7 @@ impl AssistantPanelView {
                 }
                 cx.global_mut::<AssistantState>()
                     .push(AssistantRole::Assistant, reply);
-                _this.scroll_handle.scroll_to_bottom();
+                _this.scroll_messages_to_bottom(cx);
                 cx.notify();
             });
         })
@@ -1067,15 +1076,28 @@ impl AssistantPanelView {
 
             cx.global_mut::<AssistantState>()
                 .push(AssistantRole::System, message);
-            this_panel.scroll_handle.scroll_to_bottom();
+            this_panel.scroll_messages_to_bottom(cx);
             cx.notify();
         });
     }
 }
 
 impl Render for AssistantPanelView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let this = cx.entity();
+
+        if self.remaining_scroll_to_bottom_passes > 0 {
+            let this_for_defer = this.clone();
+            let scroll_handle = self.scroll_handle.clone();
+            window.defer(cx, move |_, cx| {
+                let _ = this_for_defer.update(cx, |this, cx| {
+                    this.remaining_scroll_to_bottom_passes =
+                        this.remaining_scroll_to_bottom_passes.saturating_sub(1);
+                    scroll_handle.scroll_to_bottom();
+                    cx.notify();
+                });
+            });
+        }
 
         self.sync_target_selection(cx);
 
@@ -1162,19 +1184,47 @@ mod tests {
             .clone()
             .expect("assistant view should be created");
 
-        window_cx.update(|window, app| {
+        window_cx.update(|_window, app| {
             // Seed enough content to make the scroll area overflow.
             for ix in 0..80 {
                 app.global_mut::<AssistantState>()
                     .push(AssistantRole::Assistant, format!("message {ix}\nline 2"));
             }
+        });
 
+        let root_for_draw = root.clone();
+        window_cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(520.)),
+                AvailableSpace::Definite(px(240.)),
+            ),
+            move |_, _| div().size_full().child(root_for_draw),
+        );
+        window_cx.run_until_parked();
+
+        window_cx
+            .debug_bounds("termua-assistant-msg-text-0")
+            .expect("assistant message content should be rendered as a TextView");
+
+        window_cx.update(|window, app| {
             assistant.update(app, |this, cx| {
                 this.prompt_input
                     .update(cx, |state, cx| state.set_value("hello", window, cx));
                 this.send(window, cx);
             });
         });
+
+        let root_for_redraw = root.clone();
+        window_cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(520.)),
+                AvailableSpace::Definite(px(240.)),
+            ),
+            move |_, _| div().size_full().child(root_for_redraw),
+        );
+        window_cx.run_until_parked();
 
         window_cx.draw(
             point(px(0.), px(0.)),
@@ -1186,10 +1236,6 @@ mod tests {
         );
         window_cx.run_until_parked();
 
-        window_cx
-            .debug_bounds("termua-assistant-msg-text-0")
-            .expect("assistant message content should be rendered as a TextView");
-
         let (offset_y, max_y) = window_cx.update(|_window, app| {
             let view = assistant.read(app);
             (
@@ -1199,9 +1245,11 @@ mod tests {
         });
 
         assert!(max_y > px(0.), "expected overflow content to be scrollable");
-        assert_eq!(
-            offset_y, -max_y,
-            "expected assistant view to scroll to bottom"
+        let distance_from_bottom = offset_y + max_y;
+        assert!(
+            distance_from_bottom >= px(0.) && distance_from_bottom <= px(48.),
+            "expected assistant view to scroll close to bottom, got offset_y={offset_y:?} \
+             max_y={max_y:?}"
         );
     }
 

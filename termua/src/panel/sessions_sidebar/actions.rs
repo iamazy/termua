@@ -147,6 +147,49 @@ impl SessionsSidebarView {
         }
     }
 
+    pub(crate) fn handle_session_click(
+        &mut self,
+        item_id: SharedString,
+        session_id: i64,
+        should_open: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_item_id = item_id.clone();
+        self.hovered_session_id = Some(session_id);
+        self.sync_tree_selection(cx);
+
+        if should_open {
+            if item_id.as_ref().starts_with("session:ssh:") && self.is_connecting(session_id) {
+                // Prevent hammering the same unreachable host and spawning many slow
+                // connection attempts.
+            } else {
+                if item_id.as_ref().starts_with("session:ssh:") {
+                    self.set_connecting(session_id, true, cx);
+                }
+                cx.emit(super::SessionsSidebarEvent::OpenSession(session_id));
+            }
+        }
+
+        cx.notify();
+    }
+
+    pub(crate) fn handle_session_context_click(
+        &mut self,
+        item_id: SharedString,
+        session_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_item_id = item_id;
+        self.hovered_session_id = Some(session_id);
+        self.sync_tree_selection(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn handle_background_context_click(&mut self, cx: &mut Context<Self>) {
+        self.hovered_session_id = None;
+        cx.notify();
+    }
+
     fn rebuild_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let items =
             tree::build_tree_items_from_summaries(&self.session_summaries, self.query.trim());
@@ -228,5 +271,10 @@ impl SessionsSidebarView {
     #[cfg(test)]
     pub(crate) fn selected_item_id_for_test(&self) -> &str {
         self.selected_item_id.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn hovered_session_id_for_test(&self) -> Option<i64> {
+        self.hovered_session_id
     }
 }
