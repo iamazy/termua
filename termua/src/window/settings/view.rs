@@ -1285,8 +1285,6 @@ impl SettingsWindow {
                         root.update(cx, |root, cx| {
                             root.open_dialog(
                                 move |dialog, _window, _cx| {
-                                    use gpui_component::dialog::DialogButtonProps;
-
                                     dialog
                                         .title(
                                             t!("Settings.Assistant.DisableZeroClawTitle")
@@ -1298,29 +1296,56 @@ impl SettingsWindow {
                                                     .to_string(),
                                             ),
                                         )
-                                        .button_props(
-                                            DialogButtonProps::default()
-                                                .ok_text(
-                                                    t!("Settings.Assistant.\
-                                                        DisableZeroClawStopDaemon")
-                                                    .to_string(),
+                                        .footer(
+                                            h_flex()
+                                                .justify_end()
+                                                .gap_2()
+                                                .child(
+                                                    Button::new(
+                                                        "termua-settings-assistant-disable-dialog-cancel",
+                                                    )
+                                                    .label(
+                                                        t!(
+                                                            "Settings.Assistant.\
+                                                             DisableZeroClawKeepRunning"
+                                                        )
+                                                        .to_string(),
+                                                    )
+                                                    .debug_selector(|| {
+                                                        "termua-settings-assistant-disable-dialog-cancel"
+                                                            .to_string()
+                                                    })
+                                                    .on_click(|_, window, cx| {
+                                                        window.close_dialog(cx);
+                                                    }),
                                                 )
-                                                .cancel_text(
-                                                    t!("Settings.Assistant.\
-                                                        DisableZeroClawKeepRunning")
-                                                    .to_string(),
-                                                )
-                                                .show_cancel(true),
+                                                .child(
+                                                    Button::new(
+                                                        "termua-settings-assistant-disable-dialog-stop",
+                                                    )
+                                                    .primary()
+                                                    .label(
+                                                        t!(
+                                                            "Settings.Assistant.\
+                                                             DisableZeroClawStopDaemon"
+                                                        )
+                                                        .to_string(),
+                                                    )
+                                                    .debug_selector(|| {
+                                                        "termua-settings-assistant-disable-dialog-stop"
+                                                            .to_string()
+                                                    })
+                                                    .on_click({
+                                                        let settings_entity = settings_entity.clone();
+                                                        move |_, window, cx| {
+                                                            settings_entity.update(cx, |this, cx| {
+                                                                this.shutdown_zeroclaw(window, cx);
+                                                            });
+                                                            window.close_dialog(cx);
+                                                        }
+                                                    }),
+                                                ),
                                         )
-                                        .on_ok({
-                                            let settings_entity = settings_entity.clone();
-                                            move |_ev, window, cx| {
-                                                settings_entity.update(cx, |this, cx| {
-                                                    this.shutdown_zeroclaw(window, cx);
-                                                });
-                                                true
-                                            }
-                                        })
                                 },
                                 window,
                                 cx,

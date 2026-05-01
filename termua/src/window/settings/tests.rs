@@ -665,6 +665,110 @@ fn assistant_page_renders_zeroclaw_controls(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+fn disabling_assistant_shows_zeroclaw_shutdown_dialog_buttons(cx: &mut gpui::TestAppContext) {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-settings-test-assistant-disable-dialog-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let path = tmp_dir.join("termua").join("settings.json");
+    let _guard = crate::settings::override_settings_json_path(path.clone());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(
+        &path,
+        r#"{
+              "assistant": { "enabled": true },
+              "ui": { "last_settings_page": "nav.page.assistant.zeroclaw" }
+            }"#,
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+        gpui_component::Root::new(settings, window, cx)
+    });
+    let root_for_draw = root.clone();
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(700.)),
+        ),
+        move |_, _| div().size_full().child(root_for_draw),
+    );
+
+    cx.run_until_parked();
+
+    cx.update(|_window, app| {
+        let settings = root
+            .read(app)
+            .view()
+            .clone()
+            .downcast::<SettingsWindow>()
+            .expect("expected settings root view");
+        assert!(
+            settings.read(app).settings.assistant.enabled,
+            "expected assistant to start enabled for this test"
+        );
+    });
+
+    let bounds = cx
+        .debug_bounds("termua-settings-assistant-enabled")
+        .or_else(|| cx.debug_bounds("termua-settings-assistant-enabled-switch"))
+        .expect("expected assistant enabled switch to exist");
+    cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.update(|_window, app| {
+        let settings = root
+            .read(app)
+            .view()
+            .clone()
+            .downcast::<SettingsWindow>()
+            .expect("expected settings root view");
+        assert!(
+            !settings.read(app).settings.assistant.enabled,
+            "expected click to disable assistant before opening dialog"
+        );
+    });
+    cx.update(|window, app| {
+        assert!(
+            window.has_active_dialog(app),
+            "expected disable assistant click to open a dialog"
+        );
+    });
+    let root_for_redraw = root.clone();
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(700.)),
+        ),
+        move |_, _| div().size_full().child(root_for_redraw),
+    );
+    cx.run_until_parked();
+
+    assert!(
+        cx.debug_bounds("termua-settings-assistant-disable-dialog-stop")
+            .is_some(),
+        "expected zeroclaw shutdown dialog to render a Stop button"
+    );
+    assert!(
+        cx.debug_bounds("termua-settings-assistant-disable-dialog-cancel")
+            .is_some(),
+        "expected zeroclaw shutdown dialog to render a Cancel button"
+    );
+}
+
+#[gpui::test]
 fn lock_screen_page_renders_controls(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
     let tmp_dir = std::env::temp_dir().join(format!(
