@@ -820,30 +820,8 @@ fn lock_screen_page_renders_controls(cx: &mut gpui::TestAppContext) {
 
 #[gpui::test]
 fn recording_page_renders_playback_speed_as_select(cx: &mut gpui::TestAppContext) {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-recording-page-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &path,
-        r#"{
-  "ui": {
-    "last_settings_page": "nav.page.recording.cast"
-  }
-}"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard = override_settings_page("recording-page", "nav.page.recording.cast");
+    init_settings_test_app(cx);
 
     let cx = cx.add_empty_window();
     cx.draw(
@@ -882,47 +860,11 @@ fn recording_page_renders_playback_speed_as_select(cx: &mut gpui::TestAppContext
 
 #[gpui::test]
 fn clicking_new_theme_button_opens_theme_editor_sheet(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-theme-editor-sheet-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let _guard = override_settings_page("theme-editor-sheet", "nav.page.appearance.theme");
+    init_settings_test_app(cx);
 
-    // Write a settings.json that selects "Appearance / Theme" as the last settings page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.appearance.theme" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let (view, cx) = cx.add_window_view(|window, cx| {
-        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
-        gpui_component::Root::new(settings, window, cx)
-    });
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(view),
-    );
-
-    cx.run_until_parked();
+    let (root, cx) = add_root_wrapped_settings_window(cx);
+    draw_test_root(root, cx);
 
     let bounds = cx
         .debug_bounds("termua-settings-appearance-theme-new-theme-button")
@@ -938,47 +880,12 @@ fn clicking_new_theme_button_opens_theme_editor_sheet(cx: &mut gpui::TestAppCont
 
 #[gpui::test]
 fn theme_editor_sheet_lists_background_color(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-theme-editor-sheet-background-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let _guard =
+        override_settings_page("theme-editor-sheet-background", "nav.page.appearance.theme");
+    init_settings_test_app(cx);
 
-    // Write a settings.json that selects "Appearance / Theme" as the last settings page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.appearance.theme" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
-        gpui_component::Root::new(settings, window, cx)
-    });
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-
-    cx.run_until_parked();
+    let (root, cx) = add_root_wrapped_settings_window(cx);
+    draw_test_root(root, cx);
 
     let bounds = cx
         .debug_bounds("termua-settings-appearance-theme-new-theme-button")
@@ -997,47 +904,11 @@ fn theme_editor_sheet_lists_background_color(cx: &mut gpui::TestAppContext) {
 fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
     use gpui_component::Colorize as _;
 
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-theme-editor-preview-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let _guard = override_settings_page("theme-editor-preview", "nav.page.appearance.theme");
+    init_settings_test_app(cx);
 
-    // Write a settings.json that selects "Appearance / Theme" as the last settings page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.appearance.theme" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
-        gpui_component::Root::new(settings, window, cx)
-    });
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-
-    cx.run_until_parked();
+    let (root, cx) = add_root_wrapped_settings_window(cx);
+    draw_test_root(root, cx);
 
     let original_background = cx.update(|_window, app| app.theme().background.to_hex());
 
@@ -1086,47 +957,11 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
 
 #[gpui::test]
 fn theme_editor_sheet_lists_muted_color(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-theme-editor-sheet-muted-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let _guard = override_settings_page("theme-editor-sheet-muted", "nav.page.appearance.theme");
+    init_settings_test_app(cx);
 
-    // Write a settings.json that selects "Appearance / Theme" as the last settings page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.appearance.theme" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
-        gpui_component::Root::new(settings, window, cx)
-    });
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-
-    cx.run_until_parked();
+    let (root, cx) = add_root_wrapped_settings_window(cx);
+    draw_test_root(root, cx);
 
     let bounds = cx
         .debug_bounds("termua-settings-appearance-theme-new-theme-button")
