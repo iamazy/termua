@@ -64,55 +64,54 @@ impl SettingsWindow {
                                     })
                                     .flex_1()
                                     .min_w_0()
-                                    .text_sm()
-                                    .text_color(cx.theme().foreground)
-                                    .whitespace_normal()
                                     .child(
-                                        InteractiveText::new(
-                                            format!(
-                                                "termua-settings-keybinding-title-text-{}",
-                                                meta.id
-                                            ),
-                                            StyledText::new(title),
-                                        )
-                                        .tooltip({
-                                            let description = description.clone();
-                                            move |_ix, window, cx| {
-                                                let tooltip_selector = tooltip_selector.clone();
+                                        self.render_setting_title(
+                                            InteractiveText::new(
+                                                format!(
+                                                    "termua-settings-keybinding-title-text-{}",
+                                                    meta.id
+                                                ),
+                                                StyledText::new(title),
+                                            )
+                                            .tooltip({
                                                 let description = description.clone();
-                                                Some(
-                                                    Tooltip::element({
-                                                        let tooltip_selector =
-                                                            tooltip_selector.clone();
-                                                        let description = description.clone();
-                                                        move |_window, cx| {
-                                                            div()
-                                                                .debug_selector({
-                                                                    let tooltip_selector =
-                                                                        tooltip_selector.clone();
-                                                                    move || tooltip_selector.clone()
-                                                                })
-                                                                .max_w(px(320.))
-                                                                .text_xs()
-                                                                .text_color(cx.theme().foreground)
-                                                                .whitespace_normal()
-                                                                .child(description.clone())
-                                                        }
-                                                    })
-                                                    .build(window, cx),
-                                                )
-                                            }
-                                        }),
+                                                move |_ix, window, cx| {
+                                                    let tooltip_selector = tooltip_selector.clone();
+                                                    let description = description.clone();
+                                                    Some(
+                                                        Tooltip::element({
+                                                            let tooltip_selector =
+                                                                tooltip_selector.clone();
+                                                            let description = description.clone();
+                                                            move |_window, cx| {
+                                                                div()
+                                                                    .debug_selector({
+                                                                        let tooltip_selector =
+                                                                            tooltip_selector
+                                                                                .clone();
+                                                                        move || {
+                                                                            tooltip_selector.clone()
+                                                                        }
+                                                                    })
+                                                                    .max_w(px(320.))
+                                                                    .text_xs()
+                                                                    .text_color(
+                                                                        cx.theme().foreground,
+                                                                    )
+                                                                    .whitespace_normal()
+                                                                    .child(description.clone())
+                                                            }
+                                                        })
+                                                        .build(window, cx),
+                                                    )
+                                                }
+                                            }),
+                                            cx,
+                                        ),
                                     ),
                             )
                             .when_some(warning, |this, warning| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().warning)
-                                        .whitespace_normal()
-                                        .child(warning),
-                                )
+                                this.child(self.render_setting_warning(warning, cx))
                             }),
                     )
                     .child(
@@ -465,13 +464,6 @@ impl SettingsWindow {
         let selected_page = self.selected_page;
         let spec = page_spec(selected_page);
 
-        let keybinding_conflicts: std::collections::HashMap<&'static str, Vec<&'static str>> =
-            if matches!(selected_page, SettingsPage::TerminalKeyBindings) {
-                terminal_keybinding_conflicts(&self.settings)
-            } else {
-                Default::default()
-            };
-
         let heading_el =
             self.render_page_heading(selected_page, t!(spec.heading_key).to_string(), cx);
 
@@ -488,6 +480,8 @@ impl SettingsWindow {
         if matches!(selected_page, SettingsPage::TerminalKeyBindings) {
             return page.child(self.render_terminal_keybindings_table(window, cx));
         }
+
+        let keybinding_conflicts = terminal_keybinding_conflicts(&self.settings);
 
         let rows = self.render_setting_rows(
             SettingMeta::all()

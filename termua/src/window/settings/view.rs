@@ -772,15 +772,7 @@ impl SettingsWindow {
                 h_flex()
                     .items_center()
                     .gap_4()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .text_color(cx.theme().foreground)
-                            .whitespace_normal()
-                            .child(title),
-                    )
+                    .child(self.render_setting_title(title, cx))
                     .child(div().flex_shrink_0().child(control)),
             )
             .child(
@@ -794,18 +786,38 @@ impl SettingsWindow {
             );
 
         if let Some(warning) = warning {
-            row = row.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(cx.theme().warning)
-                    .whitespace_normal()
-                    .child(warning),
-            );
+            row = row.child(self.render_setting_warning(warning, cx));
         }
 
         row
+    }
+
+    pub(super) fn render_setting_title(
+        &self,
+        title: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_sm()
+            .text_color(cx.theme().foreground)
+            .whitespace_normal()
+            .child(title)
+    }
+
+    pub(super) fn render_setting_warning(
+        &self,
+        warning: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .w_full()
+            .min_w_0()
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .whitespace_normal()
+            .child(warning)
     }
 
     fn render_terminal_keybinding(
