@@ -74,24 +74,18 @@ impl SettingsWindow {
                                                 StyledText::new(title),
                                             )
                                             .tooltip({
-                                                let description = description.clone();
                                                 move |_ix, window, cx| {
                                                     let tooltip_selector = tooltip_selector.clone();
                                                     let description = description.clone();
                                                     Some(
                                                         Tooltip::element({
-                                                            let tooltip_selector =
-                                                                tooltip_selector.clone();
-                                                            let description = description.clone();
                                                             move |_window, cx| {
                                                                 div()
                                                                     .debug_selector({
                                                                         let tooltip_selector =
                                                                             tooltip_selector
                                                                                 .clone();
-                                                                        move || {
-                                                                            tooltip_selector.clone()
-                                                                        }
+                                                                        move || tooltip_selector
                                                                     })
                                                                     .max_w(px(320.))
                                                                     .text_xs()

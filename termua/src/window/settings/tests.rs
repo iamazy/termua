@@ -20,9 +20,9 @@ fn init_settings_test_app(cx: &mut gpui::TestAppContext) {
     });
 }
 
-fn override_settings_page(
+fn override_settings_json(
     test_name: &str,
-    last_settings_page: &str,
+    settings_json: impl AsRef<str>,
 ) -> crate::settings::SettingsJsonPathOverrideGuard {
     let tmp_dir = std::env::temp_dir().join(format!(
         "termua-settings-test-{}-{}",
@@ -36,8 +36,17 @@ fn override_settings_page(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
-    std::fs::write(
-        &path,
+    std::fs::write(&path, settings_json.as_ref()).unwrap();
+
+    guard
+}
+
+fn override_settings_page(
+    test_name: &str,
+    last_settings_page: &str,
+) -> crate::settings::SettingsJsonPathOverrideGuard {
+    override_settings_json(
+        test_name,
         format!(
             r#"{{
               "ui": {{ "last_settings_page": "{}" }}
@@ -45,9 +54,6 @@ fn override_settings_page(
             last_settings_page
         ),
     )
-    .unwrap();
-
-    guard
 }
 
 fn add_root_wrapped_settings_window<'a>(
@@ -1603,32 +1609,9 @@ fn settings_window_uses_last_selected_page_from_settings_json(cx: &mut gpui::Tes
 
 #[gpui::test]
 fn terminal_suggestions_page_renders_static_suggestions_controls(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-suggestions-page-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Select the Terminal / Suggestions page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.terminal.suggestions" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard =
+        override_settings_page("terminal-suggestions-page", "nav.page.terminal.suggestions");
+    init_settings_test_app(cx);
 
     let (view, cx) = cx.add_window_view(|window, cx| SettingsWindow::new(window, cx));
     let view_for_draw = view.clone();
@@ -1669,32 +1652,8 @@ fn terminal_suggestions_page_renders_static_suggestions_controls(cx: &mut gpui::
 
 #[gpui::test]
 fn terminal_page_renders_default_backend_select(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-page-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Select the Terminal root page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.group.terminal" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard = override_settings_page("terminal-page", "nav.group.terminal");
+    init_settings_test_app(cx);
 
     let cx = cx.add_empty_window();
     cx.draw(
@@ -1746,31 +1705,14 @@ fn terminal_page_renders_default_backend_select(cx: &mut gpui::TestAppContext) {
 
 #[gpui::test]
 fn terminal_page_renders_only_selected_ssh_backend_link(cx: &mut gpui::TestAppContext) {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-ssh-backend-link-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
+    let _guard = override_settings_json(
+        "terminal-ssh-backend-link",
         r#"{
               "ui": { "last_settings_page": "nav.page.terminal.terminal" },
               "terminal": { "ssh_backend": "libssh" }
             }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    );
+    init_settings_test_app(cx);
 
     let cx = cx.add_empty_window();
     cx.draw(
@@ -1810,32 +1752,8 @@ fn terminal_page_renders_only_selected_ssh_backend_link(cx: &mut gpui::TestAppCo
 
 #[gpui::test]
 fn terminal_cursor_page_renders_cursor_shape_options_with_glyphs(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-cursor-page-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Select the Terminal / Cursor page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-                  "ui": { "last_settings_page": "nav.page.terminal.cursor" }
-                }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard = override_settings_page("terminal-cursor-page", "nav.page.terminal.cursor");
+    init_settings_test_app(cx);
 
     let (view, cx) = cx.add_window_view(|window, cx| SettingsWindow::new(window, cx));
     let view_for_draw = view.clone();
@@ -1884,32 +1802,8 @@ fn terminal_cursor_page_renders_cursor_shape_options_with_glyphs(cx: &mut gpui::
 
 #[gpui::test]
 fn terminal_font_page_renders_font_family_select(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-font-page-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Write a settings.json that selects "Terminal / Font" as the last settings page.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.terminal.font" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard = override_settings_page("terminal-font-page", "nav.page.terminal.font");
+    init_settings_test_app(cx);
 
     let cx = cx.add_empty_window();
     cx.draw(
@@ -1938,30 +1832,8 @@ fn terminal_font_page_renders_font_family_select(cx: &mut gpui::TestAppContext) 
 
 #[gpui::test]
 fn terminal_font_page_renders_ligatures_switch(cx: &mut gpui::TestAppContext) {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-font-ligatures-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.terminal.font" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
+    let _guard = override_settings_page("terminal-font-ligatures", "nav.page.terminal.font");
+    init_settings_test_app(cx);
 
     let cx = cx.add_empty_window();
     cx.draw(
@@ -2184,45 +2056,11 @@ fn terminal_keybindings_tooltip_stays_hidden_when_hovering_title_cell_padding(
 
 #[gpui::test]
 fn terminal_font_family_dropdown_filters_options_from_typed_query(cx: &mut gpui::TestAppContext) {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-settings-test-terminal-font-family-filter-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let _guard = override_settings_page("terminal-font-family-filter", "nav.page.terminal.font");
+    init_settings_test_app(cx);
 
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-              "ui": { "last_settings_page": "nav.page.terminal.font" }
-            }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        gpui_component::init(app);
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let (view, cx) = cx.add_window_view(|window, cx| {
-        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
-        gpui_component::Root::new(settings, window, cx)
-    });
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(view),
-    );
-
-    cx.run_until_parked();
+    let (root, cx) = add_root_wrapped_settings_window(cx);
+    draw_test_root(root, cx);
 
     let bounds = cx
         .debug_bounds("termua-settings-terminal-font-family-select")
