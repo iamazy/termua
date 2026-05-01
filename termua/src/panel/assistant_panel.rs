@@ -27,6 +27,7 @@ use crate::assistant::{
 };
 
 const PROMPT_KEY_CONTEXT: &str = "termua_assistant_prompt";
+const MAX_SCROLL_TO_BOTTOM_RETRY_ATTEMPTS: u8 = 4;
 
 #[derive(gpui::Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = termua, no_json)]
@@ -43,9 +44,15 @@ pub(crate) fn bind_keybindings(cx: &mut App) {
 pub struct AssistantPanelView {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
-    remaining_scroll_to_bottom_passes: u8,
+    scroll_to_bottom_retry_state: Option<ScrollToBottomRetryState>,
     prompt_input: gpui::Entity<InputState>,
     _subscriptions: Vec<Subscription>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ScrollToBottomRetryState {
+    last_max_offset_y: Pixels,
+    remaining_attempts: u8,
 }
 
 impl Focusable for AssistantPanelView {
@@ -66,6 +73,15 @@ fn set_input_placeholder(
 }
 
 impl AssistantPanelView {
+    fn prompt_has_sendable_text(prompt: &str) -> bool {
+        !prompt.trim().is_empty()
+    }
+
+    fn send_button_disabled(in_flight: bool, assistant_enabled: bool, prompt: &str) -> bool {
+        (!in_flight && !assistant_enabled)
+            || (!in_flight && !Self::prompt_has_sendable_text(prompt))
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::assistant::ensure_globals(cx);
 
@@ -75,6 +91,7 @@ impl AssistantPanelView {
                 .placeholder(t!("Assistant.Placeholder.Ask").to_string())
         });
         let subs = vec![
+            cx.observe(&prompt_input, |_, _, cx| cx.notify()),
             cx.observe_global::<AssistantState>(|_, cx| cx.notify()),
             cx.observe_global_in::<crate::settings::LanguageSettings>(
                 window,
@@ -95,7 +112,7 @@ impl AssistantPanelView {
         Self {
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::default(),
-            remaining_scroll_to_bottom_passes: 0,
+            scroll_to_bottom_retry_state: None,
             prompt_input,
             _subscriptions: subs,
         }
@@ -119,10 +136,10 @@ impl AssistantPanelView {
 
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.prompt_input.read(cx).value().to_string();
-        let prompt = prompt.trim().to_string();
-        if prompt.is_empty() {
+        if !Self::prompt_has_sendable_text(&prompt) {
             return;
         }
+        let prompt = prompt.trim().to_string();
 
         // Best-effort clear the input immediately to keep the UI responsive.
         self.prompt_input
@@ -136,10 +153,10 @@ impl AssistantPanelView {
             return;
         }
 
-        let prompt = prompt.trim().to_string();
-        if prompt.is_empty() {
+        if !Self::prompt_has_sendable_text(&prompt) {
             return;
         }
+        let prompt = prompt.trim().to_string();
 
         let attach_selection = cx.global::<AssistantState>().attach_selection;
         let attach_terminal_context = cx.global::<AssistantState>().attach_terminal_context;
@@ -264,9 +281,27 @@ impl AssistantPanelView {
     }
 
     fn scroll_messages_to_bottom(&mut self, cx: &mut Context<Self>) {
-        self.remaining_scroll_to_bottom_passes = self.remaining_scroll_to_bottom_passes.max(2);
         self.scroll_handle.scroll_to_bottom();
+        self.scroll_to_bottom_retry_state = Some(ScrollToBottomRetryState {
+            last_max_offset_y: self.scroll_handle.max_offset().y,
+            remaining_attempts: MAX_SCROLL_TO_BOTTOM_RETRY_ATTEMPTS,
+        });
         cx.notify();
+    }
+
+    fn next_scroll_to_bottom_retry_state(
+        state: ScrollToBottomRetryState,
+        current_max_offset_y: Pixels,
+    ) -> Option<ScrollToBottomRetryState> {
+        if current_max_offset_y == state.last_max_offset_y {
+            return None;
+        }
+
+        let remaining_attempts = state.remaining_attempts.saturating_sub(1);
+        (remaining_attempts > 0).then_some(ScrollToBottomRetryState {
+            last_max_offset_y: current_max_offset_y,
+            remaining_attempts,
+        })
     }
 
     fn spawn_assistant_turn(
@@ -478,6 +513,8 @@ impl AssistantPanelView {
         attach_terminal_context: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let prompt_value = self.prompt_input.read(cx).value();
+
         h_flex()
             .gap_2()
             .p_2()
@@ -507,7 +544,11 @@ impl AssistantPanelView {
                                                     Button::new("termua-assistant-send")
                                                         .primary()
                                                         .compact()
-                                                        .disabled(!in_flight && !assistant_enabled)
+                                                        .disabled(Self::send_button_disabled(
+                                                            in_flight,
+                                                            assistant_enabled,
+                                                            &prompt_value,
+                                                        ))
                                                         .rounded_tr(px(0.))
                                                         .rounded_br(px(0.))
                                                         .tooltip(if in_flight { "Cancel" } else { "Send" })
@@ -1086,14 +1127,15 @@ impl Render for AssistantPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let this = cx.entity();
 
-        if self.remaining_scroll_to_bottom_passes > 0 {
+        if let Some(retry_state) = self.scroll_to_bottom_retry_state {
             let this_for_defer = this.clone();
             let scroll_handle = self.scroll_handle.clone();
             window.defer(cx, move |_, cx| {
                 let _ = this_for_defer.update(cx, |this, cx| {
-                    this.remaining_scroll_to_bottom_passes =
-                        this.remaining_scroll_to_bottom_passes.saturating_sub(1);
+                    let current_max_offset_y = scroll_handle.max_offset().y;
                     scroll_handle.scroll_to_bottom();
+                    this.scroll_to_bottom_retry_state =
+                        Self::next_scroll_to_bottom_retry_state(retry_state, current_max_offset_y);
                     cx.notify();
                 });
             });
@@ -1161,6 +1203,55 @@ mod tests {
             enabled: false,
             ..Default::default()
         });
+    }
+
+    #[test]
+    fn prompt_has_sendable_text_rejects_empty_and_whitespace_only_values() {
+        assert!(!AssistantPanelView::prompt_has_sendable_text(""));
+        assert!(!AssistantPanelView::prompt_has_sendable_text("   "));
+        assert!(!AssistantPanelView::prompt_has_sendable_text("\n\t  "));
+        assert!(AssistantPanelView::prompt_has_sendable_text("hello"));
+        assert!(AssistantPanelView::prompt_has_sendable_text("  hello  "));
+    }
+
+    #[test]
+    fn send_button_disabled_depends_on_input_text_and_runtime_state() {
+        assert!(AssistantPanelView::send_button_disabled(false, true, ""));
+        assert!(AssistantPanelView::send_button_disabled(false, true, "   "));
+        assert!(!AssistantPanelView::send_button_disabled(
+            false, true, "hello"
+        ));
+        assert!(AssistantPanelView::send_button_disabled(
+            false, false, "hello"
+        ));
+        assert!(!AssistantPanelView::send_button_disabled(true, false, ""));
+    }
+
+    #[test]
+    fn scroll_to_bottom_retry_continues_while_max_offset_grows() {
+        let state = ScrollToBottomRetryState {
+            last_max_offset_y: px(100.),
+            remaining_attempts: 4,
+        };
+
+        let next = AssistantPanelView::next_scroll_to_bottom_retry_state(state, px(140.))
+            .expect("expected retry state while max offset is still growing");
+
+        assert_eq!(next.last_max_offset_y, px(140.));
+        assert_eq!(next.remaining_attempts, 3);
+    }
+
+    #[test]
+    fn scroll_to_bottom_retry_stops_once_max_offset_stabilizes() {
+        let state = ScrollToBottomRetryState {
+            last_max_offset_y: px(100.),
+            remaining_attempts: 4,
+        };
+
+        assert!(
+            AssistantPanelView::next_scroll_to_bottom_retry_state(state, px(100.)).is_none(),
+            "expected retries to stop once max offset no longer changes"
+        );
     }
 
     #[gpui::test]
