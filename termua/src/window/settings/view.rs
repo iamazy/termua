@@ -22,7 +22,6 @@ struct TerminalKeybindingFieldState {
     clear_enabled: bool,
     display_text: String,
     text_color: gpui::Hsla,
-    border_color: gpui::Hsla,
 }
 
 use super::{
@@ -825,17 +824,17 @@ impl SettingsWindow {
 
         div()
             .id(format!("termua-settings-keybinding-field-{id}"))
-            .w(px(300.))
-            .h(px(28.))
-            .px_2()
-            .rounded_md()
-            .border_1()
-            .border_color(field_state.border_color)
-            .bg(cx.theme().background.opacity(0.35))
+            .debug_selector(move || format!("termua-settings-keybinding-field-{id}"))
+            .w_full()
+            .h_full()
+            .min_h(px(40.))
+            .px_3()
+            .py_2()
             .text_sm()
             .text_color(field_state.text_color)
             .whitespace_normal()
             .track_focus(&focus_handle)
+            .when(focused, |this| this.bg(cx.theme().accent.opacity(0.08)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |_, _ev: &gpui::MouseDownEvent, window, cx| {
@@ -862,6 +861,7 @@ impl SettingsWindow {
             .child(
                 h_flex()
                     .items_center()
+                    .h_full()
                     .w_full()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(field_state.display_text))
@@ -914,17 +914,10 @@ impl SettingsWindow {
         } else {
             cx.theme().muted_foreground
         };
-        let border_color = if focused {
-            cx.theme().accent
-        } else {
-            cx.theme().border.opacity(0.6)
-        };
-
         TerminalKeybindingFieldState {
             clear_enabled,
             display_text,
             text_color,
-            border_color,
         }
     }
 

@@ -2309,6 +2309,171 @@ fn terminal_keybinding_field_accepts_delete_key_as_binding(cx: &mut gpui::TestAp
 }
 
 #[gpui::test]
+fn terminal_keybindings_page_uses_compact_two_column_rows(cx: &mut gpui::TestAppContext) {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-settings-test-terminal-keybinding-layout-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let path = tmp_dir.join("termua").join("settings.json");
+    let _guard = crate::settings::override_settings_json_path(path.clone());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(
+        &path,
+        r#"{
+              "ui": { "last_settings_page": "nav.page.terminal.key_bindings" }
+            }"#,
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+        gpui_component::Root::new(settings, window, cx)
+    });
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(700.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+
+    cx.run_until_parked();
+
+    let table = cx
+        .debug_bounds("termua-settings-keybindings-table")
+        .expect("expected compact keybindings table to be rendered");
+    let copy_row = cx
+        .debug_bounds("termua-settings-keybinding-row-terminal.keybindings.copy")
+        .expect("expected copy keybinding row to be rendered");
+    let copy_title = cx
+        .debug_bounds("termua-settings-keybinding-title-terminal.keybindings.copy")
+        .expect("expected copy keybinding title cell to be rendered");
+    let copy_divider = cx
+        .debug_bounds("termua-settings-keybinding-divider-terminal.keybindings.copy")
+        .expect("expected copy keybinding column divider to be rendered");
+    let copy_field = cx
+        .debug_bounds("termua-settings-keybinding-field-terminal.keybindings.copy")
+        .expect("expected copy keybinding field to be rendered");
+    let paste_row = cx
+        .debug_bounds("termua-settings-keybinding-row-terminal.keybindings.paste")
+        .expect("expected paste keybinding row to be rendered");
+
+    assert!(
+        copy_row.origin.x >= table.origin.x
+            && copy_row.origin.x + copy_row.size.width <= table.origin.x + table.size.width,
+        "expected copy row to stay within the compact table bounds"
+    );
+    assert!(
+        (copy_title.center().y - copy_field.center().y).abs() <= gpui::px(4.0),
+        "expected title and field to align on the same row; title_center={:?}, field_center={:?}",
+        copy_title.center(),
+        copy_field.center(),
+    );
+    assert!(
+        copy_title.origin.x + copy_title.size.width <= copy_divider.origin.x,
+        "expected title cell to be left of the divider; title_right={:?}, divider_x={:?}",
+        copy_title.origin.x + copy_title.size.width,
+        copy_divider.origin.x,
+    );
+    assert!(
+        copy_divider.origin.x + copy_divider.size.width <= copy_field.origin.x,
+        "expected divider to separate the title and keybinding cell; divider_right={:?}, \
+         field_x={:?}",
+        copy_divider.origin.x + copy_divider.size.width,
+        copy_field.origin.x,
+    );
+    assert!(
+        paste_row.origin.y > copy_row.origin.y,
+        "expected multiple compact rows stacked vertically; copy_y={:?}, paste_y={:?}",
+        copy_row.origin.y,
+        paste_row.origin.y,
+    );
+    assert!(
+        copy_field.size.height >= copy_row.size.height - gpui::px(4.0),
+        "expected the keybinding interaction area to occupy the right table cell instead of a \
+         small nested input; field_h={:?}, row_h={:?}",
+        copy_field.size.height,
+        copy_row.size.height,
+    );
+}
+
+#[gpui::test]
+fn terminal_keybindings_tooltip_stays_hidden_when_hovering_title_cell_padding(
+    cx: &mut gpui::TestAppContext,
+) {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-settings-test-terminal-keybinding-tooltip-hitbox-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let path = tmp_dir.join("termua").join("settings.json");
+    let _guard = crate::settings::override_settings_json_path(path.clone());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(
+        &path,
+        r#"{
+              "ui": { "last_settings_page": "nav.page.terminal.key_bindings" }
+            }"#,
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+        gpui_component::Root::new(settings, window, cx)
+    });
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(700.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+
+    cx.run_until_parked();
+
+    let copy_title = cx
+        .debug_bounds("termua-settings-keybinding-title-terminal.keybindings.copy")
+        .expect("expected copy keybinding title cell to be rendered");
+
+    cx.simulate_mouse_move(
+        gpui::point(
+            copy_title.origin.x + copy_title.size.width - gpui::px(8.0),
+            copy_title.center().y,
+        ),
+        None,
+        gpui::Modifiers::none(),
+    );
+    cx.run_until_parked();
+
+    assert!(
+        cx.debug_bounds("termua-settings-keybinding-tooltip-terminal.keybindings.copy")
+            .is_none(),
+        "expected hovering the title cell padding to keep the tooltip hidden"
+    );
+}
+
+#[gpui::test]
 fn terminal_font_family_dropdown_filters_options_from_typed_query(cx: &mut gpui::TestAppContext) {
     let tmp_dir = std::env::temp_dir().join(format!(
         "termua-settings-test-terminal-font-family-filter-{}",
