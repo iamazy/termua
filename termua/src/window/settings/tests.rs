@@ -56,9 +56,9 @@ fn override_settings_page(
     )
 }
 
-fn add_root_wrapped_settings_window<'a>(
-    cx: &'a mut gpui::TestAppContext,
-) -> (Entity<gpui_component::Root>, &'a mut VisualTestContext) {
+fn add_root_wrapped_settings_window(
+    cx: &mut gpui::TestAppContext,
+) -> (Entity<gpui_component::Root>, &mut VisualTestContext) {
     cx.add_window_view(|window, cx| {
         let settings = cx.new(|cx| SettingsWindow::new(window, cx));
         gpui_component::Root::new(settings, window, cx)
