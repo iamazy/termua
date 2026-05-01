@@ -2221,6 +2221,94 @@ fn terminal_font_family_dropdown_renders_font_preview_options(cx: &mut gpui::Tes
 }
 
 #[gpui::test]
+fn terminal_keybinding_field_accepts_delete_key_as_binding(cx: &mut gpui::TestAppContext) {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "termua-settings-test-terminal-keybinding-delete-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let path = tmp_dir.join("termua").join("settings.json");
+    let _guard = crate::settings::override_settings_json_path(path.clone());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(
+        &path,
+        r#"{
+              "terminal": {
+                "keybindings": { "copy": "ctrl-c" }
+              },
+              "ui": { "last_settings_page": "nav.page.terminal.key_bindings" }
+            }"#,
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+        gpui_component::Root::new(settings, window, cx)
+    });
+    let root_for_draw = root.clone();
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(700.)),
+        ),
+        move |_, _| div().size_full().child(root_for_draw),
+    );
+
+    cx.run_until_parked();
+
+    cx.update(|window, app| {
+        let settings = root
+            .read(app)
+            .view()
+            .clone()
+            .downcast::<SettingsWindow>()
+            .expect("expected settings root view");
+        assert_eq!(
+            settings.read(app).selected_page,
+            SettingsPage::TerminalKeyBindings,
+            "expected test to start on the key bindings settings page"
+        );
+        let focus = settings
+            .read(app)
+            .terminal_keybinding_focus_handle("terminal.keybindings.copy")
+            .clone();
+        focus.focus(window, app);
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("delete");
+    cx.run_until_parked();
+
+    cx.update(|_window, app| {
+        let settings = root
+            .read(app)
+            .view()
+            .clone()
+            .downcast::<SettingsWindow>()
+            .expect("expected settings root view");
+        assert_eq!(
+            settings
+                .read(app)
+                .settings
+                .terminal_keybindings
+                .copy
+                .as_deref(),
+            Some("delete"),
+            "expected Delete to be captured as a keybinding instead of clearing the field"
+        );
+    });
+}
+
+#[gpui::test]
 fn terminal_font_family_dropdown_filters_options_from_typed_query(cx: &mut gpui::TestAppContext) {
     let tmp_dir = std::env::temp_dir().join(format!(
         "termua-settings-test-terminal-font-family-filter-{}",

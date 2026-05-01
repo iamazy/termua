@@ -948,12 +948,6 @@ impl SettingsWindow {
                 cx.stop_propagation();
                 return;
             }
-            "backspace" | "delete" => {
-                self.set_terminal_keybinding_value(id, None);
-                self.apply_terminal_keybindings(window, cx);
-                cx.stop_propagation();
-                return;
-            }
             key if is_modifier_only_key(key) => return,
             _ => {}
         }
