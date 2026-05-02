@@ -520,20 +520,23 @@ if ($wixVersion -ne $packageVersion) {
   Write-Host "==> Using WiX-compatible version $wixVersion (from package version $packageVersion)"
 }
 
-Write-Host "==> Packaging MSI (cargo wix)"
-& cargo wix --package termua --version $wixVersion --no-build --target $target
-if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
-
-$msiResult = Find-LatestMsi $repoRoot $target
-$msiPath = $msiResult.Path
-if (-not $msiPath) {
-  $searched = ($msiResult.Searched | ForEach-Object { "  - $_" }) -join "`r`n"
-  Write-Error "Failed to locate generated .msi. Checked:`r`n$searched"
-}
-
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $destName = "termua-$packageVersion-windows.$arch.msi"
 $dest = Join-Path $outDir $destName
-Copy-Item -Force $msiPath $dest
+
+Write-Host "==> Packaging MSI (cargo wix)"
+& cargo wix --package termua --version $wixVersion --output $dest --no-build --target $target
+if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
+
+if (-not (Test-Path $dest)) {
+  $msiResult = Find-LatestMsi $repoRoot $target
+  $msiPath = $msiResult.Path
+  if (-not $msiPath) {
+    $searched = ($msiResult.Searched | ForEach-Object { "  - $_" }) -join "`r`n"
+    Write-Error "Failed to locate generated .msi. Checked:`r`n$searched"
+  }
+
+  Copy-Item -Force $msiPath $dest
+}
 
 Write-Host "==> Wrote: $dest"
