@@ -150,39 +150,6 @@ function Get-CargoPackageVersion([string] $packageName) {
   return [string]$package.version
 }
 
-function Get-WixCompatibleVersion([string] $version) {
-  if ([string]::IsNullOrWhiteSpace($version)) {
-    throw "Package version is empty."
-  }
-
-  $match = [regex]::Match(
-    $version,
-    '^(?<core>\d+\.\d+\.\d+)(?:-(?<pre>[0-9A-Za-z.-]+))?(?:\+(?<build>[0-9A-Za-z.-]+))?$'
-  )
-  if (-not $match.Success) {
-    throw "Unsupported package version format for WiX packaging: '$version'"
-  }
-
-  $pre = $match.Groups['pre'].Value
-  if ([string]::IsNullOrWhiteSpace($pre)) {
-    return $version
-  }
-
-  $identifiers = $pre -split '\.'
-  $lastIdentifier = $identifiers[$identifiers.Length - 1]
-  if ($lastIdentifier -match '^\d+$') {
-    return $version
-  }
-
-  $build = $match.Groups['build'].Value
-  $buildSuffix = ""
-  if (-not [string]::IsNullOrWhiteSpace($build)) {
-    $buildSuffix = "+$build"
-  }
-
-  return "$($match.Groups['core'].Value)-$pre.0$buildSuffix"
-}
-
 function Try-InstallWixToolset {
   if ($env:TERMUA_AUTO_INSTALL_WIX -ne "1") {
     return
@@ -209,51 +176,21 @@ function Try-InstallWixToolset {
   }
 }
 
-function Find-LatestMsi([string] $repoRoot, [string] $target) {
+function Find-LatestMsi([string] $repoRoot) {
   $candidates = @(
     Join-Path $repoRoot "target\\wix"
-    (Join-Path $repoRoot ("target\\{0}\\wix" -f $target))
     Join-Path $repoRoot "termua\\target\\wix"
-    (Join-Path $repoRoot ("termua\\target\\{0}\\wix" -f $target))
-  ) | Select-Object -Unique
+  )
 
-  $existingCandidates = @($candidates | Where-Object { Test-Path $_ })
-  foreach ($dir in $existingCandidates) {
-    $msi = Get-ChildItem -Path $dir -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
-      Sort-Object -Property LastWriteTime -Descending |
-      Select-Object -First 1
-    if ($msi) {
-      return @{
-        Path = $msi.FullName
-        Searched = $candidates
-      }
+  foreach ($dir in $candidates) {
+    if (Test-Path $dir) {
+      $msi = Get-ChildItem -Path $dir -Recurse -Filter "*.msi" |
+        Sort-Object -Property LastWriteTime -Descending |
+        Select-Object -First 1
+      if ($msi) { return $msi.FullName }
     }
   }
-
-  # cargo-wix may emit into an unexpected target subdirectory when --target is set.
-  $fallbackRoots = @(
-    Join-Path $repoRoot "target"
-    Join-Path $repoRoot "termua\\target"
-  ) | Select-Object -Unique
-  foreach ($root in $fallbackRoots) {
-    if (-not (Test-Path $root)) { continue }
-
-    $msi = Get-ChildItem -Path $root -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -match '[\\/]wix[\\/]' } |
-      Sort-Object -Property LastWriteTime -Descending |
-      Select-Object -First 1
-    if ($msi) {
-      return @{
-        Path = $msi.FullName
-        Searched = $candidates
-      }
-    }
-  }
-
-  return @{
-    Path = $null
-    Searched = $candidates
-  }
+  return $null
 }
 
 function Find-WxsFiles([string] $repoRoot) {
@@ -514,29 +451,19 @@ if ($icoPath) {
 }
 Ensure-WixRelayBinary $repoRoot $target
 
-$packageVersion = Get-CargoPackageVersion "termua"
-$wixVersion = Get-WixCompatibleVersion $packageVersion
-if ($wixVersion -ne $packageVersion) {
-  Write-Host "==> Using WiX-compatible version $wixVersion (from package version $packageVersion)"
+Write-Host "==> Packaging MSI (cargo wix)"
+& cargo wix --package termua --no-build --target $target
+if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
+
+$msiPath = Find-LatestMsi $repoRoot
+if (-not $msiPath) {
+  Write-Error "Failed to locate generated .msi under target\\wix"
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+$packageVersion = Get-CargoPackageVersion "termua"
 $destName = "termua-$packageVersion-windows.$arch.msi"
 $dest = Join-Path $outDir $destName
-
-Write-Host "==> Packaging MSI (cargo wix)"
-& cargo wix --package termua --version $wixVersion --output $dest --no-build --target $target
-if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
-
-if (-not (Test-Path $dest)) {
-  $msiResult = Find-LatestMsi $repoRoot $target
-  $msiPath = $msiResult.Path
-  if (-not $msiPath) {
-    $searched = ($msiResult.Searched | ForEach-Object { "  - $_" }) -join "`r`n"
-    Write-Error "Failed to locate generated .msi. Checked:`r`n$searched"
-  }
-
-  Copy-Item -Force $msiPath $dest
-}
+Copy-Item -Force $msiPath $dest
 
 Write-Host "==> Wrote: $dest"
