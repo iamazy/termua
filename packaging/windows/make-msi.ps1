@@ -132,6 +132,57 @@ function Ensure-CargoWix {
   Ensure-Tool "cargo-wix" "Try: cargo install cargo-wix --locked"
 }
 
+function Get-CargoPackageVersion([string] $packageName) {
+  $metadataJson = & cargo metadata --format-version 1 --no-deps
+  if ($LASTEXITCODE -ne 0) {
+    throw "cargo metadata failed ($LASTEXITCODE)"
+  }
+
+  $metadata = $metadataJson | ConvertFrom-Json
+  $package = $metadata.packages |
+    Where-Object { $_.name -eq $packageName } |
+    Select-Object -First 1
+
+  if (-not $package) {
+    throw "Failed to locate package '$packageName' in cargo metadata."
+  }
+
+  return [string]$package.version
+}
+
+function Get-WixCompatibleVersion([string] $version) {
+  if ([string]::IsNullOrWhiteSpace($version)) {
+    throw "Package version is empty."
+  }
+
+  $match = [regex]::Match(
+    $version,
+    '^(?<core>\d+\.\d+\.\d+)(?:-(?<pre>[0-9A-Za-z.-]+))?(?:\+(?<build>[0-9A-Za-z.-]+))?$'
+  )
+  if (-not $match.Success) {
+    throw "Unsupported package version format for WiX packaging: '$version'"
+  }
+
+  $pre = $match.Groups['pre'].Value
+  if ([string]::IsNullOrWhiteSpace($pre)) {
+    return $version
+  }
+
+  $identifiers = $pre -split '\.'
+  $lastIdentifier = $identifiers[$identifiers.Length - 1]
+  if ($lastIdentifier -match '^\d+$') {
+    return $version
+  }
+
+  $build = $match.Groups['build'].Value
+  $buildSuffix = ""
+  if (-not [string]::IsNullOrWhiteSpace($build)) {
+    $buildSuffix = "+$build"
+  }
+
+  return "$($match.Groups['core'].Value)-$pre.0$buildSuffix"
+}
+
 function Try-InstallWixToolset {
   if ($env:TERMUA_AUTO_INSTALL_WIX -ne "1") {
     return
@@ -433,8 +484,14 @@ if ($icoPath) {
 }
 Ensure-WixRelayBinary $repoRoot $target
 
+$packageVersion = Get-CargoPackageVersion "termua"
+$wixVersion = Get-WixCompatibleVersion $packageVersion
+if ($wixVersion -ne $packageVersion) {
+  Write-Host "==> Using WiX-compatible version $wixVersion (from package version $packageVersion)"
+}
+
 Write-Host "==> Packaging MSI (cargo wix)"
-& cargo wix --package termua --no-build --target $target
+& cargo wix --package termua --version $wixVersion --no-build --target $target
 if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
 
 $msiPath = Find-LatestMsi $repoRoot
@@ -443,12 +500,7 @@ if (-not $msiPath) {
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$leaf = Split-Path -Leaf $msiPath
-$destName = $leaf
-if ($destName -notlike "*$arch*") {
-  $base = [System.IO.Path]::GetFileNameWithoutExtension($leaf)
-  $destName = "$base-$arch.msi"
-}
+$destName = "termua-$packageVersion-windows.$arch.msi"
 $dest = Join-Path $outDir $destName
 Copy-Item -Force $msiPath $dest
 

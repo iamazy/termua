@@ -16,6 +16,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+source "$repo_root/packaging/package-version.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "make-deb.sh must run on Linux." >&2
@@ -52,6 +53,8 @@ if [[ "$explicit_target" -eq 1 ]]; then
   esac
   target="${TARGET:-$default_target}"
 fi
+
+package_version="$(get_termua_package_version "$repo_root/Cargo.toml")"
 
 out_dir="${OUT_DIR:-target/deb/$arch}"
 
@@ -142,18 +145,7 @@ if [[ -z "${deb_path}" || ! -f "${deb_path}" ]]; then
 fi
 
 mkdir -p "${out_dir}"
-deb_name="$(basename "${deb_path}")"
-debian_arch="$arch"
-case "$arch" in
-  x86_64) debian_arch="amd64" ;;
-  aarch64) debian_arch="arm64" ;;
-esac
-
-# cargo-deb uses Debian arch names in the filename (e.g. amd64/arm64). Avoid appending our
-# internal arch name (x86_64/aarch64) and ending up with both.
-if [[ "${deb_name}" != *"${debian_arch}"* && "${deb_name}" != *"${arch}"* ]]; then
-  deb_name="${deb_name%.deb}-${debian_arch}.deb"
-fi
+deb_name="termua-$package_version-linux.$arch.deb"
 cp "${deb_path}" "${out_dir}/${deb_name}"
 
 echo "==> Wrote: ${out_dir}/${deb_name}"
