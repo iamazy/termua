@@ -1099,8 +1099,60 @@ impl TermuaWindow {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        cell::RefCell,
+        rc::Rc,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    use gpui::{AppContext, Entity};
+    use gpui_term::{
+        TerminalView,
+        remote::{RemoteInputEvent, RemoteSelectionUpdate, RemoteTerminalContent},
+    };
+
     use super::{JoinSharingInputError, build_join_sharing_pending_command};
-    use crate::PendingCommand;
+    use crate::{
+        PendingCommand, TermuaAppState, notification,
+        sharing::{
+            ClientToRelay, HostShare, RelaySharingState, RelayToClient, RequestControl,
+            RevokeControl, StartSharing, StopSharing, TestRelayConn, ViewerShare,
+        },
+        window::main_window::TermuaWindow,
+    };
+
+    fn init_test_app(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            menubar::init(app);
+            gpui_term::init(app);
+            gpui_dock::init(app);
+            app.set_global(TermuaAppState::default());
+            crate::sharing::init_globals(app);
+        });
+    }
+
+    fn add_termua_window(
+        cx: &mut gpui::TestAppContext,
+    ) -> (Entity<TermuaWindow>, &mut gpui::VisualTestContext) {
+        let slot: Rc<RefCell<Option<Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+        let slot_for_root = Rc::clone(&slot);
+        let (_root, window_cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| TermuaWindow::new(window, cx));
+            *slot_for_root.borrow_mut() = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+
+        let termua = slot
+            .borrow()
+            .as_ref()
+            .expect("expected TermuaWindow view to be captured")
+            .clone();
+        (termua, window_cx)
+    }
 
     #[test]
     fn build_join_sharing_pending_command_accepts_valid_share_key() {
@@ -1152,5 +1204,430 @@ mod tests {
 
         assert!(matches!(err, JoinSharingInputError::InvalidShareKey(_)));
         assert!(err.to_string().starts_with("Invalid Share Key: "));
+    }
+
+    #[gpui::test]
+    fn sharing_actions_manage_host_and_viewer_state(cx: &mut gpui::TestAppContext) {
+        init_test_app(cx);
+        let (termua, window_cx) = add_termua_window(cx);
+
+        let host_conn = TestRelayConn::new();
+        let viewer_conn = TestRelayConn::new();
+        let controlled = Arc::new(AtomicBool::new(true));
+
+        let terminal_view_id = window_cx.update(|window, app| {
+            let controlled_for_terminal = Arc::clone(&controlled);
+            termua.update(app, |this, cx| {
+                let terminal = crate::sharing::make_remote_terminal(
+                    Arc::new(|_ev| {}),
+                    controlled_for_terminal,
+                    cx,
+                );
+                let terminal_view = cx.new(|cx| TerminalView::new(terminal, window, cx));
+                let terminal_view_id = terminal_view.entity_id();
+                this.focused_terminal_view = Some(terminal_view.downgrade());
+
+                cx.global_mut::<RelaySharingState>().hosts.insert(
+                    terminal_view_id,
+                    HostShare {
+                        room_id: "room-1".to_string(),
+                        controller_id: Some("viewer-1".to_string()),
+                        pending_request: true,
+                        conn: host_conn.conn.clone(),
+                        seq: 0,
+                        dirty: Arc::new(AtomicBool::new(false)),
+                        selection_dirty: Arc::new(AtomicBool::new(false)),
+                    },
+                );
+                cx.global_mut::<RelaySharingState>().viewers.insert(
+                    terminal_view_id,
+                    ViewerShare {
+                        room_id: "room-1".to_string(),
+                        viewer_id: Arc::new(Mutex::new(Some("viewer-1".to_string()))),
+                        controlled: Arc::clone(&controlled),
+                        conn: viewer_conn.conn.clone(),
+                    },
+                );
+
+                this.on_revoke_control(&RevokeControl, window, cx);
+                this.on_request_control(&RequestControl, window, cx);
+                this.on_stop_sharing(&StopSharing, window, cx);
+                this.on_start_sharing(&StartSharing, window, cx);
+
+                terminal_view_id
+            })
+        });
+        window_cx.run_until_parked();
+
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Revoked { room_id }) if room_id == "room-1"
+        ));
+        assert!(matches!(
+            smol::block_on(viewer_conn.next_sent()),
+            Some(ClientToRelay::Request {
+                room_id,
+                viewer_id,
+                viewer_label: None,
+            }) if room_id == "room-1" && viewer_id == "viewer-1"
+        ));
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Stop { room_id }) if room_id == "room-1"
+        ));
+
+        window_cx.update(|_window, app| {
+            assert!(
+                !crate::sharing::host_sharing(terminal_view_id, app),
+                "expected host sharing to stop after StopSharing"
+            );
+            let notifications = &app.global::<notification::NotifyState>().messages;
+            assert!(
+                notifications
+                    .iter()
+                    .any(|msg| msg.message.contains("Sharing is disabled in Settings.")),
+                "expected start sharing to warn when the feature is disabled"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn relay_message_handlers_update_state_and_route_remote_input(cx: &mut gpui::TestAppContext) {
+        init_test_app(cx);
+        let (termua, window_cx) = add_termua_window(cx);
+
+        let host_conn = TestRelayConn::new();
+        let viewer_conn = TestRelayConn::new();
+        let controlled = Arc::new(AtomicBool::new(false));
+        let terminal_view_id = window_cx.update(|window, app| {
+            let controlled_for_terminal = Arc::clone(&controlled);
+            termua.update(app, |this, cx| {
+                let terminal = crate::sharing::make_remote_terminal(
+                    Arc::new(|_ev| {}),
+                    controlled_for_terminal,
+                    cx,
+                );
+                let terminal_view = cx.new(|cx| TerminalView::new(terminal.clone(), window, cx));
+                let terminal_view_id = terminal_view.entity_id();
+                let viewer_id = Arc::new(Mutex::new(Some("viewer-1".to_string())));
+
+                cx.global_mut::<RelaySharingState>().hosts.insert(
+                    terminal_view_id,
+                    HostShare {
+                        room_id: "room-1".to_string(),
+                        controller_id: Some("viewer-1".to_string()),
+                        pending_request: true,
+                        conn: host_conn.conn.clone(),
+                        seq: 0,
+                        dirty: Arc::new(AtomicBool::new(false)),
+                        selection_dirty: Arc::new(AtomicBool::new(false)),
+                    },
+                );
+                cx.global_mut::<RelaySharingState>().viewers.insert(
+                    terminal_view_id,
+                    ViewerShare {
+                        room_id: "room-1".to_string(),
+                        viewer_id: Arc::clone(&viewer_id),
+                        controlled: Arc::clone(&controlled),
+                        conn: viewer_conn.conn.clone(),
+                    },
+                );
+
+                let snapshot_payload = {
+                    let terminal = terminal.read(cx);
+                    serde_json::to_value(RemoteTerminalContent::from_local(
+                        terminal.last_content(),
+                        terminal.total_lines(),
+                        terminal.viewport_lines(),
+                        Vec::new(),
+                    ))
+                    .expect("snapshot payload")
+                };
+                let selection_payload = {
+                    let terminal = terminal.read(cx);
+                    serde_json::to_value(RemoteSelectionUpdate::from_local(terminal.last_content()))
+                        .expect("selection payload")
+                };
+
+                this.handle_host_relay_message(
+                    terminal_view_id,
+                    &terminal_view,
+                    RelayToClient::CtrlRequest {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-2".to_string(),
+                        viewer_label: None,
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_host_relay_message(
+                    terminal_view_id,
+                    &terminal_view,
+                    RelayToClient::CtrlRelease {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_host_relay_message(
+                    terminal_view_id,
+                    &terminal_view,
+                    RelayToClient::CtrlReleased {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                cx.global_mut::<RelaySharingState>()
+                    .hosts
+                    .get_mut(&terminal_view_id)
+                    .expect("host share")
+                    .controller_id = Some("viewer-1".to_string());
+                this.handle_host_relay_message(
+                    terminal_view_id,
+                    &terminal_view,
+                    RelayToClient::InputEvent {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                        payload: serde_json::to_value(RemoteInputEvent::Text {
+                            text: "hello".to_string(),
+                        })
+                        .expect("text payload"),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_host_relay_message(
+                    terminal_view_id,
+                    &terminal_view,
+                    RelayToClient::InputEvent {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                        payload: serde_json::to_value(RemoteInputEvent::SetSelectionRange {
+                            range: None,
+                        })
+                        .expect("selection input payload"),
+                    },
+                    window,
+                    cx,
+                );
+
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::Joined {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::Snapshot {
+                        room_id: "room-1".to_string(),
+                        seq: 1,
+                        payload: snapshot_payload.clone(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::Frame {
+                        room_id: "room-1".to_string(),
+                        seq: 2,
+                        payload: snapshot_payload,
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::Selection {
+                        room_id: "room-1".to_string(),
+                        seq: 3,
+                        payload: selection_payload,
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::CtrlGranted {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::CtrlDenied {
+                        room_id: "room-1".to_string(),
+                        reason: "busy".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::CtrlReleased {
+                        room_id: "room-1".to_string(),
+                        viewer_id: "viewer-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::CtrlRevoked {
+                        room_id: "room-1".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+                this.handle_viewer_relay_message(
+                    terminal_view_id,
+                    &terminal,
+                    &viewer_id,
+                    &controlled,
+                    RelayToClient::Error {
+                        code: "boom".to_string(),
+                        message: "viewer failed".to_string(),
+                    },
+                    window,
+                    cx,
+                );
+
+                terminal_view_id
+            })
+        });
+        window_cx.run_until_parked();
+
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Denied {
+                room_id,
+                viewer_id,
+                reason,
+            }) if room_id == "room-1" && viewer_id == "viewer-2" && reason == "busy"
+        ));
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Released { room_id, viewer_id })
+                if room_id == "room-1" && viewer_id == "viewer-1"
+        ));
+
+        window_cx.update(|_window, app| {
+            assert!(
+                !controlled.load(Ordering::Relaxed),
+                "expected viewer control to be cleared by denial/release/error paths"
+            );
+            let host = app
+                .global::<RelaySharingState>()
+                .hosts
+                .get(&terminal_view_id)
+                .expect("host share should remain registered");
+            assert!(
+                host.dirty.load(Ordering::Relaxed),
+                "expected non-selection remote input to mark host frames dirty"
+            );
+            assert!(
+                host.selection_dirty.load(Ordering::Relaxed),
+                "expected selection remote input to mark host selection dirty"
+            );
+            assert!(
+                !app.global::<RelaySharingState>()
+                    .viewers
+                    .contains_key(&terminal_view_id),
+                "expected viewer sharing entry to be removed after relay error"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn send_host_messages_emit_expected_relay_events(cx: &mut gpui::TestAppContext) {
+        init_test_app(cx);
+        let (termua, window_cx) = add_termua_window(cx);
+        let host_conn = TestRelayConn::new();
+
+        window_cx.update(|window, app| {
+            termua.update(app, |this, cx| {
+                let terminal = crate::sharing::make_remote_terminal(
+                    Arc::new(|_ev| {}),
+                    Arc::new(AtomicBool::new(false)),
+                    cx,
+                );
+                let terminal_view = cx.new(|cx| TerminalView::new(terminal, window, cx));
+                let terminal_view_id = terminal_view.entity_id();
+                cx.global_mut::<RelaySharingState>().hosts.insert(
+                    terminal_view_id,
+                    HostShare {
+                        room_id: "room-1".to_string(),
+                        controller_id: None,
+                        pending_request: false,
+                        conn: host_conn.conn.clone(),
+                        seq: 0,
+                        dirty: Arc::new(AtomicBool::new(false)),
+                        selection_dirty: Arc::new(AtomicBool::new(false)),
+                    },
+                );
+
+                this.send_host_snapshot(&terminal_view, cx);
+                this.send_host_frame(&terminal_view, cx);
+                this.send_host_selection_update(&terminal_view, cx);
+            });
+        });
+
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Snapshot {
+                room_id,
+                seq: 1,
+                ..
+            }) if room_id == "room-1"
+        ));
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Frame {
+                room_id,
+                seq: 2,
+                ..
+            }) if room_id == "room-1"
+        ));
+        assert!(matches!(
+            smol::block_on(host_conn.next_sent()),
+            Some(ClientToRelay::Selection {
+                room_id,
+                seq: 3,
+                ..
+            }) if room_id == "room-1"
+        ));
     }
 }
