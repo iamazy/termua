@@ -209,21 +209,51 @@ function Try-InstallWixToolset {
   }
 }
 
-function Find-LatestMsi([string] $repoRoot) {
+function Find-LatestMsi([string] $repoRoot, [string] $target) {
   $candidates = @(
     Join-Path $repoRoot "target\\wix"
+    (Join-Path $repoRoot ("target\\{0}\\wix" -f $target))
     Join-Path $repoRoot "termua\\target\\wix"
-  )
+    (Join-Path $repoRoot ("termua\\target\\{0}\\wix" -f $target))
+  ) | Select-Object -Unique
 
-  foreach ($dir in $candidates) {
-    if (Test-Path $dir) {
-      $msi = Get-ChildItem -Path $dir -Recurse -Filter "*.msi" |
-        Sort-Object -Property LastWriteTime -Descending |
-        Select-Object -First 1
-      if ($msi) { return $msi.FullName }
+  $existingCandidates = @($candidates | Where-Object { Test-Path $_ })
+  foreach ($dir in $existingCandidates) {
+    $msi = Get-ChildItem -Path $dir -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
+      Sort-Object -Property LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($msi) {
+      return @{
+        Path = $msi.FullName
+        Searched = $candidates
+      }
     }
   }
-  return $null
+
+  # cargo-wix may emit into an unexpected target subdirectory when --target is set.
+  $fallbackRoots = @(
+    Join-Path $repoRoot "target"
+    Join-Path $repoRoot "termua\\target"
+  ) | Select-Object -Unique
+  foreach ($root in $fallbackRoots) {
+    if (-not (Test-Path $root)) { continue }
+
+    $msi = Get-ChildItem -Path $root -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match '[\\/]wix[\\/]' } |
+      Sort-Object -Property LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($msi) {
+      return @{
+        Path = $msi.FullName
+        Searched = $candidates
+      }
+    }
+  }
+
+  return @{
+    Path = $null
+    Searched = $candidates
+  }
 }
 
 function Find-WxsFiles([string] $repoRoot) {
@@ -494,9 +524,11 @@ Write-Host "==> Packaging MSI (cargo wix)"
 & cargo wix --package termua --version $wixVersion --no-build --target $target
 if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
 
-$msiPath = Find-LatestMsi $repoRoot
+$msiResult = Find-LatestMsi $repoRoot $target
+$msiPath = $msiResult.Path
 if (-not $msiPath) {
-  Write-Error "Failed to locate generated .msi under target\\wix"
+  $searched = ($msiResult.Searched | ForEach-Object { "  - $_" }) -join "`r`n"
+  Write-Error "Failed to locate generated .msi. Checked:`r`n$searched"
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
