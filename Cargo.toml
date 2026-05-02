@@ -16,7 +16,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.1.1-beta"
 license = "AGPL-3"
 authors = ["iamazy <iamazy.me@outlook.com>"]
 documentation = "https://github.com/iamazy/termua"
