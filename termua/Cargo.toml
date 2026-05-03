@@ -90,3 +90,6 @@ assets = [
     { source = "../README.md", dest = "/usr/share/doc/termua/README.md", mode = "0644" },
     { source = "../LICENSE-AGPL", dest = "/usr/share/licenses/termua/LICENSE", mode = "0644" },
 ]
+
+[package.metadata.wix]
+eula = false

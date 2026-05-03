@@ -11,8 +11,6 @@ $script:WixNamespaceUri = "http://schemas.microsoft.com/wix/2006/wi"
 
 .USAGE
   pwsh -NoProfile -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
-  # or Windows PowerShell:
-  powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
   # Custom output directory
   $env:OUT_DIR="target\\msi"
@@ -543,54 +541,37 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
   }
 }
 
-function Invoke-NativeCommandCapture([string] $command, [string[]] $arguments) {
-  $stdoutFile = [System.IO.Path]::GetTempFileName()
-  $stderrFile = [System.IO.Path]::GetTempFileName()
-  $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-
-  try {
-    $PSNativeCommandUseErrorActionPreference = $false
-    & $command @arguments 1> $stdoutFile 2> $stderrFile
-    $exitCode = $LASTEXITCODE
-
-    $stdout = @(Get-Content -LiteralPath $stdoutFile -ErrorAction SilentlyContinue)
-    $stderr = @(Get-Content -LiteralPath $stderrFile -ErrorAction SilentlyContinue)
-    $output = @($stdout + $stderr)
-
-    return [pscustomobject]@{
-      ExitCode = $exitCode
-      Output = $output
-      OutputText = ($output -join [Environment]::NewLine)
-    }
-  } finally {
-    $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
-    Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
-  }
-}
-
 function Invoke-CargoWixPackage([string] $target) {
   $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
-  $result = Invoke-NativeCommandCapture "cargo" $args
-  $output = $result.Output
-  $exitCode = $result.ExitCode
+  $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+  try {
+    $PSNativeCommandUseErrorActionPreference = $false
+    $output = & cargo @args 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+  }
   $output | ForEach-Object { $_ }
 
   if ($exitCode -eq 0) {
     return
   }
 
-  $outputText = $result.OutputText
+  $outputText = ($output | Out-String)
   $windowsInstallerUnavailable =
     $outputText -match 'LGHT0217' -or
     $outputText -match 'Windows Installer Service could not be accessed'
 
   if ($windowsInstallerUnavailable) {
     Write-Warning "WiX validation could not access Windows Installer. Retrying with MSI validation suppressed (-sval)."
-    $retryArgs = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture", "-L", "-sval")
-    $retryResult = Invoke-NativeCommandCapture "cargo" $retryArgs
-    $retryResult.Output | ForEach-Object { $_ }
-    if ($retryResult.ExitCode -eq 0) {
-      return
+    try {
+      $PSNativeCommandUseErrorActionPreference = $false
+      & cargo wix --package termua --no-build --target $target --nocapture -L -sval
+      if ($LASTEXITCODE -eq 0) {
+        return
+      }
+    } finally {
+      $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
     }
   }
 

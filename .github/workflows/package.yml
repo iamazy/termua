@@ -100,7 +100,7 @@ jobs:
           $env:ARCH = "${{ matrix.arch }}"
           $env:TARGET = "${{ matrix.target }}"
           $env:TERMUA_AUTO_INSTALL_WIX = "1"
-          powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+          pwsh -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
       - name: Upload Linux AppImage artifact
         if: runner.os == 'Linux'
