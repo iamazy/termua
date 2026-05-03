@@ -2132,14 +2132,13 @@ fn new_local_persist_error_is_shown_in_sessions_sidebar(cx: &mut gpui::TestAppCo
     main_window_cx.run_until_parked();
     let _keep_task_owner_alive = &new_session_view;
 
-    let main_root_for_draw = main_root.clone();
     main_window_cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
         gpui::size(
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(main_root_for_draw),
+        move |_, _| div().size_full().child(main_root),
     );
     main_window_cx.run_until_parked();
 
