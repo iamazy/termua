@@ -2056,6 +2056,99 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
 }
 
 #[gpui::test]
+fn new_local_persist_error_is_shown_in_sessions_sidebar(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(crate::TermuaAppState::default());
+    });
+
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-persist-error");
+    let _guard = crate::store::tests::override_termua_db_path(db_path.clone());
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          protocol TEXT NOT NULL,
+          group_path TEXT NOT NULL,
+          label TEXT NOT NULL,
+          backend TEXT NOT NULL,
+          term TEXT NOT NULL,
+          charset TEXT NOT NULL,
+          colorterm TEXT,
+          ssh_host TEXT,
+          ssh_port INTEGER,
+          ssh_auth_type TEXT,
+          ssh_user TEXT,
+          ssh_credential_username TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        "#,
+    )
+    .unwrap();
+    drop(conn);
+
+    let (main_root, main_window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| crate::window::main_window::TermuaWindow::new(window, cx));
+        gpui_component::Root::new(view, window, cx)
+    });
+    main_window_cx.update(|window, app| {
+        let root_handle = window
+            .window_handle()
+            .downcast::<gpui_component::Root>()
+            .expect("expected Root window handle");
+        app.global_mut::<crate::TermuaAppState>().main_window = Some(root_handle);
+    });
+
+    let main_root_for_draw = main_root.clone();
+    main_window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(main_root_for_draw),
+    );
+    main_window_cx.run_until_parked();
+
+    let new_session_view = main_window_cx.update(|window, app| {
+        let view = app.new(|cx| NewSessionWindow::new(window, cx));
+        let result = view.update(app, |this, cx| this.connect_new_session(cx));
+        assert!(result.is_ok(), "expected local connect to succeed");
+        app.global_mut::<crate::TermuaAppState>()
+            .pending_commands
+            .clear();
+        view
+    });
+
+    main_window_cx.run_until_parked();
+    let _keep_task_owner_alive = &new_session_view;
+
+    let main_root_for_draw = main_root.clone();
+    main_window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(main_root_for_draw),
+    );
+    main_window_cx.run_until_parked();
+
+    main_window_cx
+        .debug_bounds("termua-sessions-sidebar-operation-error")
+        .expect("expected persistence error to be visible in the sessions sidebar");
+}
+
+#[gpui::test]
 fn new_session_connect_error_does_not_lock_submit_state(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 

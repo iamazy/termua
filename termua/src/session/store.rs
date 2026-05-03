@@ -1830,6 +1830,55 @@ pub(crate) mod tests {
         assert!(!names.iter().any(|n| n == "colorterm"));
     }
 
+    #[test]
+    fn local_sessions_fail_fast_for_legacy_schema_with_required_terminal_columns() {
+        let db_path = unique_test_db_path("legacy-required-terminal-columns");
+        let _guard = override_termua_db_path(db_path.clone());
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE sessions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              protocol TEXT NOT NULL,
+              group_path TEXT NOT NULL,
+              label TEXT NOT NULL,
+              backend TEXT NOT NULL,
+              term TEXT NOT NULL,
+              charset TEXT NOT NULL,
+              colorterm TEXT,
+              ssh_host TEXT,
+              ssh_port INTEGER,
+              ssh_auth_type TEXT,
+              ssh_user TEXT,
+              ssh_credential_username TEXT,
+              created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+              updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+            "#,
+        )
+        .unwrap();
+        drop(conn);
+
+        let err = save_local_session_with_env(
+            "local",
+            "bash",
+            TerminalBackend::Wezterm,
+            "xterm-256color",
+            Some("truecolor"),
+            "UTF-8",
+            Vec::new(),
+        )
+        .expect_err("legacy schemas with required terminal columns should fail");
+
+        let err = format!("{err:#}");
+        assert!(err.contains("insert local session"));
+        assert!(err.contains("sessions.term"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn termua_db_is_private_on_unix() {

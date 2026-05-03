@@ -15,7 +15,9 @@ use gpui_component::{
 };
 use rust_i18n::t;
 
-use super::{SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree};
+use super::{
+    SessionsSidebarError, SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree,
+};
 use crate::new_session::NewSessionWindow;
 
 #[cfg(test)]
@@ -27,6 +29,30 @@ pub(super) enum SessionsSidebarContextMenuItem {
 }
 
 impl SessionsSidebarView {
+    fn render_error(error: SessionsSidebarError, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let message = match &error {
+            SessionsSidebarError::LoadSessions => t!("SessionsSidebar.LoadError").to_string(),
+            SessionsSidebarError::Operation(message) => message.clone(),
+        };
+        let selector = error.debug_selector();
+
+        div()
+            .id(selector)
+            .debug_selector(move || selector.to_string())
+            .mx_2()
+            .mb_2()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().warning.opacity(0.25))
+            .bg(cx.theme().warning.opacity(0.08))
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .whitespace_normal()
+            .child(message)
+            .into_any_element()
+    }
+
     fn render_tree_row(
         ix: usize,
         entry: &TreeEntry,
@@ -383,11 +409,16 @@ impl SessionsSidebarView {
                         .child(t!("SessionsSidebar.Context.Edit").to_string()),
                 )
         })
-        .on_click(move |_, _window, cx| {
+        .on_click(move |_, window, cx| {
             if let Err(err) = NewSessionWindow::open_edit(session_id, cx) {
-                log::warn!(
+                let message =
+                    format!("Failed to open edit window for session {session_id}: {err:#}");
+                log::error!(
                     "SessionsSidebar: failed to open edit window for session {session_id}: {err:#}"
                 );
+                entity_for_click.update(cx, |this, cx| {
+                    this.show_error(message, window, cx);
+                });
             }
 
             entity_for_click.update(cx, |this, cx| {
@@ -453,23 +484,8 @@ impl Render for SessionsSidebarView {
             .min_h_0()
             .bg(cx.theme().background)
             .child(div().p_2().child(Input::new(&self.search_input)))
-            .when(self.has_load_error, |this| {
-                this.child(
-                    div()
-                        .id("termua-sessions-sidebar-load-error")
-                        .debug_selector(|| "termua-sessions-sidebar-load-error".to_string())
-                        .mx_2()
-                        .mb_2()
-                        .p_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(cx.theme().warning.opacity(0.25))
-                        .bg(cx.theme().warning.opacity(0.08))
-                        .text_xs()
-                        .text_color(cx.theme().warning)
-                        .whitespace_normal()
-                        .child(t!("SessionsSidebar.LoadError").to_string()),
-                )
+            .when_some(self.error.clone(), |this, error| {
+                this.child(Self::render_error(error, cx))
             })
             .child(
                 div()

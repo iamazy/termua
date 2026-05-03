@@ -926,6 +926,72 @@ fn reload_coalesces_while_previous_reload_is_in_flight(cx: &mut gpui::TestAppCon
 }
 
 #[gpui::test]
+fn sidebar_shows_session_persistence_errors(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+    });
+
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-persist-error");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+
+    struct Harness {
+        sidebar: Entity<SessionsSidebarView>,
+    }
+
+    impl Harness {
+        fn new(
+            sidebar_out: Arc<Mutex<Option<Entity<SessionsSidebarView>>>>,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) -> Self {
+            let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
+            *sidebar_out.lock().unwrap() = Some(sidebar.clone());
+            Self { sidebar }
+        }
+    }
+
+    impl Render for Harness {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(self.sidebar.clone())
+        }
+    }
+
+    let sidebar_out: Arc<Mutex<Option<Entity<SessionsSidebarView>>>> = Arc::new(Mutex::new(None));
+    let sidebar_out_for_view = sidebar_out.clone();
+    let (harness, window_cx) =
+        cx.add_window_view(move |window, cx| Harness::new(sidebar_out_for_view, window, cx));
+
+    window_cx.update(|window, app| {
+        let sidebar = sidebar_out
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("expected sidebar to be captured");
+        sidebar.update(app, |this, cx| {
+            this.show_error(
+                "Failed to persist local session: term is required",
+                window,
+                cx,
+            );
+        });
+    });
+
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+            gpui::AvailableSpace::Definite(gpui::px(400.)),
+        ),
+        move |_, _| div().size_full().child(harness),
+    );
+    window_cx.run_until_parked();
+
+    window_cx
+        .debug_bounds("termua-sessions-sidebar-operation-error")
+        .expect("expected persistence error to be visible in the sessions sidebar");
+}
+
+#[gpui::test]
 fn repeated_delete_requests_for_same_session_are_ignored(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);

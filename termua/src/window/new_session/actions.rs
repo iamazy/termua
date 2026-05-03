@@ -1449,18 +1449,35 @@ impl NewSessionWindow {
         cx: &mut Context<Self>,
     ) {
         let background = cx.background_executor().clone();
+        let main_window = cx
+            .global::<crate::TermuaAppState>()
+            .main_window
+            .expect("main window should exist before spawning store operations");
         cx.spawn(async move |this, cx| {
             let result = background.spawn(async move { op.run() }).await;
             match result {
                 Ok(()) => {
-                    let _ = this.update(cx, |_this, cx| {
+                    let _ = main_window.update(cx, |_, window, cx| {
                         cx.global_mut::<crate::TermuaAppState>()
                             .pending_command(crate::PendingCommand::ReloadSessionsSidebar);
                         cx.refresh_windows();
+                        window.refresh();
                     });
                 }
                 Err(err) => {
-                    log::warn!("NewSessionWindow: failed to {action}: {err:#}");
+                    let message = format!("Failed to {action}: {err:#}");
+                    log::error!("NewSessionWindow: failed to {action}: {err:#}");
+                    let _ = this.update(cx, |this, cx| {
+                        this.submit_in_flight = false;
+                        cx.notify();
+                    });
+                    let _ = main_window.update(cx, |_, window, cx| {
+                        cx.global_mut::<crate::TermuaAppState>().pending_command(
+                            crate::PendingCommand::ShowSessionsSidebarError(message),
+                        );
+                        cx.refresh_windows();
+                        window.refresh();
+                    });
                 }
             }
         })

@@ -111,7 +111,15 @@ impl TermuaWindow {
                     self.reload_sessions_sidebar(window, cx);
                 }
                 PendingCommand::ReloadSessionsSidebar => {
+                    self.sessions_sidebar.update(cx, |sidebar, cx| {
+                        sidebar.clear_operation_error(window, cx);
+                    });
                     self.reload_sessions_sidebar(window, cx);
+                }
+                PendingCommand::ShowSessionsSidebarError(message) => {
+                    self.sessions_sidebar.update(cx, |sidebar, cx| {
+                        sidebar.show_error(message, window, cx);
+                    });
                 }
                 PendingCommand::OpenCastPicker => {
                     self.open_cast_player_picker(window, cx);

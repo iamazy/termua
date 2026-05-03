@@ -5,7 +5,7 @@ use gpui_component::{
 };
 use rust_i18n::t;
 
-use super::{SessionsSidebarView, tree};
+use super::{SessionsSidebarError, SessionsSidebarView, tree};
 use crate::store::{delete_session, load_all_sessions};
 
 fn set_input_placeholder(
@@ -28,11 +28,11 @@ impl SessionsSidebarView {
                 .placeholder(t!("SessionsSidebar.Placeholder.Search").to_string())
         });
 
-        let (sessions, has_load_error) = match load_all_sessions() {
-            Ok(sessions) => (sessions, false),
+        let (sessions, error) = match load_all_sessions() {
+            Ok(sessions) => (sessions, None),
             Err(err) => {
                 log::error!("SessionsSidebar: failed to load sessions: {err:#}");
-                (Vec::new(), true)
+                (Vec::new(), Some(SessionsSidebarError::LoadSessions))
             }
         };
         let session_summaries = sessions
@@ -72,7 +72,7 @@ impl SessionsSidebarView {
             focus_handle: cx.focus_handle(),
             search_input,
             query: String::new(),
-            has_load_error,
+            error,
             reload_epoch: 0,
             reload_in_flight: false,
             reload_pending: false,
@@ -93,6 +93,27 @@ impl SessionsSidebarView {
 
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.start_reload_sessions_async(window, cx);
+    }
+
+    pub fn show_error(
+        &mut self,
+        message: impl Into<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.error = Some(SessionsSidebarError::Operation(message.into()));
+        cx.notify();
+        window.refresh();
+    }
+
+    pub fn clear_operation_error(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.error, Some(SessionsSidebarError::Operation(_))) {
+            return;
+        }
+
+        self.error = None;
+        cx.notify();
+        window.refresh();
     }
 
     pub(super) fn delete_session_by_id(
@@ -118,7 +139,9 @@ impl SessionsSidebarView {
             let _ = this.update_in(window, |this, window, cx| {
                 this.deleting_session_ids.remove(&id);
                 if let Err(err) = result {
-                    log::warn!("SessionsSidebar: failed to delete session {id}: {err:#}");
+                    let message = format!("Failed to delete session {id}: {err:#}");
+                    log::error!("SessionsSidebar: failed to delete session {id}: {err:#}");
+                    this.error = Some(SessionsSidebarError::Operation(message));
                 }
                 this.start_reload_sessions_async(window, cx);
                 cx.notify();
@@ -224,7 +247,9 @@ impl SessionsSidebarView {
                 this.reload_in_flight = false;
                 match result {
                     Ok(sessions) => {
-                        this.has_load_error = false;
+                        if matches!(this.error, Some(SessionsSidebarError::LoadSessions)) {
+                            this.error = None;
+                        }
                         this.session_summaries = sessions
                             .iter()
                             .map(tree::SessionTreeSummary::from_session)
@@ -233,8 +258,8 @@ impl SessionsSidebarView {
                         this.rebuild_tree(window, cx);
                     }
                     Err(err) => {
-                        this.has_load_error = true;
-                        log::warn!("SessionsSidebar: failed to load sessions: {err:#}");
+                        this.error = Some(SessionsSidebarError::LoadSessions);
+                        log::error!("SessionsSidebar: failed to load sessions: {err:#}");
                         cx.notify();
                         window.refresh();
                     }
