@@ -543,37 +543,54 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
   }
 }
 
-function Invoke-CargoWixPackage([string] $target) {
-  $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
+function Invoke-NativeCommandCapture([string] $command, [string[]] $arguments) {
+  $stdoutFile = [System.IO.Path]::GetTempFileName()
+  $stderrFile = [System.IO.Path]::GetTempFileName()
   $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+
   try {
     $PSNativeCommandUseErrorActionPreference = $false
-    $output = & cargo @args 2>&1
+    & $command @arguments 1> $stdoutFile 2> $stderrFile
     $exitCode = $LASTEXITCODE
+
+    $stdout = @(Get-Content -LiteralPath $stdoutFile -ErrorAction SilentlyContinue)
+    $stderr = @(Get-Content -LiteralPath $stderrFile -ErrorAction SilentlyContinue)
+    $output = @($stdout + $stderr)
+
+    return [pscustomobject]@{
+      ExitCode = $exitCode
+      Output = $output
+      OutputText = ($output -join [Environment]::NewLine)
+    }
   } finally {
     $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+    Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-CargoWixPackage([string] $target) {
+  $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
+  $result = Invoke-NativeCommandCapture "cargo" $args
+  $output = $result.Output
+  $exitCode = $result.ExitCode
   $output | ForEach-Object { $_ }
 
   if ($exitCode -eq 0) {
     return
   }
 
-  $outputText = ($output | Out-String)
+  $outputText = $result.OutputText
   $windowsInstallerUnavailable =
     $outputText -match 'LGHT0217' -or
     $outputText -match 'Windows Installer Service could not be accessed'
 
   if ($windowsInstallerUnavailable) {
     Write-Warning "WiX validation could not access Windows Installer. Retrying with MSI validation suppressed (-sval)."
-    try {
-      $PSNativeCommandUseErrorActionPreference = $false
-      & cargo wix --package termua --no-build --target $target --nocapture -L -sval
-      if ($LASTEXITCODE -eq 0) {
-        return
-      }
-    } finally {
-      $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+    $retryArgs = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture", "-L", "-sval")
+    $retryResult = Invoke-NativeCommandCapture "cargo" $retryArgs
+    $retryResult.Output | ForEach-Object { $_ }
+    if ($retryResult.ExitCode -eq 0) {
+      return
     }
   }
 
