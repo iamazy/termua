@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+$script:WixNamespaceUri = "http://schemas.microsoft.com/wix/2006/wi"
 
 <#
 .SYNOPSIS
@@ -210,6 +211,100 @@ function Find-WxsFiles([string] $repoRoot) {
   return @()
 }
 
+function New-WixXmlDocument([string] $path) {
+  $doc = New-Object System.Xml.XmlDocument
+  $doc.PreserveWhitespace = $true
+  $doc.Load($path)
+  return $doc
+}
+
+function New-WixNamespaceManager([System.Xml.XmlDocument] $doc) {
+  $ns = New-Object -TypeName System.Xml.XmlNamespaceManager -ArgumentList $doc.NameTable
+  $null = $ns.AddNamespace("wix", $script:WixNamespaceUri)
+  return ,$ns
+}
+
+function New-WixElement([System.Xml.XmlDocument] $doc, [string] $name) {
+  return $doc.CreateElement($name, $script:WixNamespaceUri)
+}
+
+function Set-WixAttribute([System.Xml.XmlElement] $element, [string] $name, [string] $value) {
+  if ($element.GetAttribute($name) -eq $value) {
+    return $false
+  }
+
+  $element.SetAttribute($name, $value)
+  return $true
+}
+
+function Save-WixXmlDocument([System.Xml.XmlDocument] $doc, [string] $path) {
+  $settings = New-Object System.Xml.XmlWriterSettings
+  $settings.Indent = $true
+  $settings.NewLineChars = "`r`n"
+  $settings.NewLineHandling = [System.Xml.NewLineHandling]::Replace
+  $settings.OmitXmlDeclaration = $false
+  $settings.Encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+
+  $writer = [System.Xml.XmlWriter]::Create($path, $settings)
+  try {
+    $doc.Save($writer)
+  } finally {
+    $writer.Dispose()
+  }
+}
+
+function Invoke-WxsFileUpdate([string] $repoRoot, [scriptblock] $update) {
+  $wxsFiles = Find-WxsFiles $repoRoot
+  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
+
+  foreach ($file in $wxsFiles) {
+    $doc = New-WixXmlDocument $file.FullName
+    $ns = New-WixNamespaceManager $doc
+    $changed = & $update $doc $ns $file.FullName
+    if ($changed) {
+      Save-WixXmlDocument $doc $file.FullName
+    }
+  }
+}
+
+function Add-WixComponentRefToFeature(
+  [System.Xml.XmlDocument] $doc,
+  [System.Xml.XmlNamespaceManager] $ns,
+  [System.Xml.XmlElement] $feature,
+  [string] $componentRefId
+) {
+  if ($feature.SelectSingleNode("wix:ComponentRef[@Id='$componentRefId']", $ns)) {
+    return $false
+  }
+
+  $componentRef = New-WixElement $doc "ComponentRef"
+  $null = Set-WixAttribute $componentRef "Id" $componentRefId
+
+  $nestedFeature = $feature.SelectSingleNode("wix:Feature", $ns)
+  if ($nestedFeature) {
+    $null = $feature.InsertBefore($componentRef, $nestedFeature)
+  } else {
+    $null = $feature.AppendChild($componentRef)
+  }
+
+  return $true
+}
+
+function Get-WixAncestorContainerId([System.Xml.XmlNode] $node) {
+  $current = $node.ParentNode
+  while ($current) {
+    if (
+      ($current.LocalName -eq "Directory" -or $current.LocalName -eq "DirectoryRef") -and
+      $current.Attributes["Id"]
+    ) {
+      return $current.Attributes["Id"].Value
+    }
+    $current = $current.ParentNode
+  }
+
+  return $null
+}
+
 function Ensure-TermuaIco([string] $repoRoot, [string] $arch) {
   $repoIco = Join-Path $repoRoot "assets\\logo\\termua.ico"
 
@@ -244,125 +339,141 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
   Copy-Item -Force $icoPath $destIco
   $iconSource = (Resolve-Path $destIco).Path
 
-  foreach ($file in $wxsFiles) {
-    $content = Get-Content -Raw -Path $file.FullName
-    $original = $content
-
-    $iconPattern = "<Icon\b(?=[^>]*\bId\s*=\s*[""'']termuaIcon[""''])[^>]*/>\s*"
-    $arpPattern = "<Property\b(?=[^>]*\bId\s*=\s*[""'']ARPPRODUCTICON[""''])[^>]*/>\s*"
-    $metadata = (
-      '    <Icon Id="termuaIcon" SourceFile="' + $iconSource + '" />' + "`r`n" +
-      '    <Property Id="ARPPRODUCTICON" Value="termuaIcon" />' + "`r`n"
+  Invoke-WxsFileUpdate $repoRoot {
+    param(
+      [System.Xml.XmlDocument] $doc,
+      [System.Xml.XmlNamespaceManager] $ns,
+      [string] $filePath
     )
 
-    $content = [regex]::Replace(
-      $content,
-      $iconPattern,
-      "",
-      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-    )
-    $content = [regex]::Replace(
-      $content,
-      $arpPattern,
-      "",
-      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-    )
+    $changed = $false
+    $product = $doc.SelectSingleNode("/wix:Wix/wix:Product", $ns)
+    if (-not $product) { return $false }
 
-    $insertionReplacement = '$1' + "`r`n" + $metadata
-    if ($content -match '<Package\b[^>]*/>') {
-      $content = [regex]::Replace(
-        $content,
-        '(<Package\b[^>]*/>)',
-        $insertionReplacement,
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
+    $icon = $product.SelectSingleNode("wix:Icon[@Id='termuaIcon']", $ns)
+    if (-not $icon) {
+      $icon = New-WixElement $doc "Icon"
+      $null = Set-WixAttribute $icon "Id" "termuaIcon"
+      $null = Set-WixAttribute $icon "SourceFile" $iconSource
+      $null = $product.AppendChild($icon)
+      $changed = $true
     } else {
-      $content = [regex]::Replace(
-        $content,
-        '(<Product\b[^>]*>)',
-        $insertionReplacement,
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
+      $changed = (Set-WixAttribute $icon "SourceFile" $iconSource) -or $changed
     }
 
-    # Try to set shortcut icons if the template contains shortcuts.
-    $content = [regex]::Replace(
-      $content,
-      "<Shortcut\\b(?![^>]*\\bIcon=)([^>]*)>",
-      '<Shortcut Icon="termuaIcon"$1>',
-      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-    )
-
-    if ($content -ne $original) {
-      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    $arpProductIcon = $product.SelectSingleNode("wix:Property[@Id='ARPPRODUCTICON']", $ns)
+    if (-not $arpProductIcon) {
+      $arpProductIcon = New-WixElement $doc "Property"
+      $null = Set-WixAttribute $arpProductIcon "Id" "ARPPRODUCTICON"
+      $null = Set-WixAttribute $arpProductIcon "Value" "termuaIcon"
+      $null = $product.AppendChild($arpProductIcon)
+      $changed = $true
+    } else {
+      $changed = (Set-WixAttribute $arpProductIcon "Value" "termuaIcon") -or $changed
     }
+
+    $shortcuts = $doc.SelectNodes("//wix:Shortcut", $ns)
+    foreach ($shortcut in $shortcuts) {
+      if ([string]::IsNullOrWhiteSpace($shortcut.GetAttribute("Icon"))) {
+        $changed = (Set-WixAttribute $shortcut "Icon" "termuaIcon") -or $changed
+      }
+    }
+
+    return $changed
   }
 }
 
 function Ensure-WixDesktopShortcut([string] $repoRoot) {
-  $wxsFiles = Find-WxsFiles $repoRoot
-  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
-
-  foreach ($file in $wxsFiles) {
-    $content = Get-Content -Raw -Path $file.FullName
-    $original = $content
-
-    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
-    $mainFileMatch = [regex]::Match(
-      $content,
-      '<DirectoryRef\b[^>]*\bId\s*=\s*["' + "'" + '](?<dirId>[^"' + "'" + ']+)["' + "'" + '][^>]*>(?:(?!<DirectoryRef\b).)*?<Component\b[^>]*>(?:(?!</Component>).)*?<File\b[^>]*\bId\s*=\s*["' + "'" + '](?<fileId>[^"' + "'" + ']+)["' + "'" + '][^>]*\bName\s*=\s*["' + "'" + ']termua\.exe["' + "'" + '][^>]*/>(?:(?!</DirectoryRef>).)*?</DirectoryRef>',
-      $regexOptions
+  Invoke-WxsFileUpdate $repoRoot {
+    param(
+      [System.Xml.XmlDocument] $doc,
+      [System.Xml.XmlNamespaceManager] $ns,
+      [string] $filePath
     )
-    if (-not $mainFileMatch.Success) {
-      continue
+
+    $changed = $false
+    $product = $doc.SelectSingleNode("/wix:Wix/wix:Product", $ns)
+    $targetDir = $doc.SelectSingleNode("/wix:Wix/wix:Product/wix:Directory[@Id='TARGETDIR']", $ns)
+    if (-not $product -or -not $targetDir) { return $false }
+
+    $mainFile = $doc.SelectSingleNode("//wix:File[@Name='termua.exe']", $ns)
+    if (-not $mainFile) { return $false }
+
+    $mainComponent = $mainFile.ParentNode
+    if (-not $mainComponent -or $mainComponent.LocalName -ne "Component") { return $false }
+
+    $mainFileId = $mainFile.GetAttribute("Id")
+    $workingDirectory = Get-WixAncestorContainerId $mainFile
+    if ([string]::IsNullOrWhiteSpace($mainFileId) -or [string]::IsNullOrWhiteSpace($workingDirectory)) {
+      return $false
     }
 
-    $mainDirId = $mainFileMatch.Groups['dirId'].Value
-    $mainFileId = $mainFileMatch.Groups['fileId'].Value
-
-    $shortcutComponentPattern = '\s*<DirectoryRef\b[^>]*\bId\s*=\s*["' + "'" + ']DesktopFolder["' + "'" + '][^>]*>\s*<Component\b[^>]*\bId\s*=\s*["' + "'" + ']ApplicationDesktopShortcut["' + "'" + '][^>]*>.*?</Component>\s*</DirectoryRef>\s*'
-    $shortcutComponentRefPattern = '<ComponentRef\s+Id\s*=\s*[""'']ApplicationDesktopShortcut[""'']\s*/>\s*'
-    $content = [regex]::Replace($content, $shortcutComponentPattern, "", $regexOptions)
-    $content = [regex]::Replace($content, $shortcutComponentRefPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-
-    $shortcutDirectoryRef =
-      '    <DirectoryRef Id="DesktopFolder">' + "`r`n" +
-      '      <Component Id="ApplicationDesktopShortcut" Guid="*">' + "`r`n" +
-      '        <Shortcut Id="ApplicationDesktopShortcut" Name="termua" Description="termua" Target="[#' + $mainFileId + ']" WorkingDirectory="' + $mainDirId + '" />' + "`r`n" +
-      '        <RegistryValue Root="HKCU" Key="Software\termua" Name="desktop-shortcut" Type="integer" Value="1" KeyPath="yes" />' + "`r`n" +
-      '      </Component>' + "`r`n" +
-      '    </DirectoryRef>'
-
-    if ($content -match '</Product>') {
-      $content = [regex]::Replace(
-        $content,
-        '(</Product>)',
-        $shortcutDirectoryRef + "`r`n" + '$1',
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
-    } elseif ($content -match '</Wix>') {
-      $content = [regex]::Replace(
-        $content,
-        '(</Wix>)',
-        $shortcutDirectoryRef + "`r`n" + '$1',
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
+    $desktopDirectory = $targetDir.SelectSingleNode("wix:Directory[@Id='DesktopFolder']", $ns)
+    if (-not $desktopDirectory) {
+      $desktopDirectory = New-WixElement $doc "Directory"
+      $null = Set-WixAttribute $desktopDirectory "Id" "DesktopFolder"
+      $null = Set-WixAttribute $desktopDirectory "Name" "Desktop"
+      $null = $targetDir.AppendChild($desktopDirectory)
+      $changed = $true
     }
 
-    if ($content -match '</Feature>') {
-      $content = [regex]::Replace(
-        $content,
-        '(</Feature>)',
-        '            <ComponentRef Id="ApplicationDesktopShortcut" />' + "`r`n" + '$1',
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
+    $desktopDirectoryRef = $product.SelectSingleNode("wix:DirectoryRef[@Id='DesktopFolder']", $ns)
+    if (-not $desktopDirectoryRef) {
+      $desktopDirectoryRef = New-WixElement $doc "DirectoryRef"
+      $null = Set-WixAttribute $desktopDirectoryRef "Id" "DesktopFolder"
+      $null = $product.AppendChild($desktopDirectoryRef)
+      $changed = $true
     }
 
-    if ($content -ne $original) {
-      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    $desktopShortcutComponent = $desktopDirectoryRef.SelectSingleNode("wix:Component[@Id='ApplicationDesktopShortcut']", $ns)
+    if (-not $desktopShortcutComponent) {
+      $desktopShortcutComponent = New-WixElement $doc "Component"
+      $null = Set-WixAttribute $desktopShortcutComponent "Id" "ApplicationDesktopShortcut"
+      $null = Set-WixAttribute $desktopShortcutComponent "Guid" "*"
+      $null = $desktopDirectoryRef.AppendChild($desktopShortcutComponent)
+      $changed = $true
+    } else {
+      $changed = (Set-WixAttribute $desktopShortcutComponent "Guid" "*") -or $changed
     }
+
+    $shortcut = $desktopShortcutComponent.SelectSingleNode("wix:Shortcut[@Id='ApplicationDesktopShortcut']", $ns)
+    if (-not $shortcut) {
+      $shortcut = New-WixElement $doc "Shortcut"
+      $null = Set-WixAttribute $shortcut "Id" "ApplicationDesktopShortcut"
+      $null = $desktopShortcutComponent.AppendChild($shortcut)
+      $changed = $true
+    }
+
+    $changed = (Set-WixAttribute $shortcut "Name" "termua") -or $changed
+    $changed = (Set-WixAttribute $shortcut "Description" "termua") -or $changed
+    $changed = (Set-WixAttribute $shortcut "Target" ("[#" + $mainFileId + "]")) -or $changed
+    $changed = (Set-WixAttribute $shortcut "WorkingDirectory" $workingDirectory) -or $changed
+
+    $registryValue = $desktopShortcutComponent.SelectSingleNode("wix:RegistryValue[@Name='desktop-shortcut']", $ns)
+    if (-not $registryValue) {
+      $registryValue = New-WixElement $doc "RegistryValue"
+      $null = Set-WixAttribute $registryValue "Root" "HKCU"
+      $null = Set-WixAttribute $registryValue "Key" "Software\termua"
+      $null = Set-WixAttribute $registryValue "Name" "desktop-shortcut"
+      $null = Set-WixAttribute $registryValue "Type" "integer"
+      $null = Set-WixAttribute $registryValue "Value" "1"
+      $null = Set-WixAttribute $registryValue "KeyPath" "yes"
+      $null = $desktopShortcutComponent.AppendChild($registryValue)
+      $changed = $true
+    } else {
+      $changed = (Set-WixAttribute $registryValue "Root" "HKCU") -or $changed
+      $changed = (Set-WixAttribute $registryValue "Key" "Software\termua") -or $changed
+      $changed = (Set-WixAttribute $registryValue "Type" "integer") -or $changed
+      $changed = (Set-WixAttribute $registryValue "Value" "1") -or $changed
+      $changed = (Set-WixAttribute $registryValue "KeyPath" "yes") -or $changed
+    }
+
+    $binariesFeature = $product.SelectSingleNode(".//wix:Feature[@Id='Binaries']", $ns)
+    if ($binariesFeature) {
+      $changed = (Add-WixComponentRefToFeature $doc $ns $binariesFeature "ApplicationDesktopShortcut") -or $changed
+    }
+
+    return $changed
   }
 }
 
@@ -372,62 +483,90 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
     throw "missing relay binary after build: $relayExe"
   }
 
-  $wxsFiles = Find-WxsFiles $repoRoot
-  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
-
-  foreach ($file in $wxsFiles) {
-    $content = Get-Content -Raw -Path $file.FullName
-    $original = $content
-
-    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
-    $relayFilePattern = "<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*"
-    $relayComponentPattern = "\s*<Component\b[^>]*Id\s*=\s*[""'']RelayExecutable[""''][^>]*>.*?<File\b[^>]*Name\s*=\s*[""'']termua-relay\.exe[""''][^>]*/>\s*</Component>\s*"
-    $relayComponentRefPattern = "<ComponentRef\s+Id\s*=\s*[""'']RelayExecutable[""'']\s*/>\s*"
-
-    $content = [regex]::Replace($content, $relayComponentPattern, "", $regexOptions)
-    $content = [regex]::Replace($content, $relayFilePattern, "", $regexOptions)
-    $content = [regex]::Replace($content, $relayComponentRefPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-
-    $relayComponent =
-      '          <Component Id="RelayExecutable" Guid="*">' + "`r`n" +
-      '            <File Id="termuaRelayExeFile" Name="termua-relay.exe" Source="$(var.CargoTargetBinDir)\termua-relay.exe" KeyPath="yes" Checksum="yes" />' + "`r`n" +
-      '          </Component>'
-
-    $mainComponentMatch = [regex]::Match(
-      $content,
-      '<Component\b[^>]*\bId\s*=\s*["' + "'" + '](?<id>[^"' + "'" + ']+)["' + "'" + '][^>]*>(?:(?!<Component\b).)*?<File\b[^>]*\bName\s*=\s*["' + "'" + ']termua\.exe["' + "'" + '][^>]*/>(?:(?!<Component\b).)*?</Component>',
-      $regexOptions
+  Invoke-WxsFileUpdate $repoRoot {
+    param(
+      [System.Xml.XmlDocument] $doc,
+      [System.Xml.XmlNamespaceManager] $ns,
+      [string] $filePath
     )
-    if (-not $mainComponentMatch.Success) {
-      continue
+
+    $changed = $false
+    $product = $doc.SelectSingleNode("/wix:Wix/wix:Product", $ns)
+    if (-not $product) { return $false }
+
+    $mainFile = $doc.SelectSingleNode("//wix:File[@Name='termua.exe']", $ns)
+    if (-not $mainFile) { return $false }
+
+    $mainComponent = $mainFile.ParentNode
+    if (-not $mainComponent -or $mainComponent.LocalName -ne "Component") { return $false }
+
+    $mainDirectory = $mainComponent.ParentNode
+    if (-not $mainDirectory -or ($mainDirectory.LocalName -ne "Directory" -and $mainDirectory.LocalName -ne "DirectoryRef")) {
+      return $false
     }
 
-    $mainComponentId = $mainComponentMatch.Groups['id'].Value
-    $insertAt = $mainComponentMatch.Index + $mainComponentMatch.Length
-    $content = $content.Insert($insertAt, "`r`n" + $relayComponent)
-
-    $mainComponentRefMatch = [regex]::Match(
-      $content,
-      '<ComponentRef\b[^>]*\bId\s*=\s*["' + "'" + ']' + [regex]::Escape($mainComponentId) + '["' + "'" + '][^>]*/>',
-      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-    )
-    if ($mainComponentRefMatch.Success) {
-      $refInsertAt = $mainComponentRefMatch.Index + $mainComponentRefMatch.Length
-      $content = $content.Insert($refInsertAt, "`r`n" + '            <ComponentRef Id="RelayExecutable" />')
-    } elseif ($content -match '</Feature>') {
-      $content = [regex]::Replace(
-        $content,
-        '(</Feature>)',
-        '            <ComponentRef Id="RelayExecutable" />' + "`r`n" + '$1',
-        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-      )
+    $relayComponent = $mainDirectory.SelectSingleNode("wix:Component[@Id='RelayExecutable']", $ns)
+    if (-not $relayComponent) {
+      $relayComponent = New-WixElement $doc "Component"
+      $null = Set-WixAttribute $relayComponent "Id" "RelayExecutable"
+      $null = Set-WixAttribute $relayComponent "Guid" "*"
+      $relayFile = New-WixElement $doc "File"
+      $null = Set-WixAttribute $relayFile "Id" "termuaRelayExeFile"
+      $null = Set-WixAttribute $relayFile "Name" "termua-relay.exe"
+      $null = Set-WixAttribute $relayFile "Source" '$(var.CargoTargetBinDir)\termua-relay.exe'
+      $null = Set-WixAttribute $relayFile "KeyPath" "yes"
+      $null = Set-WixAttribute $relayFile "Checksum" "yes"
+      $null = $relayComponent.AppendChild($relayFile)
+      $null = $mainDirectory.AppendChild($relayComponent)
+      $changed = $true
+    } else {
+      $changed = (Set-WixAttribute $relayComponent "Guid" "*") -or $changed
+      $relayFile = $relayComponent.SelectSingleNode("wix:File[@Name='termua-relay.exe']", $ns)
+      if (-not $relayFile) {
+        $relayFile = New-WixElement $doc "File"
+        $null = $relayComponent.AppendChild($relayFile)
+        $changed = $true
+      }
+      $changed = (Set-WixAttribute $relayFile "Id" "termuaRelayExeFile") -or $changed
+      $changed = (Set-WixAttribute $relayFile "Name" "termua-relay.exe") -or $changed
+      $changed = (Set-WixAttribute $relayFile "Source" '$(var.CargoTargetBinDir)\termua-relay.exe') -or $changed
+      $changed = (Set-WixAttribute $relayFile "KeyPath" "yes") -or $changed
+      $changed = (Set-WixAttribute $relayFile "Checksum" "yes") -or $changed
     }
 
-    if ($content -ne $original) {
-      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    $binariesFeature = $product.SelectSingleNode(".//wix:Feature[@Id='Binaries']", $ns)
+    if ($binariesFeature) {
+      $changed = (Add-WixComponentRefToFeature $doc $ns $binariesFeature "RelayExecutable") -or $changed
+    }
+
+    return $changed
+  }
+}
+
+function Invoke-CargoWixPackage([string] $target) {
+  $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
+  $output = & cargo @args 2>&1
+  $exitCode = $LASTEXITCODE
+  $output | ForEach-Object { $_ }
+
+  if ($exitCode -eq 0) {
+    return
+  }
+
+  $outputText = ($output | Out-String)
+  $windowsInstallerUnavailable =
+    $outputText -match 'LGHT0217' -or
+    $outputText -match 'Windows Installer Service could not be accessed'
+
+  if ($windowsInstallerUnavailable) {
+    Write-Warning "WiX validation could not access Windows Installer. Retrying with MSI validation suppressed (-sval)."
+    & cargo wix --package termua --no-build --target $target --nocapture -L -sval
+    if ($LASTEXITCODE -eq 0) {
+      return
     }
   }
+
+  throw "cargo wix failed ($exitCode)"
 }
 
 if ($env:OS -notlike "*Windows*") {
@@ -519,8 +658,7 @@ if ($icoPath) {
 Ensure-WixRelayBinary $repoRoot $target
 
 Write-Host "==> Packaging MSI (cargo wix)"
-& cargo wix --package termua --no-build --target $target
-if ($LASTEXITCODE -ne 0) { throw "cargo wix failed ($LASTEXITCODE)" }
+Invoke-CargoWixPackage $target
 
 $msiPath = Find-LatestMsi $repoRoot
 if (-not $msiPath) {
