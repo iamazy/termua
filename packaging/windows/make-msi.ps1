@@ -545,8 +545,14 @@ function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
 
 function Invoke-CargoWixPackage([string] $target) {
   $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
-  $output = & cargo @args 2>&1
-  $exitCode = $LASTEXITCODE
+  $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+  try {
+    $PSNativeCommandUseErrorActionPreference = $false
+    $output = & cargo @args 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+  }
   $output | ForEach-Object { $_ }
 
   if ($exitCode -eq 0) {
@@ -560,9 +566,14 @@ function Invoke-CargoWixPackage([string] $target) {
 
   if ($windowsInstallerUnavailable) {
     Write-Warning "WiX validation could not access Windows Installer. Retrying with MSI validation suppressed (-sval)."
-    & cargo wix --package termua --no-build --target $target --nocapture -L -sval
-    if ($LASTEXITCODE -eq 0) {
-      return
+    try {
+      $PSNativeCommandUseErrorActionPreference = $false
+      & cargo wix --package termua --no-build --target $target --nocapture -L -sval
+      if ($LASTEXITCODE -eq 0) {
+        return
+      }
+    } finally {
+      $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
     }
   }
 
