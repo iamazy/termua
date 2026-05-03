@@ -1,18 +1,14 @@
 use std::collections::HashMap;
 
 use gpui_term::shell::{
-    ShellKind, TERMUA_FISH_INIT_ENV_KEY, TERMUA_NU_CONFIG_ENV_KEY, TERMUA_NU_ENV_CONFIG_ENV_KEY,
-    TERMUA_PWSH_INIT_ENV_KEY, TERMUA_SHELL_ENV_KEY, pick_shell_program_from_env_or_else,
-    shell_kind,
+    ShellKind, TERMUA_SHELL_ENV_KEY, pick_shell_program_from_env_or_else, shell_kind,
 };
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 const OSC133_BASH: &str = include_str!("../../assets/shell/termua-osc133.bash");
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 const OSC133_ZSH: &str = include_str!("../../assets/shell/termua-osc133.zsh");
-const OSC133_FISH: &str = include_str!("../../assets/shell/termua-osc133.fish");
-const OSC133_NU: &str = include_str!("../../assets/shell/termua-osc133.nu");
-const NU_ENV_CONFIG: &str = include_str!("../../assets/shell/termua-env.nu");
+#[cfg(any(windows, test))]
 const OSC133_PWSH: &str = include_str!("../../assets/shell/termua-osc133.ps1");
 
 pub(crate) fn maybe_inject_local_shell_osc133(
@@ -24,15 +20,18 @@ pub(crate) fn maybe_inject_local_shell_osc133(
     };
 
     match shell_kind(&shell_program) {
+        #[cfg(target_os = "linux")]
         ShellKind::Bash => maybe_inject_local_bash_osc133(env, terminal_id),
+        #[cfg(target_os = "macos")]
         ShellKind::Zsh => maybe_inject_local_zsh_osc133(env, terminal_id),
-        ShellKind::Fish => maybe_inject_local_fish_osc133(env, terminal_id),
-        ShellKind::Nu => maybe_inject_local_nu_osc133(env, terminal_id),
-        ShellKind::PowerShell => maybe_inject_local_powershell_osc133(env, terminal_id),
+        #[cfg(windows)]
+        ShellKind::Pwsh => maybe_inject_local_pwsh_osc133(env, terminal_id),
         ShellKind::Other => env,
+        _ => env,
     }
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn maybe_inject_local_bash_osc133(
     env: HashMap<String, String>,
     terminal_id: usize,
@@ -71,6 +70,7 @@ pub(crate) fn maybe_inject_local_bash_osc133(
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn maybe_inject_local_zsh_osc133(
     env: HashMap<String, String>,
     terminal_id: usize,
@@ -115,69 +115,8 @@ pub(crate) fn maybe_inject_local_zsh_osc133(
     }
 }
 
-pub(crate) fn maybe_inject_local_fish_osc133(
-    env: HashMap<String, String>,
-    terminal_id: usize,
-) -> HashMap<String, String> {
-    let mut env = env;
-    let Some(shell_program) = selected_shell_program_for_env(&env) else {
-        return env;
-    };
-    if !is_fish_program(&shell_program) {
-        return env;
-    }
-
-    match write_fish_init(terminal_id) {
-        Ok(init_path) => {
-            env.insert("SHELL".to_string(), shell_program.clone());
-            env.insert(TERMUA_SHELL_ENV_KEY.to_string(), shell_program);
-            env.insert(
-                TERMUA_FISH_INIT_ENV_KEY.to_string(),
-                init_path.to_string_lossy().to_string(),
-            );
-        }
-        Err(err) => {
-            log::warn!("termua: failed to inject OSC133 fish integration: {err:#}");
-        }
-    }
-
-    env
-}
-
-pub(crate) fn maybe_inject_local_nu_osc133(
-    env: HashMap<String, String>,
-    terminal_id: usize,
-) -> HashMap<String, String> {
-    let mut env = env;
-    let Some(shell_program) = selected_shell_program_for_env(&env) else {
-        return env;
-    };
-    if !is_nu_program(&shell_program) {
-        return env;
-    }
-
-    match write_nu_config_dir(terminal_id) {
-        Ok((config_path, env_config_path)) => {
-            env.insert("SHELL".to_string(), shell_program.clone());
-            env.insert(TERMUA_SHELL_ENV_KEY.to_string(), shell_program);
-            env.insert(
-                TERMUA_NU_CONFIG_ENV_KEY.to_string(),
-                config_path.to_string_lossy().to_string(),
-            );
-            env.insert(
-                TERMUA_NU_ENV_CONFIG_ENV_KEY.to_string(),
-                env_config_path.to_string_lossy().to_string(),
-            );
-        }
-        Err(err) => {
-            log::warn!("termua: failed to inject OSC133 nushell integration: {err:#}");
-        }
-    }
-
-    env
-}
-
-pub(crate) fn maybe_inject_local_powershell_osc133(
+#[cfg(windows)]
+pub(crate) fn maybe_inject_local_pwsh_osc133(
     env: HashMap<String, String>,
     terminal_id: usize,
 ) -> HashMap<String, String> {
@@ -194,12 +133,12 @@ pub(crate) fn maybe_inject_local_powershell_osc133(
             env.insert("SHELL".to_string(), shell_program.clone());
             env.insert(TERMUA_SHELL_ENV_KEY.to_string(), shell_program);
             env.insert(
-                TERMUA_PWSH_INIT_ENV_KEY.to_string(),
+                gpui_term::shell::TERMUA_PWSH_INIT_ENV_KEY.to_string(),
                 init_path.to_string_lossy().to_string(),
             );
         }
         Err(err) => {
-            log::warn!("termua: failed to inject OSC133 powershell integration: {err:#}");
+            log::warn!("termua: failed to inject OSC133 pwsh integration: {err:#}");
         }
     }
 
@@ -210,24 +149,17 @@ fn selected_shell_program_for_env(env: &HashMap<String, String>) -> Option<Strin
     pick_shell_program_from_env_or_else(env, || std::env::var("SHELL").ok())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn is_bash_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Bash)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn is_zsh_program(program: &str) -> bool {
     matches!(shell_kind(program), ShellKind::Zsh)
 }
 
-fn is_fish_program(program: &str) -> bool {
-    matches!(shell_kind(program), ShellKind::Fish)
-}
-
-fn is_nu_program(program: &str) -> bool {
-    matches!(shell_kind(program), ShellKind::Nu)
-}
-
+#[cfg(any(windows, test))]
 fn is_pwsh_program(program: &str) -> bool {
     let program = program.trim();
     if program.is_empty() {
@@ -290,15 +222,10 @@ fn set_private_file_permissions(_path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn set_private_dir_permissions(path: &std::path::Path) -> anyhow::Result<()> {
     use std::{fs, os::unix::fs::PermissionsExt as _};
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_private_dir_permissions(_path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -314,7 +241,7 @@ fn unique_shell_path(name: &str) -> anyhow::Result<std::path::PathBuf> {
     Ok(dir.join(format!("{name}-{pid}-{ts}")))
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn write_bash_rcfile(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
     use std::fs;
 
@@ -334,7 +261,7 @@ fn write_bash_rcfile(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
     Ok(rc_path)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn write_zsh_dotdir(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
     use std::fs;
 
@@ -381,16 +308,7 @@ fn write_zsh_dotdir(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
     Ok(zdotdir)
 }
 
-fn write_fish_init(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
-    use std::fs;
-
-    let init_path =
-        unique_shell_path(&format!("termua-fish-init-{terminal_id}"))?.with_extension("fish");
-    fs::write(&init_path, OSC133_FISH)?;
-    set_private_file_permissions(&init_path)?;
-    Ok(init_path)
-}
-
+#[cfg(windows)]
 fn write_powershell_init(terminal_id: usize) -> anyhow::Result<std::path::PathBuf> {
     use std::fs;
 
@@ -401,70 +319,11 @@ fn write_powershell_init(terminal_id: usize) -> anyhow::Result<std::path::PathBu
     Ok(init_path)
 }
 
-fn render_nu_config(orig_config_path: Option<&std::path::Path>) -> String {
-    OSC133_NU.replace(
-        "__TERMUA_ORIG_CONFIG__",
-        &nushell_source_literal(orig_config_path),
-    )
-}
-
-fn render_nu_env_config(orig_env_path: Option<&std::path::Path>) -> String {
-    NU_ENV_CONFIG.replace(
-        "__TERMUA_ORIG_ENV__",
-        &nushell_source_literal(orig_env_path),
-    )
-}
-
-fn nushell_source_literal(path: Option<&std::path::Path>) -> String {
-    path.map(|path| format!("{:?}", path.to_string_lossy()))
-        .unwrap_or_else(|| "null".to_string())
-}
-
-fn existing_nushell_user_config_file(file_name: &str) -> Option<std::path::PathBuf> {
-    let base_config_dir = std::env::var_os("XDG_CONFIG_HOME")
-        .or_else(|| std::env::var_os("APPDATA"))
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| {
-                std::path::PathBuf::from(home)
-                    .join(".config")
-                    .into_os_string()
-            })
-        })
-        .map(std::path::PathBuf::from)?;
-    let path = base_config_dir.join("nushell").join(file_name);
-    path.exists().then_some(path)
-}
-
-fn write_nu_config_dir(
-    terminal_id: usize,
-) -> anyhow::Result<(std::path::PathBuf, std::path::PathBuf)> {
-    use std::fs;
-
-    let config_dir = unique_shell_path(&format!("termua-nu-config-{terminal_id}"))?;
-    fs::create_dir_all(&config_dir)?;
-    set_private_dir_permissions(&config_dir)?;
-
-    let env_config_path = config_dir.join("env.nu");
-    let config_path = config_dir.join("config.nu");
-
-    let orig_env_path = existing_nushell_user_config_file("env.nu");
-    let orig_config_path = existing_nushell_user_config_file("config.nu");
-    let env_config = render_nu_env_config(orig_env_path.as_deref());
-    let config = render_nu_config(orig_config_path.as_deref());
-
-    fs::write(&env_config_path, env_config)?;
-    fs::write(&config_path, config)?;
-    set_private_file_permissions(&env_config_path)?;
-    set_private_file_permissions(&config_path)?;
-
-    Ok((config_path, env_config_path))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn detects_bash_program_by_basename() {
         assert!(is_bash_program("bash"));
@@ -472,26 +331,12 @@ mod tests {
         assert!(!is_bash_program("zsh"));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn detects_zsh_program_by_basename() {
         assert!(is_zsh_program("zsh"));
         assert!(is_zsh_program("/bin/zsh"));
         assert!(!is_zsh_program("bash"));
-    }
-
-    #[test]
-    fn detects_fish_program_by_basename() {
-        assert!(is_fish_program("fish"));
-        assert!(is_fish_program("/usr/bin/fish"));
-        assert!(!is_fish_program("bash"));
-    }
-
-    #[test]
-    fn detects_nu_program_by_basename() {
-        assert!(is_nu_program("nu"));
-        assert!(is_nu_program("/usr/bin/nu"));
-        assert!(!is_nu_program("bash"));
     }
 
     #[test]
@@ -502,7 +347,7 @@ mod tests {
         assert!(!is_pwsh_program("bash"));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn injection_writes_rcfile_and_sets_env() {
         // First, ensure the underlying filesystem write succeeds (helps provide
@@ -524,7 +369,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn zsh_injection_writes_dotdir_and_sets_env() {
         let dotdir = write_zsh_dotdir(7).expect("write dotdir");
@@ -543,97 +388,9 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(windows)]
     #[test]
-    fn fish_injection_writes_init_and_sets_env() {
-        let init = write_fish_init(7).expect("write fish init");
-        assert!(init.exists(), "fish init should exist");
-
-        let mut env = HashMap::new();
-        env.insert("SHELL".to_string(), "fish".to_string());
-
-        let env = maybe_inject_local_shell_osc133(env, 7);
-        assert_eq!(env.get("TERMUA_SHELL").map(String::as_str), Some("fish"));
-        let init_path = env
-            .get("TERMUA_FISH_INIT")
-            .expect("expected TERMUA_FISH_INIT to be set");
-        assert!(
-            std::path::Path::new(init_path).exists(),
-            "fish init should exist"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fish_init_disables_reflow_only_in_termua() {
-        let init = write_fish_init(7).expect("write fish init");
-        let contents = std::fs::read_to_string(init).expect("read fish init");
-
-        assert!(
-            contents.contains("set -g fish_handle_reflow 0"),
-            "fish init should disable fish_handle_reflow for Termua sessions"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn nu_injection_writes_configs_and_sets_env() {
-        let (config, env_config) = write_nu_config_dir(7).expect("write nu config dir");
-        assert!(config.exists(), "nu config should exist");
-        assert!(env_config.exists(), "nu env config should exist");
-
-        let mut env = HashMap::new();
-        env.insert("SHELL".to_string(), "nu".to_string());
-
-        let env = maybe_inject_local_shell_osc133(env, 7);
-        assert_eq!(env.get("TERMUA_SHELL").map(String::as_str), Some("nu"));
-        assert!(
-            std::path::Path::new(
-                env.get("TERMUA_NU_CONFIG")
-                    .expect("expected TERMUA_NU_CONFIG to be set")
-            )
-            .exists(),
-            "nu config should exist"
-        );
-        assert!(
-            std::path::Path::new(
-                env.get("TERMUA_NU_ENV_CONFIG")
-                    .expect("expected TERMUA_NU_ENV_CONFIG to be set")
-            )
-            .exists(),
-            "nu env config should exist"
-        );
-    }
-
-    #[test]
-    fn renders_nu_config_with_const_source_path_and_non_deprecated_get_flag() {
-        let config = render_nu_config(None);
-
-        assert!(config.contains("hooks.pre_prompt"));
-        assert!(config.contains("hooks.pre_execution"));
-        assert!(config.contains("133;A"));
-        assert!(config.contains("133;B"));
-        assert!(config.contains("133;C"));
-        assert!(config.contains("133;D;($__termua_exit)"));
-        assert!(config.contains("const __termua_orig_config = null"));
-        assert!(config.contains("source $__termua_orig_config"));
-        assert!(config.contains("get -o hooks.pre_prompt"));
-        assert!(config.contains("get -o hooks.pre_execution"));
-        assert!(!config.contains("let __termua_orig_config"));
-        assert!(!config.contains("get -i"));
-    }
-
-    #[test]
-    fn renders_nu_env_config_with_const_source_env_path() {
-        let env_config = render_nu_env_config(None);
-
-        assert!(env_config.contains("const __termua_orig_env = null"));
-        assert!(env_config.contains("source-env $__termua_orig_env"));
-        assert!(!env_config.contains("let __termua_orig_env"));
-    }
-
-    #[test]
-    fn powershell_injection_writes_init_and_sets_env() {
+    fn pwsh_injection_writes_init_and_sets_env() {
         let init = write_powershell_init(7).expect("write powershell init");
         assert!(init.exists(), "powershell init should exist");
 
@@ -661,7 +418,64 @@ mod tests {
         assert_eq!(env.get("TERMUA_PWSH_INIT").map(String::as_str), None);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_only_integrates_bash() {
+        let mut bash_env = HashMap::new();
+        bash_env.insert("SHELL".to_string(), "bash".to_string());
+        let bash_env = maybe_inject_local_shell_osc133(bash_env, 7);
+        assert_eq!(
+            bash_env.get("TERMUA_SHELL").map(String::as_str),
+            Some("bash")
+        );
+        assert!(bash_env.contains_key("TERMUA_BASH_RCFILE"));
+
+        let mut zsh_env = HashMap::new();
+        zsh_env.insert("SHELL".to_string(), "zsh".to_string());
+        let zsh_env = maybe_inject_local_shell_osc133(zsh_env, 7);
+        assert_eq!(zsh_env.get("TERMUA_SHELL").map(String::as_str), None);
+        assert_eq!(zsh_env.get("ZDOTDIR").map(String::as_str), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_only_integrates_zsh() {
+        let mut zsh_env = HashMap::new();
+        zsh_env.insert("SHELL".to_string(), "zsh".to_string());
+        let zsh_env = maybe_inject_local_shell_osc133(zsh_env, 7);
+        assert_eq!(zsh_env.get("TERMUA_SHELL").map(String::as_str), Some("zsh"));
+        assert!(zsh_env.contains_key("ZDOTDIR"));
+
+        let mut bash_env = HashMap::new();
+        bash_env.insert("SHELL".to_string(), "bash".to_string());
+        let bash_env = maybe_inject_local_shell_osc133(bash_env, 7);
+        assert_eq!(bash_env.get("TERMUA_SHELL").map(String::as_str), None);
+        assert_eq!(bash_env.get("TERMUA_BASH_RCFILE").map(String::as_str), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_only_integrates_pwsh() {
+        let mut pwsh_env = HashMap::new();
+        pwsh_env.insert("SHELL".to_string(), "pwsh".to_string());
+        let pwsh_env = maybe_inject_local_shell_osc133(pwsh_env, 7);
+        assert_eq!(
+            pwsh_env.get("TERMUA_SHELL").map(String::as_str),
+            Some("pwsh")
+        );
+        assert!(pwsh_env.contains_key("TERMUA_PWSH_INIT"));
+
+        let mut powershell_env = HashMap::new();
+        powershell_env.insert("SHELL".to_string(), "powershell".to_string());
+        let powershell_env = maybe_inject_local_shell_osc133(powershell_env, 7);
+        assert_eq!(powershell_env.get("TERMUA_SHELL").map(String::as_str), None);
+        assert_eq!(
+            powershell_env.get("TERMUA_PWSH_INIT").map(String::as_str),
+            None
+        );
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn zsh_osc133_script_avoids_readonly_status_parameter() {
         assert!(
@@ -671,10 +485,33 @@ mod tests {
         assert!(OSC133_ZSH.contains("local exit_status=$?"));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn osc133_shell_scripts_emit_prompt_markers() {
-        for script in [OSC133_BASH, OSC133_ZSH, OSC133_FISH, OSC133_NU, OSC133_PWSH] {
+        for script in [OSC133_BASH, OSC133_PWSH] {
+            assert!(
+                script.contains("133;A") || script.contains("\"A\""),
+                "expected script to emit prompt start marker"
+            );
+            assert!(
+                script.contains("133;B") || script.contains("\"B\""),
+                "expected script to emit prompt end marker"
+            );
+            assert!(
+                script.contains("133;C") || script.contains("\"C\""),
+                "expected script to emit command start marker"
+            );
+            assert!(
+                script.contains("133;D") || script.contains("\"D;"),
+                "expected script to emit command end marker"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn osc133_shell_scripts_emit_prompt_markers() {
+        for script in [OSC133_ZSH, OSC133_PWSH] {
             assert!(
                 script.contains("133;A") || script.contains("\"A\""),
                 "expected script to emit prompt start marker"

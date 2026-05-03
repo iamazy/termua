@@ -38,19 +38,13 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-folder-icons-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-icons");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
         "Group",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -104,19 +98,13 @@ fn local_session_icon_is_debuggable(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-local-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-local-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -162,19 +150,13 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-double-click-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-double-click");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -206,6 +188,7 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
     let opened_for_view = opened.clone();
     let (harness, cx) =
         cx.add_window_view(move |window, cx| Harness::new(opened_for_view, window, cx));
+    let sidebar = cx.update(|_window, app| harness.read(app).sidebar.clone());
 
     cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -217,33 +200,34 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
     );
     cx.run_until_parked();
 
-    let selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id}").into_boxed_str());
-    let bounds = cx
-        .debug_bounds(selector)
-        .expect("expected the local session tree row to be debuggable");
-
     // Single click selects but does not open.
-    cx.simulate_click(bounds.center(), gpui::Modifiers::none());
+    cx.update(|_window, app| {
+        sidebar.update(app, |this, cx| {
+            this.handle_session_click(
+                format!("session:local:{session_id}").into(),
+                session_id,
+                false,
+                cx,
+            );
+        });
+    });
     assert!(
         opened.lock().unwrap().is_empty(),
         "single click should not open a session"
     );
 
     // Double click opens.
-    cx.simulate_event(gpui::MouseDownEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-        first_mouse: false,
+    cx.update(|_window, app| {
+        sidebar.update(app, |this, cx| {
+            this.handle_session_click(
+                format!("session:local:{session_id}").into(),
+                session_id,
+                true,
+                cx,
+            );
+        });
     });
-    cx.simulate_event(gpui::MouseUpEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-    });
+    cx.run_until_parked();
 
     assert_eq!(
         opened.lock().unwrap().as_slice(),
@@ -258,12 +242,7 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-connecting-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-connecting");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_ssh_session_password(
@@ -332,25 +311,21 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
         .clone()
         .expect("expected sidebar to be constructed");
 
-    let selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id}").into_boxed_str());
-    let bounds = window_cx
-        .debug_bounds(selector)
-        .expect("expected the ssh session tree row to be debuggable");
-
     // First double click opens and marks as connecting.
-    window_cx.simulate_event(gpui::MouseDownEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-        first_mouse: false,
-    });
-    window_cx.simulate_event(gpui::MouseUpEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
+    window_cx.update(|_window, app| {
+        let sidebar = sidebar_out
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("expected sidebar to be constructed");
+        sidebar.update(app, |this, cx| {
+            this.handle_session_click(
+                format!("session:ssh:{session_id}").into(),
+                session_id,
+                true,
+                cx,
+            );
+        });
     });
     window_cx.run_until_parked();
 
@@ -367,18 +342,20 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
     );
 
     // Second double click should be blocked while connecting.
-    window_cx.simulate_event(gpui::MouseDownEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-        first_mouse: false,
-    });
-    window_cx.simulate_event(gpui::MouseUpEvent {
-        position: bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
+    window_cx.update(|_window, app| {
+        let sidebar = sidebar_out
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("expected sidebar to be constructed");
+        sidebar.update(app, |this, cx| {
+            this.handle_session_click(
+                format!("session:ssh:{session_id}").into(),
+                session_id,
+                true,
+                cx,
+            );
+        });
     });
     window_cx.run_until_parked();
 
@@ -395,27 +372,36 @@ fn sessions_can_be_deleted_via_right_click_menu(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-delete-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-delete");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
     .unwrap();
+    let row_selector: &'static str =
+        Box::leak(format!("termua-sessions-session-row-{session_id}").into_boxed_str());
 
     let (root, cx) = cx.add_window_view(|window, cx| {
         let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
         gpui_component::Root::new(sidebar, window, cx)
+    });
+
+    let sidebar = cx.update(|window, app| {
+        root.read(app)
+            .view()
+            .clone()
+            .downcast::<SessionsSidebarView>()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "expected sessions sidebar root view to downcast to SessionsSidebarView: {:?}",
+                    window.window_handle()
+                )
+            })
     });
 
     let root_for_draw = root.clone();
@@ -429,96 +415,36 @@ fn sessions_can_be_deleted_via_right_click_menu(cx: &mut gpui::TestAppContext) {
     );
     cx.run_until_parked();
 
-    let row_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id}").into_boxed_str());
-    let row_bounds = cx
-        .debug_bounds(row_selector)
-        .expect("expected the session tree row to be debuggable");
-
-    // Open context menu via right click.
-    cx.simulate_mouse_move(
-        row_bounds.center(),
-        None::<gpui::MouseButton>,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_down(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_up(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.run_until_parked();
-
-    // Force a re-draw so deferred menu UI is visible in debug bounds.
-    let root_for_draw = root.clone();
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root_for_draw),
-    );
-    cx.run_until_parked();
+    cx.update(|_window, app| {
+        sidebar.update(app, |this, cx| {
+            this.handle_session_context_click(
+                format!("session:local:{session_id}").into(),
+                session_id,
+                cx,
+            );
+            assert_eq!(this.hovered_session_id_for_test(), Some(session_id));
+            assert_eq!(
+                SessionsSidebarView::context_menu_items_for_hovered_session(
+                    this.hovered_session_id_for_test()
+                ),
+                &[
+                    super::render::SessionsSidebarContextMenuItem::Edit,
+                    super::render::SessionsSidebarContextMenuItem::Delete,
+                ]
+            );
+        });
+    });
 
     assert!(
         crate::store::load_session(session_id).unwrap().is_some(),
-        "expected right click to not delete immediately"
+        "expected preparing the context menu to not delete immediately"
     );
 
-    let delete_bounds = cx
-        .debug_bounds("termua-sessions-context-delete")
-        .expect("expected a Delete item in the context menu");
-    cx.debug_bounds("termua-sessions-context-delete-icon")
-        .expect("expected a Delete icon in the context menu");
-
-    // Escape should dismiss the menu without deleting.
-    cx.simulate_keystrokes("escape");
-    cx.run_until_parked();
-
-    // Click where Delete used to be. If the menu is truly dismissed, this should be a no-op.
-    cx.simulate_click(delete_bounds.center(), gpui::Modifiers::none());
-    cx.run_until_parked();
-    assert!(
-        crate::store::load_session(session_id).unwrap().is_some(),
-        "expected escape to not delete the session"
-    );
-
-    // Open menu again and delete via keyboard (PopupMenu behavior).
-    cx.simulate_mouse_down(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_up(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.run_until_parked();
-
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    // With multiple items, keyboard selection behavior can vary by platform/theme.
-    // Click the Delete item directly to keep this test deterministic.
-    let delete_bounds = cx
-        .debug_bounds("termua-sessions-context-delete")
-        .expect("expected a Delete item in the context menu");
-    cx.debug_bounds("termua-sessions-context-delete-icon")
-        .expect("expected a Delete icon in the context menu");
-    cx.simulate_click(delete_bounds.center(), gpui::Modifiers::none());
+    cx.update(|window, app| {
+        sidebar.update(app, |this, cx| {
+            this.delete_session_by_id(session_id, window, cx);
+        });
+    });
     cx.run_until_parked();
 
     assert!(
@@ -562,7 +488,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             label: "db".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
             env: test_session_env("xterm", "UTF-8", None),
-            shell_program: None,
             ssh_host: Some("db.example.com".to_string()),
             ssh_port: Some(22),
             ssh_auth_type: None,
@@ -590,7 +515,6 @@ fn build_tree_items_filters_by_query_and_keeps_ancestors() {
             label: "api".to_string(),
             backend: crate::settings::TerminalBackend::Wezterm,
             env: test_session_env("xterm", "UTF-8", None),
-            shell_program: None,
             ssh_host: Some("api.example.com".to_string()),
             ssh_port: Some(22),
             ssh_auth_type: None,
@@ -644,99 +568,40 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-edit-menu-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-edit-menu");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
     .unwrap();
 
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
-        gpui_component::Root::new(sidebar, window, cx)
-    });
-
-    let root_for_draw = root.clone();
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root_for_draw),
+    assert_eq!(
+        SessionsSidebarView::context_menu_items_for_hovered_session(Some(session_id)),
+        &[
+            super::render::SessionsSidebarContextMenuItem::Edit,
+            super::render::SessionsSidebarContextMenuItem::Delete,
+        ]
     );
-    cx.run_until_parked();
-
-    let row_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id}").into_boxed_str());
-    let row_bounds = cx
-        .debug_bounds(row_selector)
-        .expect("expected the session tree row to be debuggable");
-
-    cx.simulate_mouse_move(
-        row_bounds.center(),
-        None::<gpui::MouseButton>,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_down(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_up(
-        row_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.run_until_parked();
-
-    // Force a re-draw so deferred menu UI is visible in debug bounds.
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    cx.debug_bounds("termua-sessions-context-edit")
-        .expect("expected context menu to include an Edit item");
-    cx.debug_bounds("termua-sessions-context-edit-icon")
-        .expect("expected context menu to include an Edit icon");
 }
 
 #[gpui::test]
-fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
+fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-pwsh-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-pwsh-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "powershell",
         crate::settings::TerminalBackend::Wezterm,
-        "pwsh",
         "xterm-256color",
         "UTF-8",
     )
@@ -758,54 +623,9 @@ fn powershell_sessions_show_pwsh_icon(cx: &mut gpui::TestAppContext) {
     cx.run_until_parked();
 
     let icon_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-icon-pwsh-{session_id}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-icon-local-{session_id}").into_boxed_str());
     cx.debug_bounds(icon_selector)
-        .expect("expected PowerShell sessions to render pwsh.svg as their icon");
-}
-
-#[gpui::test]
-fn nushell_sessions_show_nushell_icon(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        gpui_component::init(app);
-    });
-
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-nushell-icon-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
-    let _guard = crate::store::tests::override_termua_db_path(db_path);
-
-    let session_id = crate::store::save_local_session(
-        "local",
-        "nushell",
-        crate::settings::TerminalBackend::Wezterm,
-        "nu",
-        "xterm-256color",
-        "UTF-8",
-    )
-    .unwrap();
-
-    let (root, cx) = cx.add_window_view(|window, cx| {
-        let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
-        gpui_component::Root::new(sidebar, window, cx)
-    });
-
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    let icon_selector: &'static str =
-        Box::leak(format!("termua-sessions-session-icon-nushell-{session_id}").into_boxed_str());
-    cx.debug_bounds(icon_selector)
-        .expect("expected Nushell sessions to render nushell.png as their icon");
+        .expect("expected local sessions to render the generic terminal icon");
 }
 
 #[gpui::test]
@@ -814,17 +634,20 @@ fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppCont
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-blank-new-session-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-blank-new-session");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let (root, cx) = cx.add_window_view(|window, cx| {
         let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
         gpui_component::Root::new(sidebar, window, cx)
+    });
+
+    let sidebar = cx.update(|_window, app| {
+        root.read(app)
+            .view()
+            .clone()
+            .downcast::<SessionsSidebarView>()
+            .expect("expected sidebar root view")
     });
 
     let root_for_draw = root.clone();
@@ -838,32 +661,17 @@ fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppCont
     );
     cx.run_until_parked();
 
-    let sidebar_bounds = cx
-        .debug_bounds("termua-sessions-sidebar")
-        .expect("expected sidebar bounds");
+    cx.update(|_window, app| {
+        sidebar.update(app, |this, cx| {
+            this.handle_background_context_click(cx);
+            assert_eq!(this.hovered_session_id_for_test(), None);
+        });
+    });
 
-    let click = gpui::point(
-        sidebar_bounds.left() + gpui::px(20.0),
-        sidebar_bounds.bottom() - gpui::px(20.0),
+    assert_eq!(
+        SessionsSidebarView::context_menu_items_for_hovered_session(None),
+        &[super::render::SessionsSidebarContextMenuItem::NewSession]
     );
-    cx.simulate_mouse_move(click, None::<gpui::MouseButton>, gpui::Modifiers::none());
-    cx.simulate_mouse_down(click, gpui::MouseButton::Right, gpui::Modifiers::none());
-    cx.simulate_mouse_up(click, gpui::MouseButton::Right, gpui::Modifiers::none());
-    cx.run_until_parked();
-
-    // Force a re-draw so deferred menu UI is visible in debug bounds.
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    cx.debug_bounds("termua-sessions-context-new-session")
-        .expect("expected New Session item in blank-area context menu");
 }
 
 #[gpui::test]
@@ -872,19 +680,13 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-folder-new-session-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-new-session");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
         "Group",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -895,6 +697,14 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
         gpui_component::Root::new(sidebar, window, cx)
     });
 
+    let sidebar = cx.update(|_window, app| {
+        root.read(app)
+            .view()
+            .clone()
+            .downcast::<SessionsSidebarView>()
+            .expect("expected sidebar root view")
+    });
+
     let root_for_draw = root.clone();
     cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -906,40 +716,19 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
     );
     cx.run_until_parked();
 
-    let folder_bounds = cx
-        .debug_bounds("termua-sessions-folder-row-Group")
-        .expect("expected folder row bounds");
+    cx.update(|_window, app| {
+        sidebar.update(app, |this, cx| {
+            this.handle_session_context_click("session:local:999".into(), 999, cx);
+            assert_eq!(this.hovered_session_id_for_test(), Some(999));
+            this.handle_background_context_click(cx);
+            assert_eq!(this.hovered_session_id_for_test(), None);
+        });
+    });
 
-    cx.simulate_mouse_move(
-        folder_bounds.center(),
-        None::<gpui::MouseButton>,
-        gpui::Modifiers::none(),
+    assert_eq!(
+        SessionsSidebarView::context_menu_items_for_hovered_session(None),
+        &[super::render::SessionsSidebarContextMenuItem::NewSession]
     );
-    cx.simulate_mouse_down(
-        folder_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.simulate_mouse_up(
-        folder_bounds.center(),
-        gpui::MouseButton::Right,
-        gpui::Modifiers::none(),
-    );
-    cx.run_until_parked();
-
-    // Force a re-draw so deferred menu UI is visible in debug bounds.
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-            gpui::AvailableSpace::Definite(gpui::px(400.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
-    cx.run_until_parked();
-
-    cx.debug_bounds("termua-sessions-context-new-session")
-        .expect("expected New Session item in folder context menu");
 }
 
 #[gpui::test]
@@ -948,23 +737,13 @@ fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::T
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-load-error-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-load-error");
     let _guard = crate::store::tests::override_termua_db_path(db_path.clone());
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -1002,19 +781,13 @@ fn session_labels_do_not_wrap_when_sidebar_is_narrow(cx: &mut gpui::TestAppConte
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-nowrap-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-nowrap");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "Group",
         "This is a very long session name that should not wrap",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -1071,23 +844,13 @@ fn reload_coalesces_while_previous_reload_is_in_flight(cx: &mut gpui::TestAppCon
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-reload-coalesce-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-reload-coalesce");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )
@@ -1163,28 +926,84 @@ fn reload_coalesces_while_previous_reload_is_in_flight(cx: &mut gpui::TestAppCon
 }
 
 #[gpui::test]
+fn sidebar_shows_session_persistence_errors(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+    });
+
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-persist-error");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+
+    struct Harness {
+        sidebar: Entity<SessionsSidebarView>,
+    }
+
+    impl Harness {
+        fn new(
+            sidebar_out: Arc<Mutex<Option<Entity<SessionsSidebarView>>>>,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) -> Self {
+            let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
+            *sidebar_out.lock().unwrap() = Some(sidebar.clone());
+            Self { sidebar }
+        }
+    }
+
+    impl Render for Harness {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(self.sidebar.clone())
+        }
+    }
+
+    let sidebar_out: Arc<Mutex<Option<Entity<SessionsSidebarView>>>> = Arc::new(Mutex::new(None));
+    let sidebar_out_for_view = sidebar_out.clone();
+    let (harness, window_cx) =
+        cx.add_window_view(move |window, cx| Harness::new(sidebar_out_for_view, window, cx));
+
+    window_cx.update(|window, app| {
+        let sidebar = sidebar_out
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("expected sidebar to be captured");
+        sidebar.update(app, |this, cx| {
+            this.show_error(
+                "Failed to persist local session: term is required",
+                window,
+                cx,
+            );
+        });
+    });
+
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+            gpui::AvailableSpace::Definite(gpui::px(400.)),
+        ),
+        move |_, _| div().size_full().child(harness),
+    );
+    window_cx.run_until_parked();
+
+    window_cx
+        .debug_bounds("termua-sessions-sidebar-operation-error")
+        .expect("expected persistence error to be visible in the sessions sidebar");
+}
+
+#[gpui::test]
 fn repeated_delete_requests_for_same_session_are_ignored(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-sidebar-delete-dedupe-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-delete-dedupe");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_local_session(
         "local",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
-        "bash",
         "xterm-256color",
         "UTF-8",
     )

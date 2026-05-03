@@ -494,12 +494,7 @@ fn ssh_connect_clears_sessions_sidebar_connecting_state(cx: &mut gpui::TestAppCo
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-ssh-sidebar-connecting-cleared-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("ssh-sidebar-connecting-cleared");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id = crate::store::save_ssh_session_config(
@@ -1080,6 +1075,122 @@ fn close_terminal_event_keeps_recorder_tab_open(cx: &mut gpui::TestAppContext) {
     assert_eq!(
         terminal_tabs_after, 1,
         "expected recorder tab to stay open after playback exit"
+    );
+}
+
+#[gpui::test]
+fn exited_recorder_tab_closes_on_ctrl_d(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::Keystroke;
+    use gpui_dock::{DockPlacement, PanelView};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
+
+    let (root, window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
+
+    let terminal_view = window_cx.update(|window, app| {
+        let recording_active = Arc::new(AtomicBool::new(false));
+        let terminal = app.new(|_cx| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::with_exited(recording_active.clone(), true)),
+            )
+        });
+        let terminal_view = app.new(|cx| TerminalView::new(terminal.clone(), window, cx));
+        let panel = app.new(|_| {
+            crate::panel::TerminalPanel::new(
+                79,
+                crate::panel::PanelKind::Recorder,
+                "recorder 79".into(),
+                None,
+                terminal_view.clone(),
+            )
+        });
+
+        termua.update(app, |this, cx| {
+            this.subscribe_terminal_events_for_messages(
+                terminal,
+                79,
+                "recorder 79".into(),
+                window,
+                cx,
+            );
+            this.subscribe_terminal_view_events(&terminal_view, window, cx);
+            this.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        terminal_view
+    });
+
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    window_cx.run_until_parked();
+
+    window_cx.update(|_window, app| {
+        terminal_view.update(app, |_view, cx| {
+            cx.emit(TerminalEvent::UserInput(TerminalUserInput::Keystroke(
+                Keystroke::parse("ctrl-d").unwrap(),
+            )));
+        });
+    });
+    window_cx.run_until_parked();
+
+    let terminal_tabs_after = window_cx.update(|_window, app| {
+        termua
+            .read(app)
+            .dock_area
+            .read(app)
+            .visible_tab_panels(app)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(app).active_panel(app))
+            .filter(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::TerminalPanel>()
+                    .is_ok()
+            })
+            .count()
+    });
+    assert_eq!(
+        terminal_tabs_after, 0,
+        "expected exited recorder tab to close on Ctrl-D"
     );
 }
 
@@ -2068,12 +2179,7 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-click-through-fullscreen-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("sessions-click-through-fullscreen");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let session_id_1 = crate::store::save_ssh_session_password(
@@ -2193,9 +2299,9 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     }
 
     let row_selector_1: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id_1}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-row-{session_id_1}").into_boxed_str());
     let row_selector_2: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{session_id_2}").into_boxed_str());
+        Box::leak(format!("termua-sessions-session-row-{session_id_2}").into_boxed_str());
 
     // Baseline: clicking the sessions tree selects a session.
     let row_1_bounds = window_cx
@@ -2423,6 +2529,8 @@ fn dock_tab_move_buttons_render_when_tabs_overflow(cx: &mut gpui::TestAppContext
 
 #[gpui::test]
 fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
     cx.update(|app| {
         gpui_component::init(app);
         menubar::init(app);
@@ -2431,12 +2539,7 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
         app.set_global(TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-sessions-test-missing-password-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("missing-password");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let id = crate::store::save_ssh_session_password(
@@ -2456,10 +2559,18 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
     // instead of silently doing nothing.
     let _ = crate::keychain::delete_ssh_password(id);
 
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
     let (root, cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
         gpui_component::Root::new(view, window, cx)
     });
+    let termua = termua_slot
+        .borrow()
+        .as_ref()
+        .expect("expected TermuaWindow view to be captured")
+        .clone();
 
     cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -2471,29 +2582,15 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
     );
     cx.run_until_parked();
 
-    let selector: &'static str =
-        Box::leak(format!("termua-sessions-session-item-{id}").into_boxed_str());
-    let row_bounds = cx
-        .debug_bounds(selector)
-        .expect("expected the ssh session row to be debuggable");
-
-    cx.simulate_event(gpui::MouseDownEvent {
-        position: row_bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-        first_mouse: false,
-    });
-    cx.simulate_event(gpui::MouseUpEvent {
-        position: row_bounds.center(),
-        modifiers: gpui::Modifiers::none(),
-        button: gpui::MouseButton::Left,
-        click_count: 2,
-    });
-
     cx.update(|window, app| {
-        let root = gpui_component::Root::read(window, app);
-        let notifications = root.notification.read(app).notifications();
+        termua.update(app, |this, cx| {
+            this.open_session_by_id(id, window, cx);
+        });
+    });
+    cx.run_until_parked();
+
+    cx.update(|_window, app| {
+        let notifications = app.global::<notification::NotifyState>().messages.clone();
         assert!(
             !notifications.is_empty(),
             "expected a notification when an ssh password session is missing its password"

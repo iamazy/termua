@@ -22,7 +22,6 @@ struct TerminalKeybindingFieldState {
     clear_enabled: bool,
     display_text: String,
     text_color: gpui::Hsla,
-    border_color: gpui::Hsla,
 }
 
 use super::{
@@ -773,15 +772,7 @@ impl SettingsWindow {
                 h_flex()
                     .items_center()
                     .gap_4()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .text_color(cx.theme().foreground)
-                            .whitespace_normal()
-                            .child(title),
-                    )
+                    .child(self.render_setting_title(title, cx))
                     .child(div().flex_shrink_0().child(control)),
             )
             .child(
@@ -795,18 +786,38 @@ impl SettingsWindow {
             );
 
         if let Some(warning) = warning {
-            row = row.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(cx.theme().warning)
-                    .whitespace_normal()
-                    .child(warning),
-            );
+            row = row.child(self.render_setting_warning(warning, cx));
         }
 
         row
+    }
+
+    pub(super) fn render_setting_title(
+        &self,
+        title: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_sm()
+            .text_color(cx.theme().foreground)
+            .whitespace_normal()
+            .child(title)
+    }
+
+    pub(super) fn render_setting_warning(
+        &self,
+        warning: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .w_full()
+            .min_w_0()
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .whitespace_normal()
+            .child(warning)
     }
 
     fn render_terminal_keybinding(
@@ -825,17 +836,17 @@ impl SettingsWindow {
 
         div()
             .id(format!("termua-settings-keybinding-field-{id}"))
-            .w(px(300.))
-            .h(px(28.))
-            .px_2()
-            .rounded_md()
-            .border_1()
-            .border_color(field_state.border_color)
-            .bg(cx.theme().background.opacity(0.35))
+            .debug_selector(move || format!("termua-settings-keybinding-field-{id}"))
+            .w_full()
+            .h_full()
+            .min_h(px(40.))
+            .px_3()
+            .py_2()
             .text_sm()
             .text_color(field_state.text_color)
             .whitespace_normal()
             .track_focus(&focus_handle)
+            .when(focused, |this| this.bg(cx.theme().accent.opacity(0.08)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |_, _ev: &gpui::MouseDownEvent, window, cx| {
@@ -862,6 +873,7 @@ impl SettingsWindow {
             .child(
                 h_flex()
                     .items_center()
+                    .h_full()
                     .w_full()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(field_state.display_text))
@@ -914,17 +926,10 @@ impl SettingsWindow {
         } else {
             cx.theme().muted_foreground
         };
-        let border_color = if focused {
-            cx.theme().accent
-        } else {
-            cx.theme().border.opacity(0.6)
-        };
-
         TerminalKeybindingFieldState {
             clear_enabled,
             display_text,
             text_color,
-            border_color,
         }
     }
 
@@ -945,12 +950,6 @@ impl SettingsWindow {
                 window.defer(cx, move |window, cx| {
                     settings_focus_for_escape.focus(window, cx)
                 });
-                cx.stop_propagation();
-                return;
-            }
-            "backspace" | "delete" => {
-                self.set_terminal_keybinding_value(id, None);
-                self.apply_terminal_keybindings(window, cx);
                 cx.stop_propagation();
                 return;
             }
@@ -1285,10 +1284,7 @@ impl SettingsWindow {
                         root.update(cx, |root, cx| {
                             root.open_dialog(
                                 move |dialog, _window, _cx| {
-                                    use gpui_component::dialog::DialogButtonProps;
-
                                     dialog
-                                        .confirm()
                                         .title(
                                             t!("Settings.Assistant.DisableZeroClawTitle")
                                                 .to_string(),
@@ -1299,28 +1295,56 @@ impl SettingsWindow {
                                                     .to_string(),
                                             ),
                                         )
-                                        .button_props(
-                                            DialogButtonProps::default()
-                                                .ok_text(
-                                                    t!("Settings.Assistant.\
-                                                        DisableZeroClawStopDaemon")
-                                                    .to_string(),
+                                        .footer(
+                                            h_flex()
+                                                .justify_end()
+                                                .gap_2()
+                                                .child(
+                                                    Button::new(
+                                                        "termua-settings-assistant-disable-dialog-cancel",
+                                                    )
+                                                    .label(
+                                                        t!(
+                                                            "Settings.Assistant.\
+                                                             DisableZeroClawKeepRunning"
+                                                        )
+                                                        .to_string(),
+                                                    )
+                                                    .debug_selector(|| {
+                                                        "termua-settings-assistant-disable-dialog-cancel"
+                                                            .to_string()
+                                                    })
+                                                    .on_click(|_, window, cx| {
+                                                        window.close_dialog(cx);
+                                                    }),
                                                 )
-                                                .cancel_text(
-                                                    t!("Settings.Assistant.\
-                                                        DisableZeroClawKeepRunning")
-                                                    .to_string(),
+                                                .child(
+                                                    Button::new(
+                                                        "termua-settings-assistant-disable-dialog-stop",
+                                                    )
+                                                    .primary()
+                                                    .label(
+                                                        t!(
+                                                            "Settings.Assistant.\
+                                                             DisableZeroClawStopDaemon"
+                                                        )
+                                                        .to_string(),
+                                                    )
+                                                    .debug_selector(|| {
+                                                        "termua-settings-assistant-disable-dialog-stop"
+                                                            .to_string()
+                                                    })
+                                                    .on_click({
+                                                        let settings_entity = settings_entity.clone();
+                                                        move |_, window, cx| {
+                                                            settings_entity.update(cx, |this, cx| {
+                                                                this.shutdown_zeroclaw(window, cx);
+                                                            });
+                                                            window.close_dialog(cx);
+                                                        }
+                                                    }),
                                                 ),
                                         )
-                                        .on_ok({
-                                            let settings_entity = settings_entity.clone();
-                                            move |_ev, window, cx| {
-                                                settings_entity.update(cx, |this, cx| {
-                                                    this.shutdown_zeroclaw(window, cx);
-                                                });
-                                                true
-                                            }
-                                        })
                                 },
                                 window,
                                 cx,

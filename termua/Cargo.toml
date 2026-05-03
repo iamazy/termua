@@ -19,39 +19,50 @@ atomic-write-file.workspace = true
 env_logger.workspace = true
 futures.workspace = true
 gpui.workspace = true
+gpui_platform = { workspace = true, features = ["wayland", "x11"] }
 gpui-component.workspace = true
 gpui_common.workspace = true
 termua_zeroclaw.workspace = true
 log.workspace = true
-gpui_dock = { path = "../crates/gpui_dock" }
-gpui_term = { path = "../crates/gpui_term" }
-gpui_sftp = { path = "../crates/gpui_sftp" }
-gpui_transfer = { path = "../crates/gpui_transfer" }
-menubar = { path = "../crates/menubar" }
+gpui_dock.workspace = true
+gpui_term.workspace = true
+gpui_sftp.workspace = true
+gpui_transfer.workspace = true
+menubar.workspace = true
 termua_relay.workspace = true
 smol.workspace = true
 rustix.workspace = true
-wezterm_ssh = { package = "wezterm-ssh", path = "../crates/wezterm-ssh", features = ["vendored-openssl"] }
+wezterm-ssh = { workspace = true, features = ["vendored-openssl"] }
 home.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_json_lenient.workspace = true
+thiserror.workspace = true
 rusqlite.workspace = true
 libc.workspace = true
 rust-i18n.workspace = true
-rand = "0.9"
+rand.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows = { workspace = true, features = ["Win32", "Win32_Foundation", "Win32_Security", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_System", "Win32_System_Registry", "Win32_System_Threading"] }
+windows = { workspace = true, features = [
+    "Win32",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+    "Win32_System",
+    "Win32_System_Registry",
+    "Win32_System_Threading"
+]}
 
 [target.'cfg(target_os = "linux")'.dependencies]
-secret-service = { workspace = true, features = ["crypto-openssl"] }
+secret-service = { workspace = true, features = ["rt-async-io-crypto-openssl"] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 
 [build-dependencies]
-embed-resource = "3"
+embed-resource.workspace = true
 
 [lints]
 workspace = true

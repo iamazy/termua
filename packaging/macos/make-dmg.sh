@@ -29,6 +29,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+source "$repo_root/packaging/package-version.sh"
 
 app_name="${APP_NAME:-termua}"
 bundle_id="${BUNDLE_ID:-com.iamazy.termua}"
@@ -55,23 +56,13 @@ case "$arch" in
     ;;
 esac
 target="${TARGET:-$default_target}"
+package_version="$(get_termua_package_version "$repo_root/Cargo.toml")"
 
-out_dmg="${OUT_DMG:-target/dmg/$arch/termua-${arch}.dmg}"
+out_dmg="${OUT_DMG:-target/dmg/$arch/termua-$package_version-macos.$arch.dmg}"
 
 bin="${BIN:-target/$target/release/termua}"
 icon_icns="${ICON_ICNS:-}"
 app_bundle="${APP_BUNDLE:-}"
-
-workspace_version="$(
-  awk '
-    $0 ~ /^\[workspace\.package\]/ {in=1; next}
-    in && $0 ~ /^\[/ {in=0}
-    in && match($0, /^version[[:space:]]*=[[:space:]]*"([^"]+)"/, m) {print m[1]; exit}
-  ' Cargo.toml 2>/dev/null || true
-)"
-if [[ -z "$workspace_version" ]]; then
-  workspace_version="0.0.0"
-fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -180,9 +171,9 @@ else
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>${workspace_version}</string>
+    <string>${package_version}</string>
     <key>CFBundleVersion</key>
-    <string>${workspace_version}</string>
+    <string>${package_version}</string>
 EOF
     if [[ -n "$icon_file" ]]; then
       cat <<EOF

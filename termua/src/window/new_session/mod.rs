@@ -33,9 +33,9 @@ pub use state::Protocol;
 use state::{
     BackendSelectItem, EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
     SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState,
-    SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellProgramSelectItem,
-    ShellSessionState, SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState,
-    TermBackend,
+    SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellSessionState,
+    SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState, TermBackend,
+    shell_program_title,
 };
 
 pub struct NewSessionWindow {
@@ -585,20 +585,6 @@ impl NewSessionWindow {
                     }
                 }
             }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.shell.program_select, window, {
-                move |this,
-                      _select,
-                      ev: &SelectEvent<SearchableVec<ShellProgramSelectItem>>,
-                      window,
-                      cx| {
-                    if let SelectEvent::Confirm(Some(program)) = ev {
-                        this.shell.set_program(program.value().as_ref(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
         self._subscriptions.push(
             cx.subscribe_in(&self.shell.common.colorterm_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
@@ -970,7 +956,7 @@ impl SessionCommonState {
 
 impl ShellSessionState {
     fn program_default_value() -> SharedString {
-        gpui_term::shell::fallback_shell_program().into()
+        gpui_term::shell::default_shell_program().into()
     }
 
     fn new(
@@ -985,21 +971,10 @@ impl ShellSessionState {
             "termua-new-session-shell-type-icon",
         );
 
-        let program_options = gpui_term::shell::shell_program_items()
-            .into_iter()
-            .map(|p| ShellProgramSelectItem::new(SharedString::from(p)))
-            .collect::<Vec<_>>();
-        let program = program_options
-            .first()
-            .map(|item| item.program.clone())
-            .unwrap_or_else(Self::program_default_value);
-
-        let program_select = new_select(window, cx, program_options.clone(), Some(0));
+        let program = Self::program_default_value();
 
         let this = Self {
             program,
-            program_options,
-            program_select,
             env_rows: Vec::new(),
             env_next_id: 1,
             common,
@@ -1007,7 +982,7 @@ impl ShellSessionState {
 
         // Initialize label to match the selected program.
         let program = this.program.clone();
-        let label = ShellProgramSelectItem::new(program).title();
+        let label = shell_program_title(program.as_ref());
         this.common.label_input.update(cx, move |input, cx| {
             input.set_value(label.clone(), window, cx);
         });
@@ -1023,27 +998,10 @@ impl ShellSessionState {
     ) {
         let old_program = self.program.clone();
         let current_label = self.common.label_input.read(cx).value().to_string();
-        let old_display_label = ShellProgramSelectItem::new(old_program.clone()).title();
+        let old_display_label = shell_program_title(old_program.as_ref());
 
         let program: SharedString = program.to_string().into();
         self.program = program.clone();
-
-        if !self
-            .program_options
-            .iter()
-            .any(|p| p.program.as_ref() == program.as_ref())
-        {
-            self.program_options
-                .push(ShellProgramSelectItem::new(program.clone()));
-            let items = SearchableVec::new(self.program_options.clone());
-            self.program_select.update(cx, |select, cx| {
-                select.set_items(items, window, cx);
-            });
-        }
-
-        self.program_select.update(cx, |select, cx| {
-            select.set_selected_value(&program, window, cx);
-        });
 
         // Keep the label in sync with the selected shell program, but don't override
         // user-customized labels.
@@ -1052,7 +1010,7 @@ impl ShellSessionState {
             label.is_empty() || label == old_display_label.as_ref() || label == old_program.as_ref()
         };
         if should_update_label {
-            let new_label = ShellProgramSelectItem::new(program).title();
+            let new_label = shell_program_title(program.as_ref());
             self.common.label_input.update(cx, move |input, cx| {
                 input.set_value(new_label.clone(), window, cx);
             });
@@ -1153,7 +1111,6 @@ impl SshSessionState {
             port_input,
             password_input,
             password_edit_unlocked: true,
-            sftp: true,
             tcp_nodelay: true,
             tcp_keepalive: false,
 

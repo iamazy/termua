@@ -132,6 +132,24 @@ function Ensure-CargoWix {
   Ensure-Tool "cargo-wix" "Try: cargo install cargo-wix --locked"
 }
 
+function Get-CargoPackageVersion([string] $packageName) {
+  $metadataJson = & cargo metadata --format-version 1 --no-deps
+  if ($LASTEXITCODE -ne 0) {
+    throw "cargo metadata failed ($LASTEXITCODE)"
+  }
+
+  $metadata = $metadataJson | ConvertFrom-Json
+  $package = $metadata.packages |
+    Where-Object { $_.name -eq $packageName } |
+    Select-Object -First 1
+
+  if (-not $package) {
+    throw "Failed to locate package '$packageName' in cargo metadata."
+  }
+
+  return [string]$package.version
+}
+
 function Try-InstallWixToolset {
   if ($env:TERMUA_AUTO_INSTALL_WIX -ne "1") {
     return
@@ -274,6 +292,72 @@ function Ensure-WixIcon([string] $repoRoot, [string] $icoPath) {
       '<Shortcut Icon="termuaIcon"$1>',
       [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
+
+    if ($content -ne $original) {
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::WriteAllText($file.FullName, $content, $utf8NoBom)
+    }
+  }
+}
+
+function Ensure-WixDesktopShortcut([string] $repoRoot) {
+  $wxsFiles = Find-WxsFiles $repoRoot
+  if (-not $wxsFiles -or $wxsFiles.Count -eq 0) { return }
+
+  foreach ($file in $wxsFiles) {
+    $content = Get-Content -Raw -Path $file.FullName
+    $original = $content
+
+    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
+    $mainFileMatch = [regex]::Match(
+      $content,
+      '<DirectoryRef\b[^>]*\bId\s*=\s*["' + "'" + '](?<dirId>[^"' + "'" + ']+)["' + "'" + '][^>]*>(?:(?!<DirectoryRef\b).)*?<Component\b[^>]*>(?:(?!</Component>).)*?<File\b[^>]*\bId\s*=\s*["' + "'" + '](?<fileId>[^"' + "'" + ']+)["' + "'" + '][^>]*\bName\s*=\s*["' + "'" + ']termua\.exe["' + "'" + '][^>]*/>(?:(?!</DirectoryRef>).)*?</DirectoryRef>',
+      $regexOptions
+    )
+    if (-not $mainFileMatch.Success) {
+      continue
+    }
+
+    $mainDirId = $mainFileMatch.Groups['dirId'].Value
+    $mainFileId = $mainFileMatch.Groups['fileId'].Value
+
+    $shortcutComponentPattern = '\s*<DirectoryRef\b[^>]*\bId\s*=\s*["' + "'" + ']DesktopFolder["' + "'" + '][^>]*>\s*<Component\b[^>]*\bId\s*=\s*["' + "'" + ']ApplicationDesktopShortcut["' + "'" + '][^>]*>.*?</Component>\s*</DirectoryRef>\s*'
+    $shortcutComponentRefPattern = '<ComponentRef\s+Id\s*=\s*[""'']ApplicationDesktopShortcut[""'']\s*/>\s*'
+    $content = [regex]::Replace($content, $shortcutComponentPattern, "", $regexOptions)
+    $content = [regex]::Replace($content, $shortcutComponentRefPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $shortcutDirectoryRef =
+      '    <DirectoryRef Id="DesktopFolder">' + "`r`n" +
+      '      <Component Id="ApplicationDesktopShortcut" Guid="*">' + "`r`n" +
+      '        <Shortcut Id="ApplicationDesktopShortcut" Name="termua" Description="termua" Target="[#' + $mainFileId + ']" WorkingDirectory="' + $mainDirId + '" />' + "`r`n" +
+      '        <RegistryValue Root="HKCU" Key="Software\termua" Name="desktop-shortcut" Type="integer" Value="1" KeyPath="yes" />' + "`r`n" +
+      '      </Component>' + "`r`n" +
+      '    </DirectoryRef>'
+
+    if ($content -match '</Product>') {
+      $content = [regex]::Replace(
+        $content,
+        '(</Product>)',
+        $shortcutDirectoryRef + "`r`n" + '$1',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    } elseif ($content -match '</Wix>') {
+      $content = [regex]::Replace(
+        $content,
+        '(</Wix>)',
+        $shortcutDirectoryRef + "`r`n" + '$1',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    }
+
+    if ($content -match '</Feature>') {
+      $content = [regex]::Replace(
+        $content,
+        '(</Feature>)',
+        '            <ComponentRef Id="ApplicationDesktopShortcut" />' + "`r`n" + '$1',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      )
+    }
 
     if ($content -ne $original) {
       $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -427,6 +511,7 @@ if ((Find-WxsFiles $repoRoot).Count -eq 0) {
   }
 }
 
+$null = Ensure-WixDesktopShortcut $repoRoot
 $icoPath = Ensure-TermuaIco $repoRoot $arch
 if ($icoPath) {
   Ensure-WixIcon $repoRoot $icoPath
@@ -443,12 +528,8 @@ if (-not $msiPath) {
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$leaf = Split-Path -Leaf $msiPath
-$destName = $leaf
-if ($destName -notlike "*$arch*") {
-  $base = [System.IO.Path]::GetFileNameWithoutExtension($leaf)
-  $destName = "$base-$arch.msi"
-}
+$packageVersion = Get-CargoPackageVersion "termua"
+$destName = "termua-$packageVersion-windows.$arch.msi"
 $dest = Join-Path $outDir $destName
 Copy-Item -Force $msiPath $dest
 

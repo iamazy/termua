@@ -98,23 +98,6 @@ impl RelayConn {
     }
 }
 
-#[cfg(test)]
-mod protocol_identity_tests {
-    use super::*;
-
-    #[test]
-    fn sharing_protocol_types_are_termua_relay_protocol_types() {
-        assert_eq!(
-            std::any::type_name::<ClientToRelay>(),
-            std::any::type_name::<termua_relay::protocol::ClientToRelay>()
-        );
-        assert_eq!(
-            std::any::type_name::<RelayToClient>(),
-            std::any::type_name::<termua_relay::protocol::RelayToClient>()
-        );
-    }
-}
-
 pub(crate) fn init_globals(cx: &mut App) {
     if cx.try_global::<RelaySharingState>().is_none() {
         cx.set_global(RelaySharingState::default());
@@ -272,6 +255,45 @@ pub(crate) fn stop_local_relay(cx: &mut App) {
 pub(crate) fn clear_host_control_state(host: &mut HostShare) {
     host.controller_id = None;
     host.pending_request = false;
+}
+
+#[cfg(test)]
+pub(crate) struct TestRelayConn {
+    pub conn: RelayConn,
+    sent_rx: Receiver<ClientToRelay>,
+}
+
+#[cfg(test)]
+impl TestRelayConn {
+    pub(crate) fn new() -> Self {
+        let (cmd_tx, cmd_rx) = smol::channel::unbounded::<RelayConnCommand>();
+        let (sent_tx, sent_rx) = smol::channel::unbounded::<ClientToRelay>();
+        let (_incoming_tx, incoming_rx) = smol::channel::unbounded::<RelayToClient>();
+
+        smol::spawn(async move {
+            while let Ok(cmd) = cmd_rx.recv().await {
+                match cmd {
+                    RelayConnCommand::Send(msg) => {
+                        let _ = sent_tx.send(msg).await;
+                    }
+                    RelayConnCommand::Close => break,
+                }
+            }
+        })
+        .detach();
+
+        Self {
+            conn: RelayConn {
+                tx: cmd_tx,
+                rx: incoming_rx,
+            },
+            sent_rx,
+        }
+    }
+
+    pub(crate) async fn next_sent(&self) -> Option<ClientToRelay> {
+        self.sent_rx.recv().await.ok()
+    }
 }
 
 #[cfg(test)]

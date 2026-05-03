@@ -81,7 +81,6 @@ NewSession:
     Field:
       AuthType: "认证方式："
       Password: "密码："
-      Sftp: "SFTP："
     Error:
       HostNoUserAtInConfigMode: "SSH 配置模式下 Host 不能包含 user@。"
       PortRange: "端口必须为 1-65535。"

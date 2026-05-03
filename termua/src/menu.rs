@@ -251,37 +251,25 @@ pub(crate) fn bind_menu_shortcuts(cx: &mut App) {
 pub(crate) fn build_menus(multi_exec_enabled: bool) -> Vec<Menu> {
     // menus[0] is the fold/app menu (menubar crate expects this).
     vec![
-        Menu {
-            name: t!("Menu.App.Name").to_string().into(),
-            items: vec![
-                MenuItem::action(t!("Menu.App.OpenSettings").to_string(), OpenSettings),
-                MenuItem::separator(),
-                MenuItem::action(t!("Menu.App.Quit").to_string(), Quit),
-            ],
-        },
-        Menu {
-            name: t!("Menu.Session.Name").to_string().into(),
-            items: vec![
-                MenuItem::action(t!("Menu.Session.NewSession").to_string(), OpenNewSession),
-                MenuItem::action(t!("Menu.Session.NewWindow").to_string(), NewWindow),
-                MenuItem::separator(),
-                MenuItem::action(t!("Menu.Session.JoinSharing").to_string(), JoinSharing),
-            ],
-        },
-        Menu {
-            name: t!("Menu.Recorder.Name").to_string().into(),
-            items: vec![MenuItem::action(
-                t!("Menu.Recorder.Play").to_string(),
-                PlayCast,
-            )],
-        },
-        Menu {
-            name: t!("Menu.Run.Name").to_string().into(),
-            items: vec![
-                MenuItem::action(t!("Menu.Run.MultiExecute").to_string(), ToggleMultiExec)
-                    .checked(multi_exec_enabled),
-            ],
-        },
+        Menu::new(t!("Menu.App.Name").to_string()).items(vec![
+            MenuItem::action(t!("Menu.App.OpenSettings").to_string(), OpenSettings),
+            MenuItem::separator(),
+            MenuItem::action(t!("Menu.App.Quit").to_string(), Quit),
+        ]),
+        Menu::new(t!("Menu.Session.Name").to_string()).items(vec![
+            MenuItem::action(t!("Menu.Session.NewSession").to_string(), OpenNewSession),
+            MenuItem::action(t!("Menu.Session.NewWindow").to_string(), NewWindow),
+            MenuItem::separator(),
+            MenuItem::action(t!("Menu.Session.JoinSharing").to_string(), JoinSharing),
+        ]),
+        Menu::new(t!("Menu.Recorder.Name").to_string()).items(vec![MenuItem::action(
+            t!("Menu.Recorder.Play").to_string(),
+            PlayCast,
+        )]),
+        Menu::new(t!("Menu.Run.Name").to_string()).items(vec![
+            MenuItem::action(t!("Menu.Run.MultiExecute").to_string(), ToggleMultiExec)
+                .checked(multi_exec_enabled),
+        ]),
     ]
 }
 

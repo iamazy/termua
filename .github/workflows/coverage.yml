@@ -42,6 +42,7 @@ jobs:
             curl \
             dpkg \
             rpm \
+            libfontconfig1-dev \
             libxcb1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev \

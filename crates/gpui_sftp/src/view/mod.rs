@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, PixelsExt, Sizable, Size as UiSize, WindowExt,
+    ActiveTheme, Icon, IconName, Sizable, Size as UiSize, WindowExt,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariant, ButtonVariants},
     dialog::DialogButtonProps,
@@ -25,7 +25,7 @@ use gpui_component::{
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     notification::Notification,
     scroll::ScrollableElement,
-    table::{Column, Table, TableDelegate, TableEvent, TableState},
+    table::{Column, DataTable, TableDelegate, TableEvent, TableState},
     text::TextView,
 };
 use gpui_transfer::{
@@ -540,7 +540,7 @@ impl SftpView {
 
     fn on_delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
         let table = self.table.clone();
-        window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_alert_dialog(cx, move |dialog, _window, _cx| {
             let table = table.clone();
             let (targets_count, selected_name) = {
                 let state = table.read(_cx);

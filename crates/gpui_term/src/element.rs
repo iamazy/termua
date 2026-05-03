@@ -33,7 +33,7 @@ use crate::{
             reserve_left_padding_without_line_numbers, should_relayout_for_mode_change,
             should_show_line_numbers,
         },
-        scrollbar::{
+        scrolling::{
             SCROLLBAR_WIDTH, ScrollbarLayoutState, overlay_scrollbar_layout_state,
             paint_overlay_scrollbar, scroll_offset_for_drag_delta,
             scroll_offset_for_line_coord_centered, scroll_offset_for_thumb_center_y,
@@ -3665,7 +3665,10 @@ fn terminal_view_bounds_for_suggestions_overlay(
 
 #[cfg(test)]
 mod suggestions_overlay_desc_tests {
-    use super::*;
+    use gpui::{Bounds, point, px, size};
+
+    use super::{SuggestionsOverlayHitTest, compute_suggestions_overlay_layout};
+    use crate::terminal::TerminalBounds;
 
     #[test]
     fn layout_does_not_reserve_desc_row_when_empty() {
@@ -3882,7 +3885,16 @@ mod suggestions_overlay_desc_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::ops::RangeInclusive;
+
+    use gpui::{Bounds, point, px, size};
+    use gpui_component::Theme;
+
+    use super::{
+        compute_terminal_layout_metrics, highlight_quads_for_range, placeholder_highlight_bgs,
+        snippet_placeholder_bg_quads,
+    };
+    use crate::{GridPoint, TerminalMode, view::line_number::should_relayout_for_mode_change};
 
     #[test]
     fn placeholder_highlight_colors_are_theme_derived() {

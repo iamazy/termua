@@ -18,6 +18,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+source "$repo_root/packaging/package-version.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "make-rpm.sh must run on Linux." >&2
@@ -54,6 +55,8 @@ if [[ "$explicit_target" -eq 1 ]]; then
   esac
   target="${TARGET:-$default_target}"
 fi
+
+package_version="$(get_termua_package_version "$repo_root/Cargo.toml")"
 
 out_dir="${OUT_DIR:-target/rpm/$arch}"
 
@@ -146,10 +149,7 @@ if [[ -z "${rpm_path}" || ! -f "${rpm_path}" ]]; then
 fi
 
 mkdir -p "${out_dir}"
-rpm_name="$(basename "${rpm_path}")"
-if [[ "${rpm_name}" != *"${arch}"* ]]; then
-  rpm_name="${rpm_name%.rpm}-${arch}.rpm"
-fi
+rpm_name="termua-$package_version-linux.$arch.rpm"
 cp "${rpm_path}" "${out_dir}/${rpm_name}"
 
 echo "==> Wrote: ${out_dir}/${rpm_name}"
