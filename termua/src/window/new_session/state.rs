@@ -1,10 +1,10 @@
 use gpui::{
     App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString, Styled, StyledImage,
-    Window, div, img, prelude::FluentBuilder, px,
+    Window, div, img, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
-    Icon, h_flex,
+    h_flex,
     input::InputState,
     select::{SearchableVec, SelectItem, SelectState},
 };
@@ -47,115 +47,15 @@ pub(super) struct SessionCommonState {
 
 pub(super) struct ShellSessionState {
     pub(super) program: SharedString,
-    pub(super) program_options: Vec<ShellProgramSelectItem>,
-    pub(super) program_select: Entity<SelectState<SearchableVec<ShellProgramSelectItem>>>,
     pub(super) env_rows: Vec<EnvRowState>,
     pub(super) env_next_id: u64,
     pub(super) common: SessionCommonState,
 }
 
-#[derive(Clone)]
-pub(super) struct ShellProgramSelectItem {
-    pub(super) program: SharedString,
-    label: SharedString,
-}
-
-impl ShellProgramSelectItem {
-    pub(super) fn new(program: SharedString) -> Self {
-        let label = match program.as_ref() {
-            "nu" => "nushell".to_string(),
-            "pwsh" => "powershell".to_string(),
-            _ => program.to_string(),
-        };
-
-        Self {
-            program,
-            label: SharedString::from(label),
-        }
-    }
-
-    pub(super) fn icon_path(&self) -> Option<TermuaIcon> {
-        match self.program.as_ref() {
-            "sh" => Some(TermuaIcon::Sh),
-            "bash" | "zsh" => Some(TermuaIcon::Terminal),
-            "nu" | "nushell" => Some(TermuaIcon::Nushell),
-            "pwsh" | "powershell" => Some(TermuaIcon::Pwsh),
-            "fish" => Some(TermuaIcon::Fish),
-            _ => None,
-        }
-    }
-
-    pub(super) fn uses_themed_icon(&self) -> bool {
-        !matches!(self.program.as_ref(), "pwsh" | "powershell") && self.icon_path().is_some()
-    }
-
-    fn icon_element(&self) -> Option<gpui::AnyElement> {
-        let path = self.icon_path()?;
-        if self.uses_themed_icon() {
-            Some(Icon::default().path(path).size_4().into_any_element())
-        } else {
-            Some(
-                img(path)
-                    .w(px(16.))
-                    .h(px(16.))
-                    .flex_shrink_0()
-                    .object_fit(gpui::ObjectFit::Contain)
-                    .into_any_element(),
-            )
-        }
-    }
-}
-
-impl gpui_component::select::SelectItem for ShellProgramSelectItem {
-    type Value = SharedString;
-
-    fn title(&self) -> SharedString {
-        self.label.clone()
-    }
-
-    fn display_title(&self) -> Option<gpui::AnyElement> {
-        // The selected value shown in the input should be left-aligned; do not reserve icon
-        // space unless the item actually has an icon.
-        let icon = self.icon_element();
-
-        Some(
-            h_flex()
-                .w_full()
-                .justify_start()
-                .items_center()
-                .gap_2()
-                .debug_selector(|| "termua-new-session-shell-program-display-title".to_string())
-                .when_some(icon, |this, icon| this.child(icon))
-                .child(self.label.clone())
-                .into_any_element(),
-        )
-    }
-
-    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let icon = if let Some(icon) = self.icon_element() {
-            icon
-        } else {
-            div()
-                .w(px(16.))
-                .h(px(16.))
-                .flex_shrink_0()
-                .into_any_element()
-        };
-
-        h_flex()
-            .items_center()
-            .gap_2()
-            .child(icon)
-            .child(self.label.clone())
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.program
-    }
-
-    fn matches(&self, query: &str) -> bool {
-        let query = query.to_lowercase();
-        self.label.to_lowercase().contains(&query) || self.program.to_lowercase().contains(&query)
+pub(super) fn shell_program_title(program: &str) -> SharedString {
+    match program {
+        "pwsh" => SharedString::from("powershell"),
+        other => SharedString::from(other.to_string()),
     }
 }
 
@@ -170,7 +70,6 @@ pub(super) struct SshSessionState {
     pub(super) port_input: Entity<InputState>,
     pub(super) password_input: Entity<InputState>,
     pub(super) password_edit_unlocked: bool,
-    pub(super) sftp: bool,
     pub(super) tcp_nodelay: bool,
     pub(super) tcp_keepalive: bool,
 
@@ -551,12 +450,11 @@ impl Protocol {
         }
     }
 
-    pub(super) fn from_tab_index(ix: usize) -> Self {
-        match ix {
-            0 => Protocol::Shell,
-            1 => Protocol::Ssh,
-            2 => Protocol::Serial,
-            _ => Protocol::Shell,
+    pub(super) fn debug_id(self) -> &'static str {
+        match self {
+            Protocol::Shell => "shell",
+            Protocol::Ssh => "ssh",
+            Protocol::Serial => "serial",
         }
     }
 }

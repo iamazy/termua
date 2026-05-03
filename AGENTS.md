@@ -130,6 +130,7 @@ When handing work off to another person or to the user, include:
 - Favor explicitness over cleverness.
 - Reuse existing patterns already present in the workspace.
 - Prefer modular, composable changes over tightly coupled one-off implementations.
+- Avoid glob imports such as `use foo::*` or `use super::*`; import the specific items needed.
 - Add tests near the affected code when the repository already has a local testing pattern for that area.
 - Put unit tests at the bottom of the file when adding or updating inline tests.
 - Preserve consistency with existing naming, error handling, and module organization.

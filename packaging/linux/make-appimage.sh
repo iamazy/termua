@@ -19,6 +19,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+source "$repo_root/packaging/package-version.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "make-appimage.sh must run on Linux." >&2
@@ -49,10 +50,11 @@ case "$arch" in
   aarch64) default_target="aarch64-unknown-linux-gnu" ;;
 esac
 target="${TARGET:-$default_target}"
+package_version="$(get_termua_package_version "$repo_root/Cargo.toml")"
 
 bin="${BIN:-target/$target/release/termua}"
 relay_bin="${RELAY_BIN:-target/$target/release/termua-relay}"
-out_appimage="${OUT_APPIMAGE:-target/appimage/$arch/termua-${arch}.AppImage}"
+out_appimage="${OUT_APPIMAGE:-target/appimage/$arch/termua-$package_version-linux.$arch.AppImage}"
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "missing cargo; install Rust toolchain first" >&2

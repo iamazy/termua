@@ -7,7 +7,7 @@ use gpui::{
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
-    ActiveTheme as _, Anchor, Disableable as _, Icon, IconName, Sizable as _, Size as UiSize,
+    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, Size as UiSize,
     button::{Button, ButtonVariants as _},
     h_flex,
     popover::Popover,
@@ -64,15 +64,14 @@ impl FootbarView {
             .pr(px(10.0))
             .child(
                 Popover::new("termua-footbar-transfers-popover")
-                    .anchor(Anchor::BottomRight)
+                    .anchor(gpui::Anchor::BottomRight)
                     // Our popover content already renders its own panel (bg/border/shadow/padding).
                     // Disable the default Popover "panel" styling to avoid a double-layer frame.
                     .appearance(false)
                     .open(self.transfers_open)
                     .on_open_change(move |open, window, app| {
                         view.update(app, |this, cx| {
-                            this.transfers_open = *open;
-                            cx.notify();
+                            this.set_transfers_open(*open, cx);
                         });
                         window.refresh();
                     })

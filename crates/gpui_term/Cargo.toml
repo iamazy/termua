@@ -1,6 +1,6 @@
 [package]
 name = "gpui_term"
-license = "GPL-3"
+license.workspace = true
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -23,30 +23,25 @@ gpui_common.workspace = true
 home.workspace = true
 libc.workspace = true
 log.workspace = true
-notify-rust.workspace = true
 parking_lot.workspace = true
 polling.workspace = true
-regex.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serial2 = "0.2.33"
-filedescriptor = { git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+serial2.workspace = true
+filedescriptor.workspace = true
 signal-hook.workspace = true
 smol.workspace = true
-sysinfo.workspace = true
-time.workspace = true
 unicode-width.workspace = true
-unicode-segmentation = "1.12.0"
+unicode-segmentation.workspace = true
 url.workspace = true
 urlencoding.workspace = true
-gpui_transfer = { path = "../gpui_transfer" }
 
 # wezterm dependencies
-wezterm_ssh = { package = "wezterm-ssh", path = "../wezterm-ssh", features = ["vendored-openssl"] }
-wezterm_term = { package = "wezterm-term", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
-portable_pty = { package = "portable-pty", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
-wezterm_surface = { package = "wezterm-surface", git = "https://github.com/iamazy/wezterm.git", branch = "nxssh" }
+wezterm-ssh = { workspace = true, features = ["vendored-openssl"] }
+wezterm-term.workspace = true
+portable-pty.workspace = true
+wezterm-surface.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
@@ -57,3 +52,4 @@ core-text.workspace = true
 [dev-dependencies]
 env_logger.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
+gpui_platform = { workspace = true, features = ["wayland", "x11"] }

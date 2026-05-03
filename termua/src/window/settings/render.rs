@@ -1,6 +1,7 @@
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, prelude::FluentBuilder, px,
+    AnyElement, AppContext, Context, InteractiveElement, InteractiveText, IntoElement,
+    ParentElement, StatefulInteractiveElement, Styled, StyledImage, StyledText, Window, div, img,
+    prelude::FluentBuilder, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -9,6 +10,7 @@ use gpui_component::{
     h_flex,
     link::Link,
     scroll::{Scrollbar, ScrollbarShow},
+    tooltip::Tooltip,
     v_flex,
 };
 use rust_i18n::t;
@@ -22,6 +24,120 @@ use super::{
 use crate::window::{settings::state::ssh_backend_docs_url, theme_editor::ThemeEditor};
 
 impl SettingsWindow {
+    fn render_terminal_keybindings_table(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let keybinding_conflicts = terminal_keybinding_conflicts(&self.settings);
+
+        let rows = SettingMeta::all()
+            .iter()
+            .filter(|meta| meta.page == SettingsPage::TerminalKeyBindings)
+            .map(|meta| {
+                let title = meta.localized_title();
+                let description = meta.localized_description();
+                let tooltip_selector = format!("termua-settings-keybinding-tooltip-{}", meta.id);
+                let warning = keybinding_warning_for_setting_id(
+                    meta.id,
+                    self.terminal_keybinding_value(meta.id),
+                    &keybinding_conflicts,
+                );
+                h_flex()
+                    .debug_selector(move || format!("termua-settings-keybinding-row-{}", meta.id))
+                    .w_full()
+                    .items_stretch()
+                    .border_b_1()
+                    .border_color(cx.theme().border.opacity(0.45))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .justify_center()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .child(
+                                div()
+                                    .debug_selector(move || {
+                                        format!("termua-settings-keybinding-title-{}", meta.id)
+                                    })
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        self.render_setting_title(
+                                            InteractiveText::new(
+                                                format!(
+                                                    "termua-settings-keybinding-title-text-{}",
+                                                    meta.id
+                                                ),
+                                                StyledText::new(title),
+                                            )
+                                            .tooltip({
+                                                move |_ix, window, cx| {
+                                                    let tooltip_selector = tooltip_selector.clone();
+                                                    let description = description.clone();
+                                                    Some(
+                                                        Tooltip::element({
+                                                            move |_window, cx| {
+                                                                div()
+                                                                    .debug_selector({
+                                                                        let tooltip_selector =
+                                                                            tooltip_selector
+                                                                                .clone();
+                                                                        move || tooltip_selector
+                                                                    })
+                                                                    .max_w(px(320.))
+                                                                    .text_xs()
+                                                                    .text_color(
+                                                                        cx.theme().foreground,
+                                                                    )
+                                                                    .whitespace_normal()
+                                                                    .child(description.clone())
+                                                            }
+                                                        })
+                                                        .build(window, cx),
+                                                    )
+                                                }
+                                            }),
+                                            cx,
+                                        ),
+                                    ),
+                            )
+                            .when_some(warning, |this, warning| {
+                                this.child(self.render_setting_warning(warning, cx))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .debug_selector(move || {
+                                format!("termua-settings-keybinding-divider-{}", meta.id)
+                            })
+                            .w(px(1.))
+                            .bg(cx.theme().border.opacity(0.6)),
+                    )
+                    .child(
+                        div()
+                            .w(px(300.))
+                            .flex_shrink_0()
+                            .min_h_full()
+                            .child(self.render_control_for_setting(meta.id, window, cx)),
+                    )
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        v_flex()
+            .debug_selector(|| "termua-settings-keybindings-table".to_string())
+            .w_full()
+            .border_1()
+            .border_color(cx.theme().border.opacity(0.6))
+            .rounded_lg()
+            .overflow_hidden()
+            .children(rows)
+            .into_any_element()
+    }
+
     fn render_terminal_ssh_backend_description(
         &self,
         description: impl IntoElement,
@@ -342,12 +458,24 @@ impl SettingsWindow {
         let selected_page = self.selected_page;
         let spec = page_spec(selected_page);
 
-        let keybinding_conflicts: std::collections::HashMap<&'static str, Vec<&'static str>> =
-            if matches!(selected_page, SettingsPage::TerminalKeyBindings) {
-                terminal_keybinding_conflicts(&self.settings)
-            } else {
-                Default::default()
-            };
+        let heading_el =
+            self.render_page_heading(selected_page, t!(spec.heading_key).to_string(), cx);
+
+        let mut page = v_flex().gap_2().child(heading_el);
+        if let Some(hint) = spec.hint_key {
+            page = page.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t!(hint).to_string()),
+            );
+        }
+
+        if matches!(selected_page, SettingsPage::TerminalKeyBindings) {
+            return page.child(self.render_terminal_keybindings_table(window, cx));
+        }
+
+        let keybinding_conflicts = terminal_keybinding_conflicts(&self.settings);
 
         let rows = self.render_setting_rows(
             SettingMeta::all()
@@ -373,18 +501,6 @@ impl SettingsWindow {
             },
         );
 
-        let heading_el =
-            self.render_page_heading(selected_page, t!(spec.heading_key).to_string(), cx);
-
-        let mut page = v_flex().gap_2().child(heading_el);
-        if let Some(hint) = spec.hint_key {
-            page = page.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(t!(hint).to_string()),
-            );
-        }
         page.children(rows)
     }
 

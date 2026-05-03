@@ -82,7 +82,6 @@ NewSession:
     Field:
       AuthType: "Auth Type:"
       Password: "Password:"
-      Sftp: "SFTP:"
     Error:
       HostNoUserAtInConfigMode: "Host must not include user@ in SSH Config mode."
       PortRange: "Port must be 1-65535."

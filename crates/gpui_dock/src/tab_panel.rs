@@ -740,7 +740,7 @@ impl TabPanel {
         let scroll_handle = self.tab_bar_scroll_handle.clone();
         window.defer(cx, move |_, cx| {
             view_for_defer.update(cx, |this, cx| {
-                let max_overflow_x = scroll_handle.max_offset().width;
+                let max_overflow_x = scroll_handle.max_offset().x;
                 // Use a small hysteresis band to avoid oscillation when we're right at the
                 // overflow boundary (which can happen while dragging due to transient layout).
                 let overflow = if this.tab_overflow {
@@ -1851,7 +1851,7 @@ mod tests {
         }
 
         let max_overflow_x =
-            window_cx.update(|_, cx| tab_panel.read(cx).tab_bar_scroll_handle.max_offset().width);
+            window_cx.update(|_, cx| tab_panel.read(cx).tab_bar_scroll_handle.max_offset().x);
 
         assert!(
             max_overflow_x > px(8.),

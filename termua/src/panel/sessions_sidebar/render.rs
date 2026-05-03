@@ -9,18 +9,50 @@ use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable as _, StyledExt, h_flex,
     input::Input,
     list::ListItem,
-    menu::{ContextMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     tree::{TreeEntry, tree},
     v_flex,
 };
 use rust_i18n::t;
 
 use super::{
-    SessionsSidebarEvent, SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree,
+    SessionsSidebarError, SessionsSidebarView, icons, icons::SessionIconKind, tree as sidebar_tree,
 };
 use crate::new_session::NewSessionWindow;
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SessionsSidebarContextMenuItem {
+    NewSession,
+    Edit,
+    Delete,
+}
+
 impl SessionsSidebarView {
+    fn render_error(error: SessionsSidebarError, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let message = match &error {
+            SessionsSidebarError::LoadSessions => t!("SessionsSidebar.LoadError").to_string(),
+            SessionsSidebarError::Operation(message) => message.clone(),
+        };
+        let selector = error.debug_selector();
+
+        div()
+            .id(selector)
+            .debug_selector(move || selector.to_string())
+            .mx_2()
+            .mb_2()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().warning.opacity(0.25))
+            .bg(cx.theme().warning.opacity(0.08))
+            .text_xs()
+            .text_color(cx.theme().warning)
+            .whitespace_normal()
+            .child(message)
+            .into_any_element()
+    }
+
     fn render_tree_row(
         ix: usize,
         entry: &TreeEntry,
@@ -76,21 +108,7 @@ impl SessionsSidebarView {
             row = row.on_click(move |ev, window, cx| {
                 let should_open = ev.standard_click() && ev.click_count() >= 2;
                 entity.update(cx, |this, cx| {
-                    this.selected_item_id = item_id.clone();
-                    this.hovered_session_id = Some(id);
-                    this.sync_tree_selection(cx);
-                    if should_open {
-                        if item_id.as_ref().starts_with("session:ssh:") && this.is_connecting(id) {
-                            // Prevent hammering the same unreachable host and spawning
-                            // many slow connection attempts.
-                        } else {
-                            if item_id.as_ref().starts_with("session:ssh:") {
-                                this.set_connecting(id, true, cx);
-                            }
-                            cx.emit(SessionsSidebarEvent::OpenSession(id));
-                        }
-                    }
-                    cx.notify();
+                    this.handle_session_click(item_id.clone(), id, should_open, cx);
                 });
                 window.refresh();
             });
@@ -114,12 +132,21 @@ impl SessionsSidebarView {
             .w_full()
             .id(format!("termua-sessions-tree-row-wrapper-{ix}"));
         if is_folder {
+            if let Some(folder_debug_name) = folder_debug_name.clone() {
+                wrapper = wrapper.debug_selector(move || {
+                    format!("termua-sessions-folder-hit-{folder_debug_name}")
+                });
+            }
+        } else if let Some(id) = session_id {
+            wrapper = wrapper.debug_selector(move || format!("termua-sessions-session-row-{id}"));
+        }
+
+        if is_folder {
             let entity = entity.clone();
             wrapper = wrapper.on_mouse_down(MouseButton::Right, move |_ev, _window, app| {
                 // Right-click on folders uses the "new session" menu.
                 entity.update(app, |this, cx| {
-                    this.hovered_session_id = None;
-                    cx.notify();
+                    this.handle_background_context_click(cx);
                 });
             });
         } else if let Some(id) = session_id {
@@ -138,10 +165,7 @@ impl SessionsSidebarView {
             let entity_for_right_click = entity.clone();
             wrapper = wrapper.on_mouse_down(MouseButton::Right, move |_ev, window, app| {
                 entity_for_right_click.update(app, |this, cx| {
-                    this.selected_item_id = item_id_for_click.clone();
-                    this.hovered_session_id = Some(id);
-                    this.sync_tree_selection(cx);
-                    cx.notify();
+                    this.handle_session_context_click(item_id_for_click.clone(), id, cx);
                 });
                 window.refresh();
             });
@@ -308,6 +332,19 @@ impl SessionsSidebarView {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn context_menu_items_for_hovered_session(
+        hovered_session_id: Option<i64>,
+    ) -> &'static [SessionsSidebarContextMenuItem] {
+        match hovered_session_id {
+            Some(_) => &[
+                SessionsSidebarContextMenuItem::Edit,
+                SessionsSidebarContextMenuItem::Delete,
+            ],
+            None => &[SessionsSidebarContextMenuItem::NewSession],
+        }
+    }
+
     fn build_context_menu_for_session(
         menu: PopupMenu,
         menu_entity: &Entity<SessionsSidebarView>,
@@ -372,11 +409,16 @@ impl SessionsSidebarView {
                         .child(t!("SessionsSidebar.Context.Edit").to_string()),
                 )
         })
-        .on_click(move |_, _window, cx| {
+        .on_click(move |_, window, cx| {
             if let Err(err) = NewSessionWindow::open_edit(session_id, cx) {
-                log::warn!(
+                let message =
+                    format!("Failed to open edit window for session {session_id}: {err:#}");
+                log::error!(
                     "SessionsSidebar: failed to open edit window for session {session_id}: {err:#}"
                 );
+                entity_for_click.update(cx, |this, cx| {
+                    this.show_error(message, window, cx);
+                });
             }
 
             entity_for_click.update(cx, |this, cx| {
@@ -442,62 +484,46 @@ impl Render for SessionsSidebarView {
             .min_h_0()
             .bg(cx.theme().background)
             .child(div().p_2().child(Input::new(&self.search_input)))
-            .when(self.has_load_error, |this| {
-                this.child(
-                    div()
-                        .id("termua-sessions-sidebar-load-error")
-                        .debug_selector(|| "termua-sessions-sidebar-load-error".to_string())
-                        .mx_2()
-                        .mb_2()
-                        .p_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(cx.theme().warning.opacity(0.25))
-                        .bg(cx.theme().warning.opacity(0.08))
-                        .text_xs()
-                        .text_color(cx.theme().warning)
-                        .whitespace_normal()
-                        .child(t!("SessionsSidebar.LoadError").to_string()),
-                )
+            .when_some(self.error.clone(), |this, error| {
+                this.child(Self::render_error(error, cx))
             })
             .child(
-                ContextMenu::new(
-                    "termua-sessions-sidebar-context-menu",
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .child(tree(
-                            &self.tree_state,
-                            move |ix, entry: &TreeEntry, selected, _window, _app| {
-                                SessionsSidebarView::render_tree_row(
-                                    ix,
-                                    entry,
-                                    selected,
-                                    &entity,
-                                    &session_icon_kinds,
-                                    &connecting_ids,
-                                    muted_fg,
-                                )
-                            },
-                        ))
-                        .when(self.tree_items.is_empty(), |this| {
-                            this.child(
-                                div()
-                                    .p_3()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t!("SessionsSidebar.Empty").to_string()),
+                div()
+                    .id("termua-sessions-tree-area")
+                    .debug_selector(|| "termua-sessions-tree-area".to_string())
+                    .flex_1()
+                    .min_h_0()
+                    .child(tree(
+                        &self.tree_state,
+                        move |ix, entry: &TreeEntry, selected, _window, _app| {
+                            SessionsSidebarView::render_tree_row(
+                                ix,
+                                entry,
+                                selected,
+                                &entity,
+                                &session_icon_kinds,
+                                &connecting_ids,
+                                muted_fg,
                             )
-                        }),
-                )
-                .menu(move |menu: PopupMenu, _window, cx| {
-                    SessionsSidebarView::build_context_menu(
-                        menu,
-                        &menu_entity,
-                        action_context.clone(),
-                        cx,
-                    )
-                }),
+                        },
+                    ))
+                    .when(self.tree_items.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .p_3()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(t!("SessionsSidebar.Empty").to_string()),
+                        )
+                    })
+                    .context_menu(move |menu: PopupMenu, _window, cx| {
+                        SessionsSidebarView::build_context_menu(
+                            menu,
+                            &menu_entity,
+                            action_context.clone(),
+                            cx,
+                        )
+                    }),
             )
     }
 }

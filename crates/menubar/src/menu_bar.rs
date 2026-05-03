@@ -357,7 +357,7 @@ impl Render for FoldableAppMenuBar {
                     .when(self.state.selected_ix == Some(0), |this| {
                         this.child(deferred(
                             anchored()
-                                .anchor(gpui::Corner::TopLeft)
+                                .anchor(gpui::Anchor::TopLeft)
                                 .snap_to_window_with_margin(px(8.))
                                 .child(
                                     div()
@@ -511,7 +511,7 @@ impl Render for FoldableAppMenu {
             .when(is_selected, |this| {
                 this.child(deferred(
                     anchored()
-                        .anchor(gpui::Corner::TopLeft)
+                        .anchor(gpui::Anchor::TopLeft)
                         .snap_to_window_with_margin(px(8.))
                         .child(
                             div()
@@ -612,14 +612,10 @@ mod tests {
 
     fn owned_menus(checked: bool) -> Vec<gpui::OwnedMenu> {
         let menus: Vec<Menu> = vec![
-            Menu {
-                name: "Menu".into(),
-                items: vec![],
-            },
-            Menu {
-                name: "Run".into(),
-                items: vec![MenuItem::action("Multi Exec", Toggle).checked(checked)],
-            },
+            Menu::new("Menu").items(vec![]),
+            Menu::new("Run").items(vec![
+                MenuItem::action("Multi Exec", Toggle).checked(checked),
+            ]),
         ];
         menus.into_iter().map(|m| m.owned()).collect()
     }
@@ -629,16 +625,12 @@ mod tests {
         run_item_label: &str,
     ) -> Vec<gpui::OwnedMenu> {
         let menus: Vec<Menu> = vec![
-            Menu {
+            Menu::new("Termua").items(vec![
                 // Keep the fold/app menu name stable across locales (like "Termua") to ensure
                 // our change detection is driven by item labels.
-                name: "Termua".into(),
-                items: vec![MenuItem::action(fold_item_label.to_string(), Toggle)],
-            },
-            Menu {
-                name: "Run".into(),
-                items: vec![MenuItem::action(run_item_label.to_string(), Toggle)],
-            },
+                MenuItem::action(fold_item_label.to_string(), Toggle),
+            ]),
+            Menu::new("Run").items(vec![MenuItem::action(run_item_label.to_string(), Toggle)]),
         ];
         menus.into_iter().map(|m| m.owned()).collect()
     }

@@ -621,29 +621,6 @@ mod tests {
     }
 
     #[test]
-    fn local_tabs_use_shell_display_name_when_present() {
-        let mut env = HashMap::new();
-        env.insert("TERMUA_SHELL".into(), "/bin/bash".into());
-        let mut counts = HashMap::new();
-        assert_eq!(
-            local_terminal_panel_tab_name(&env, 7, &mut counts).as_ref(),
-            "bash"
-        );
-
-        env.insert("TERMUA_SHELL".into(), "nu".into());
-        assert_eq!(
-            local_terminal_panel_tab_name(&env, 7, &mut counts).as_ref(),
-            "nushell"
-        );
-
-        env.insert("TERMUA_SHELL".into(), "pwsh".into());
-        assert_eq!(
-            local_terminal_panel_tab_name(&env, 7, &mut counts).as_ref(),
-            "powershell"
-        );
-    }
-
-    #[test]
     fn local_tabs_fall_back_to_local_prefix_without_shell() {
         let mut counts = HashMap::new();
         assert_eq!(

@@ -23,6 +23,7 @@ rust-i18n.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+gpui_platform = { workspace = true, features = ["wayland", "x11"] }
 gpui-component-assets.workspace = true
 smol.workspace = true
 

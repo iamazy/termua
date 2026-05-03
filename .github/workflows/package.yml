@@ -60,17 +60,17 @@ jobs:
             ~/.cargo/git/db/
           key: package-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check Code Format & Clippy
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Install Linux packaging dependencies
+      - name: Install Linux build and packaging dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y curl dpkg rpm
-          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
+          sudo apt-get install -y libfontconfig1-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev zlib1g-dev
+
+      - name: Check Code Format & Clippy
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
 
       - uses: taiki-e/install-action@nextest
       - name: Test
@@ -100,7 +100,7 @@ jobs:
           $env:ARCH = "${{ matrix.arch }}"
           $env:TARGET = "${{ matrix.target }}"
           $env:TERMUA_AUTO_INSTALL_WIX = "1"
-          powershell -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
+          pwsh -ExecutionPolicy Bypass -File packaging/windows/make-msi.ps1
 
       - name: Upload Linux AppImage artifact
         if: runner.os == 'Linux'

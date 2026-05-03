@@ -1,5 +1,5 @@
 .DS_Store
 .idea
 target
-
+Cargo.lock
 .worktree/

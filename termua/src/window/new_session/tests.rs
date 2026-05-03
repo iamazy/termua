@@ -1,5 +1,4 @@
 use gpui::{ParentElement, Render, Styled, div};
-use gpui_common::TermuaIcon;
 
 use super::*;
 use crate::{env::build_terminal_env, store::SessionEnvVar};
@@ -662,6 +661,51 @@ fn new_session_protocol_tabs_fill_available_width(cx: &mut gpui::TestAppContext)
 }
 
 #[gpui::test]
+fn new_session_protocol_tabs_switch_on_click(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+
+    let ssh_tab = win
+        .debug_bounds("termua-new-session-tab-ssh")
+        .expect("ssh tab should exist");
+    win.simulate_click(ssh_tab.center(), gpui::Modifiers::none());
+    win.run_until_parked();
+
+    win.update(|_window, app| {
+        assert_eq!(view.read(app).protocol, Protocol::Ssh);
+        assert_eq!(view.read(app).selected_item_id.as_ref(), "ssh.session");
+    });
+}
+
+#[gpui::test]
 fn new_session_tabs_include_serial(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         menubar::init(app);
@@ -1319,72 +1363,6 @@ fn new_session_type_select_is_left_aligned(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn new_session_shell_program_control_uses_select_component(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-program-select")
-            .is_some()
-    );
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-program")
-            .is_none()
-    );
-}
-
-#[gpui::test]
-fn new_session_shell_program_select_value_is_left_aligned(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-
-    let select_bounds = shell
-        .debug_bounds("termua-new-session-shell-program-select")
-        .expect("shell program select should exist");
-    let content_bounds = shell
-        .debug_bounds("termua-new-session-shell-program-display-title")
-        .expect("shell program display title should exist");
-    let left_gap = content_bounds.left() - select_bounds.left();
-    assert!(
-        left_gap <= gpui::px(60.0),
-        "expected shell program select value to be left-aligned"
-    );
-}
-
-#[gpui::test]
 fn new_session_shell_label_follows_shell_program(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
@@ -1463,7 +1441,6 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1523,7 +1500,6 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1598,7 +1574,6 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1677,7 +1652,6 @@ fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) 
                         value: "bar".to_string(),
                     },
                 ]),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),
@@ -1806,45 +1780,6 @@ fn local_terminal_env_includes_shell_term_and_locale() {
 }
 
 #[test]
-fn shell_program_select_item_shows_full_name_and_shell_icons() {
-    let nu = ShellProgramSelectItem::new("nu".into());
-    assert_eq!(nu.title().as_ref(), "nushell");
-    assert_eq!(nu.icon_path(), Some(TermuaIcon::Nushell));
-
-    let pwsh = ShellProgramSelectItem::new("pwsh".into());
-    assert_eq!(pwsh.title().as_ref(), "powershell");
-    assert_eq!(pwsh.icon_path(), Some(TermuaIcon::Pwsh));
-
-    let powershell = ShellProgramSelectItem::new("powershell".into());
-    assert_eq!(powershell.title().as_ref(), "powershell");
-    assert_eq!(powershell.icon_path(), Some(TermuaIcon::Pwsh));
-
-    let bash = ShellProgramSelectItem::new("bash".into());
-    assert_eq!(bash.title().as_ref(), "bash");
-    assert_eq!(bash.icon_path(), Some(TermuaIcon::Terminal));
-
-    let sh = ShellProgramSelectItem::new("sh".into());
-    assert_eq!(sh.title().as_ref(), "sh");
-    assert_eq!(sh.icon_path(), Some(TermuaIcon::Sh));
-
-    let zsh = ShellProgramSelectItem::new("zsh".into());
-    assert_eq!(zsh.title().as_ref(), "zsh");
-    assert_eq!(zsh.icon_path(), Some(TermuaIcon::Terminal));
-}
-
-#[test]
-fn shell_program_select_item_uses_themed_icon_renderer() {
-    let bash = ShellProgramSelectItem::new("bash".into());
-    assert!(bash.uses_themed_icon());
-
-    let nu = ShellProgramSelectItem::new("nu".into());
-    assert!(nu.uses_themed_icon());
-
-    let pwsh = ShellProgramSelectItem::new("pwsh".into());
-    assert!(!pwsh.uses_themed_icon());
-}
-
-#[test]
 fn edit_mode_disabled_protocol_tab_uses_not_allowed_cursor() {
     let selected_ix = Protocol::Ssh.tab_index();
     assert_eq!(
@@ -1879,16 +1814,7 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-persist-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-persist");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let win = cx.add_empty_window();
@@ -1914,12 +1840,9 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         .unwrap()
         .clone()
         .expect("expected view to be captured");
-    let (expected_label, expected_shell_program) = win.update(|_window, app| {
+    let expected_label = win.update(|_window, app| {
         let view = view.read(app);
-        (
-            view.shell.common.label_input.read(app).value().to_string(),
-            view.shell.program.to_string(),
-        )
+        view.shell.common.label_input.read(app).value().to_string()
     });
 
     win.update(|_window, app| {
@@ -1937,10 +1860,6 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].group_path, "local");
     assert_eq!(sessions[0].label, expected_label);
-    assert_eq!(
-        sessions[0].shell_program.as_deref(),
-        Some(expected_shell_program.as_str())
-    );
 }
 
 #[gpui::test]
@@ -1953,16 +1872,7 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
         gpui_component::init(app);
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-env-persist-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-env-persist");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let win = cx.add_empty_window();
@@ -2068,16 +1978,7 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
         app.set_global(crate::TermuaAppState::default());
     });
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-local-reload-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-    let db_path = tmp_dir.join("termua").join("termua.db");
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-reload");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
     let (_root, main_window_cx) = cx.add_window_view(|window, cx| {
@@ -2152,6 +2053,98 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].group_path, "local");
     assert_eq!(sessions[0].label, expected_label);
+}
+
+#[gpui::test]
+fn new_local_persist_error_is_shown_in_sessions_sidebar(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(crate::TermuaAppState::default());
+    });
+
+    let db_path = crate::store::tests::unique_test_db_path("new-session-local-persist-error");
+    let _guard = crate::store::tests::override_termua_db_path(db_path.clone());
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          protocol TEXT NOT NULL,
+          group_path TEXT NOT NULL,
+          label TEXT NOT NULL,
+          backend TEXT NOT NULL,
+          term TEXT NOT NULL,
+          charset TEXT NOT NULL,
+          colorterm TEXT,
+          ssh_host TEXT,
+          ssh_port INTEGER,
+          ssh_auth_type TEXT,
+          ssh_user TEXT,
+          ssh_credential_username TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        "#,
+    )
+    .unwrap();
+    drop(conn);
+
+    let (main_root, main_window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| crate::window::main_window::TermuaWindow::new(window, cx));
+        gpui_component::Root::new(view, window, cx)
+    });
+    main_window_cx.update(|window, app| {
+        let root_handle = window
+            .window_handle()
+            .downcast::<gpui_component::Root>()
+            .expect("expected Root window handle");
+        app.global_mut::<crate::TermuaAppState>().main_window = Some(root_handle);
+    });
+
+    let main_root_for_draw = main_root.clone();
+    main_window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(main_root_for_draw),
+    );
+    main_window_cx.run_until_parked();
+
+    let new_session_view = main_window_cx.update(|window, app| {
+        let view = app.new(|cx| NewSessionWindow::new(window, cx));
+        let result = view.update(app, |this, cx| this.connect_new_session(cx));
+        assert!(result.is_ok(), "expected local connect to succeed");
+        app.global_mut::<crate::TermuaAppState>()
+            .pending_commands
+            .clear();
+        view
+    });
+
+    main_window_cx.run_until_parked();
+    let _keep_task_owner_alive = &new_session_view;
+
+    main_window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(main_root),
+    );
+    main_window_cx.run_until_parked();
+
+    main_window_cx
+        .debug_bounds("termua-sessions-sidebar-operation-error")
+        .expect("expected persistence error to be visible in the sessions sidebar");
 }
 
 #[gpui::test]
@@ -2235,7 +2228,6 @@ fn edit_session_repeat_save_is_ignored_while_submit_is_in_flight(cx: &mut gpui::
                 label: "prod".to_string(),
                 backend: crate::settings::TerminalBackend::Wezterm,
                 env: test_session_env("xterm-256color", "UTF-8", None),
-                shell_program: None,
                 ssh_host: Some("example.com".to_string()),
                 ssh_port: Some(22),
                 ssh_auth_type: Some(crate::store::SshAuthType::Password),

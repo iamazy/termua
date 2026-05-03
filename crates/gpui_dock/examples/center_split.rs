@@ -7,8 +7,8 @@ use std::{
 };
 
 use gpui::{
-    App, Application, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, MouseButton, Window, WindowOptions, div, prelude::*,
+    App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    MouseButton, Window, WindowOptions, div, prelude::*,
 };
 use gpui_component::{
     ActiveTheme, IconName, Root, Sizable,
@@ -206,47 +206,50 @@ impl gpui::Render for MainView {
 }
 
 fn main() {
-    Application::new().with_assets(Assets).run(|cx: &mut App| {
-        gpui_component::init(cx);
-        gpui_dock::init(cx);
-        cx.activate(true);
+    gpui_platform::application()
+        .with_assets(Assets)
+        .run(|cx: &mut App| {
+            gpui_component::init(cx);
+            gpui_dock::init(cx);
+            cx.activate(true);
 
-        cx.open_window(WindowOptions::default(), |window, cx| {
-            let dock_area = cx.new(|cx| DockArea::new("dock", Some(1), window, cx));
-            let weak = dock_area.downgrade();
+            cx.open_window(WindowOptions::default(), |window, cx| {
+                let dock_area = cx.new(|cx| DockArea::new("dock", Some(1), window, cx));
+                let weak = dock_area.downgrade();
 
-            let left: Arc<dyn PanelView> =
-                Arc::new(cx.new(|cx| DemoPanel::new("Editor (Left)", cx)));
-            let right: Arc<dyn PanelView> =
-                Arc::new(cx.new(|cx| DemoPanel::new("Outline (Right)", cx)));
-            let bottom: Arc<dyn PanelView> =
-                Arc::new(cx.new(|cx| DemoPanel::new("Logs (Bottom)", cx)));
+                let left: Arc<dyn PanelView> =
+                    Arc::new(cx.new(|cx| DemoPanel::new("Editor (Left)", cx)));
+                let right: Arc<dyn PanelView> =
+                    Arc::new(cx.new(|cx| DemoPanel::new("Outline (Right)", cx)));
+                let bottom: Arc<dyn PanelView> =
+                    Arc::new(cx.new(|cx| DemoPanel::new("Logs (Bottom)", cx)));
 
-            dock_area.update(cx, |area, cx| {
-                let top = DockItem::h_split(
-                    vec![
-                        DockItem::tabs(vec![left], &weak, window, cx).size(gpui::px(820.)),
-                        DockItem::tabs(vec![right], &weak, window, cx),
-                    ],
-                    &weak,
-                    window,
-                    cx,
-                );
+                dock_area.update(cx, |area, cx| {
+                    let top = DockItem::h_split(
+                        vec![
+                            DockItem::tabs(vec![left], &weak, window, cx).size(gpui::px(820.)),
+                            DockItem::tabs(vec![right], &weak, window, cx),
+                        ],
+                        &weak,
+                        window,
+                        cx,
+                    );
 
-                let bottom = DockItem::tabs(vec![bottom], &weak, window, cx).size(gpui::px(260.));
+                    let bottom =
+                        DockItem::tabs(vec![bottom], &weak, window, cx).size(gpui::px(260.));
 
-                area.set_center(
-                    DockItem::v_split(vec![top, bottom], &weak, window, cx),
-                    window,
-                    cx,
-                );
+                    area.set_center(
+                        DockItem::v_split(vec![top, bottom], &weak, window, cx),
+                        window,
+                        cx,
+                    );
 
-                area.update_toggle_button_tab_panels(window, cx);
-            });
+                    area.update_toggle_button_tab_panels(window, cx);
+                });
 
-            let view = cx.new(|_cx| MainView { dock_area });
-            cx.new(|cx| Root::new(view, window, cx))
-        })
-        .unwrap();
-    });
+                let view = cx.new(|_cx| MainView { dock_area });
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .unwrap();
+        });
 }

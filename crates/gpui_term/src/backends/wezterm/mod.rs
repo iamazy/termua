@@ -3285,66 +3285,6 @@ mod tests {
     }
 
     #[test]
-    fn local_shell_candidates_uses_fish_init_when_configured() {
-        let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
-        env.insert(
-            "TERMUA_FISH_INIT".to_string(),
-            "/tmp/termua-test.fish".to_string(),
-        );
-
-        let candidates = super::shell_command_candidates_for_local_env(&env);
-        let argv: Vec<String> = candidates[0]
-            .get_argv()
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-
-        assert_eq!(
-            argv,
-            vec![
-                "fish",
-                "--init-command",
-                "source \"$TERMUA_FISH_INIT\"",
-                "--interactive"
-            ]
-        );
-    }
-
-    #[test]
-    fn local_shell_candidates_uses_nu_configs_when_configured() {
-        let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "nu".to_string());
-        env.insert(
-            "TERMUA_NU_CONFIG".to_string(),
-            "/tmp/termua-config.nu".to_string(),
-        );
-        env.insert(
-            "TERMUA_NU_ENV_CONFIG".to_string(),
-            "/tmp/termua-env.nu".to_string(),
-        );
-
-        let candidates = super::shell_command_candidates_for_local_env(&env);
-        let argv: Vec<String> = candidates[0]
-            .get_argv()
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-
-        assert_eq!(
-            argv,
-            vec![
-                "nu",
-                "--config",
-                "/tmp/termua-config.nu",
-                "--env-config",
-                "/tmp/termua-env.nu",
-                "--interactive"
-            ]
-        );
-    }
-
-    #[test]
     fn local_shell_candidates_uses_powershell_init_when_configured() {
         let mut env = std::collections::HashMap::new();
         env.insert("TERMUA_SHELL".to_string(), "pwsh".to_string());

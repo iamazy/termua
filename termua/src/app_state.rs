@@ -101,6 +101,7 @@ pub(crate) enum PendingCommand {
         session_id: Option<i64>,
     },
     ReloadSessionsSidebar,
+    ShowSessionsSidebarError(String),
     OpenCastPicker,
     OpenJoinSharingDialog,
     JoinRelaySharing {

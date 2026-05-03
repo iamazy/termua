@@ -15,11 +15,26 @@ pub enum SessionsSidebarEvent {
     OpenSession(i64),
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum SessionsSidebarError {
+    LoadSessions,
+    Operation(String),
+}
+
+impl SessionsSidebarError {
+    pub(super) fn debug_selector(&self) -> &'static str {
+        match self {
+            Self::LoadSessions => "termua-sessions-sidebar-load-error",
+            Self::Operation(_) => "termua-sessions-sidebar-operation-error",
+        }
+    }
+}
+
 pub struct SessionsSidebarView {
     pub(super) focus_handle: FocusHandle,
     pub(super) search_input: Entity<InputState>,
     pub(super) query: String,
-    pub(super) has_load_error: bool,
+    pub(super) error: Option<SessionsSidebarError>,
     pub(super) reload_epoch: usize,
     pub(super) reload_in_flight: bool,
     pub(super) reload_pending: bool,
