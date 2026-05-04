@@ -223,7 +223,6 @@ impl TermuaWindow {
 
         this.install_language_subscription(window, cx);
         Self::spawn_lock_state_monitor(cx);
-        Self::spawn_terminal_context_poll(cx);
         this.install_app_state_subscription(window, cx);
         this.install_lock_state_subscription(window, cx);
         this.install_sessions_sidebar_subscription(window, cx);
@@ -328,27 +327,6 @@ impl TermuaWindow {
             }
         })
         .detach();
-    }
-
-    fn spawn_terminal_context_poll(cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(
-                        crate::assistant::DEFAULT_TERMINAL_CONTEXT_POLL_INTERVAL_MS,
-                    ))
-                    .await;
-
-                let _ = this.update(cx, |_this, cx| {
-                    Self::poll_terminal_context_snapshots(cx);
-                });
-            }
-        })
-        .detach();
-    }
-
-    fn poll_terminal_context_snapshots(cx: &mut Context<Self>) {
-        crate::assistant::poll_terminal_context_snapshots(cx);
     }
 
     fn install_app_state_subscription(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -6,10 +6,6 @@ use std::{
 use gpui::{App, AppContext, Context, SharedString};
 use gpui_term::Terminal;
 
-pub const DEFAULT_TERMINAL_CONTEXT_MAX_LINES: usize = 200;
-pub const DEFAULT_TERMINAL_CONTEXT_POLL_INTERVAL_MS: u64 = 500;
-pub const DEFAULT_TERMINAL_CONTEXT_MAX_CHARS: usize = 12_000;
-
 pub const ASSISTANT_SYSTEM_PROMPT: &str = r#"You are a terminal assistant embedded in a GUI app.
 
 Rules:
@@ -38,7 +34,6 @@ pub struct AssistantState {
     pub target_panel_id: Option<usize>,
     pub target_follows_focus: bool,
     pub attach_selection: bool,
-    pub attach_terminal_context: bool,
 }
 
 impl Default for AssistantState {
@@ -51,7 +46,6 @@ impl Default for AssistantState {
             target_panel_id: None,
             target_follows_focus: true,
             attach_selection: false,
-            attach_terminal_context: false,
         }
     }
 }
@@ -194,9 +188,6 @@ pub(crate) fn ensure_app_globals(app: &mut App) {
     if app.try_global::<FocusedTerminalState>().is_none() {
         app.set_global(FocusedTerminalState::default());
     }
-    if app.try_global::<AssistantTerminalContextState>().is_none() {
-        app.set_global(AssistantTerminalContextState::default());
-    }
     if app.try_global::<TerminalRegistryState>().is_none() {
         app.set_global(TerminalRegistryState::default());
     }
@@ -205,7 +196,6 @@ pub(crate) fn ensure_app_globals(app: &mut App) {
 pub(crate) fn ensure_globals<T>(cx: &mut Context<T>) {
     crate::globals::ensure_ctx_global::<AssistantState, _>(cx);
     crate::globals::ensure_ctx_global::<FocusedTerminalState, _>(cx);
-    crate::globals::ensure_ctx_global::<AssistantTerminalContextState, _>(cx);
     crate::globals::ensure_ctx_global::<TerminalRegistryState, _>(cx);
 }
 
@@ -227,15 +217,6 @@ pub(crate) fn target_is_available(cx: &impl Borrow<App>, panel_id: usize) -> boo
         .and_then(|r| r.get(panel_id))
         .and_then(|t| t.terminal.upgrade())
         .is_some()
-}
-
-pub(crate) fn terminal_context_snapshot_text(
-    cx: &impl Borrow<App>,
-    panel_id: usize,
-) -> Option<SharedString> {
-    cx.borrow()
-        .try_global::<AssistantTerminalContextState>()
-        .and_then(|s| s.get_snapshot_text(panel_id))
 }
 
 pub(crate) fn list_targets(cx: &mut impl BorrowMut<App>) -> Vec<TerminalTargetInfo> {
@@ -321,113 +302,6 @@ where
     cx.read_entity(&terminal, |terminal, _app| {
         terminal.last_content().selection_text.clone()
     })
-}
-
-#[derive(Clone, Debug)]
-pub struct TerminalContextSnapshot {
-    pub text: SharedString,
-}
-
-#[derive(Default)]
-pub struct AssistantTerminalContextState {
-    snapshots: HashMap<usize, TerminalContextSnapshot>,
-}
-
-impl gpui::Global for AssistantTerminalContextState {}
-
-impl AssistantTerminalContextState {
-    pub fn upsert_snapshot(&mut self, panel_id: usize, text: impl Into<SharedString>) {
-        let text: SharedString = text.into();
-        let trimmed = text.as_ref().trim();
-        if trimmed.is_empty() {
-            self.snapshots.remove(&panel_id);
-            return;
-        }
-
-        let trimmed = truncate_text(trimmed, DEFAULT_TERMINAL_CONTEXT_MAX_CHARS);
-        if self
-            .snapshots
-            .get(&panel_id)
-            .is_some_and(|s| s.text.as_ref() == trimmed)
-        {
-            return;
-        }
-
-        self.snapshots.insert(
-            panel_id,
-            TerminalContextSnapshot {
-                text: trimmed.to_string().into(),
-            },
-        );
-    }
-
-    pub fn get_snapshot_text(&self, panel_id: usize) -> Option<SharedString> {
-        self.snapshots.get(&panel_id).map(|s| s.text.clone())
-    }
-}
-
-pub fn tail_text_for_panel<C>(cx: &C, panel_id: usize, max_lines: usize) -> Option<String>
-where
-    C: AppContext + Borrow<App>,
-{
-    let target = cx
-        .borrow()
-        .try_global::<TerminalRegistryState>()?
-        .get(panel_id)?
-        .terminal
-        .upgrade()?;
-
-    cx.read_entity(&target, |terminal, _app| terminal.tail_text(max_lines))
-}
-
-pub(crate) fn poll_terminal_context_snapshots<T>(cx: &mut Context<T>) {
-    let attach_terminal_context = cx
-        .try_global::<AssistantState>()
-        .is_some_and(|s| s.attach_terminal_context);
-    if !attach_terminal_context {
-        return;
-    }
-
-    let panel_id = cx
-        .try_global::<AssistantState>()
-        .and_then(|s| s.target_panel_id)
-        .or_else(|| {
-            cx.try_global::<FocusedTerminalState>()
-                .and_then(|s| s.focused_panel_id)
-        });
-    let Some(panel_id) = panel_id else {
-        return;
-    };
-
-    let Some(text) = tail_text_for_panel(cx, panel_id, DEFAULT_TERMINAL_CONTEXT_MAX_LINES) else {
-        return;
-    };
-
-    if cx.try_global::<AssistantTerminalContextState>().is_some() {
-        cx.global_mut::<AssistantTerminalContextState>()
-            .upsert_snapshot(panel_id, text);
-    }
-}
-
-fn truncate_text(s: &str, max_chars: usize) -> &str {
-    if max_chars == 0 {
-        return "";
-    }
-    if s.chars().count() <= max_chars {
-        return s;
-    }
-
-    let mut end = 0usize;
-    for (i, _) in s.char_indices().take(max_chars) {
-        end = i;
-    }
-    // `end` points at the start of the last included char; include it.
-    if let Some((last_start, last_ch)) = s[end..].char_indices().next() {
-        let last_len = last_ch.len_utf8();
-        &s[..end + last_start + last_len]
-    } else {
-        s
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

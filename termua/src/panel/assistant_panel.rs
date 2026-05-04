@@ -22,8 +22,8 @@ use termua_zeroclaw::{Client as ZeroclawClient, ClientOptions as ZeroclawClientO
 
 use crate::assistant::{
     ASSISTANT_SYSTEM_PROMPT, AssistantMessage, AssistantRole, AssistantState,
-    DEFAULT_TERMINAL_CONTEXT_MAX_LINES, extract_terminal_command_snippets, focused_selection_text,
-    sanitize_assistant_reply, strip_fenced_code_blocks, tail_text_for_panel,
+    extract_terminal_command_snippets, focused_selection_text, sanitize_assistant_reply,
+    strip_fenced_code_blocks,
 };
 
 const PROMPT_KEY_CONTEXT: &str = "termua_assistant_prompt";
@@ -159,18 +159,7 @@ impl AssistantPanelView {
         let prompt = prompt.trim().to_string();
 
         let attach_selection = cx.global::<AssistantState>().attach_selection;
-        let attach_terminal_context = cx.global::<AssistantState>().attach_terminal_context;
-        let terminal_context_panel_id = cx
-            .global::<AssistantState>()
-            .target_panel_id
-            .or(crate::assistant::focused_panel_id(cx));
-
-        let attachments = Self::gather_prompt_attachments(
-            cx,
-            attach_selection,
-            attach_terminal_context,
-            terminal_context_panel_id,
-        );
+        let attachments = Self::gather_prompt_attachments(cx, attach_selection);
 
         let request_id = {
             let state = cx.global_mut::<AssistantState>();
@@ -201,8 +190,6 @@ impl AssistantPanelView {
     fn gather_prompt_attachments(
         cx: &mut Context<Self>,
         attach_selection: bool,
-        attach_terminal_context: bool,
-        terminal_context_panel_id: Option<usize>,
     ) -> PromptAttachments {
         let selection = if attach_selection {
             focused_selection_text(cx).unwrap_or_default()
@@ -210,39 +197,15 @@ impl AssistantPanelView {
             String::new()
         };
 
-        let terminal_context = if attach_terminal_context {
-            let terminal_context = terminal_context_panel_id
-                .and_then(|panel_id| {
-                    crate::assistant::terminal_context_snapshot_text(cx, panel_id)
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            tail_text_for_panel(cx, panel_id, DEFAULT_TERMINAL_CONTEXT_MAX_LINES)
-                        })
-                })
-                .unwrap_or_default();
-
-            terminal_context
-        } else {
-            String::new()
-        };
-
-        PromptAttachments {
-            selection,
-            terminal_context,
-        }
+        PromptAttachments { selection }
     }
 
     fn compose_full_prompt(prompt: &str, attachments: &PromptAttachments) -> String {
-        if attachments.terminal_context.is_empty() && attachments.selection.is_empty() {
+        if attachments.selection.is_empty() {
             return prompt.to_string();
         }
 
         let mut out = String::new();
-        if !attachments.terminal_context.is_empty() {
-            out.push_str("Terminal context (tail):\n");
-            out.push_str(&attachments.terminal_context);
-            out.push_str("\n\n");
-        }
         if !attachments.selection.is_empty() {
             out.push_str("Selected text:\n");
             out.push_str(&attachments.selection);
@@ -333,7 +296,6 @@ impl AssistantPanelView {
 
 struct PromptAttachments {
     selection: String,
-    terminal_context: String,
 }
 
 #[derive(Clone)]
@@ -493,7 +455,6 @@ impl AssistantPanelView {
         in_flight: bool,
         assistant_enabled: bool,
         attach_selection: bool,
-        attach_terminal_context: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let prompt_value = self.prompt_input.read(cx).value();
@@ -577,16 +538,6 @@ impl AssistantPanelView {
                                                                     .on_click(|_, window, cx| {
                                                                         let state = cx.global_mut::<AssistantState>();
                                                                         state.attach_selection = !state.attach_selection;
-                                                                        cx.refresh_windows();
-                                                                        window.refresh();
-                                                                    }),
-                                                            )
-                                                            .item(
-                                                                PopupMenuItem::new("Include terminal context")
-                                                                    .checked(attach_terminal_context)
-                                                                    .on_click(|_, window, cx| {
-                                                                        let state = cx.global_mut::<AssistantState>();
-                                                                        state.attach_terminal_context = !state.attach_terminal_context;
                                                                         cx.refresh_windows();
                                                                         window.refresh();
                                                                     }),
@@ -1131,7 +1082,6 @@ impl Render for AssistantPanelView {
         let entries = state.messages.clone();
         let can_rerun_user_messages = Self::compute_can_rerun_user_messages(&entries, in_flight);
         let attach_selection = state.attach_selection;
-        let attach_terminal_context = state.attach_terminal_context;
         let target_panel_id = state.target_panel_id;
         let follow_focus = state.target_follows_focus;
         let assistant_enabled = cx
@@ -1160,13 +1110,7 @@ impl Render for AssistantPanelView {
                 cx,
             ))
             .child(self.render_messages_area(this, entries, can_rerun_user_messages, in_flight, cx))
-            .child(self.render_prompt_bar(
-                in_flight,
-                assistant_enabled,
-                attach_selection,
-                attach_terminal_context,
-                cx,
-            ))
+            .child(self.render_prompt_bar(in_flight, assistant_enabled, attach_selection, cx))
     }
 }
 
@@ -1524,8 +1468,7 @@ mod tests {
             .expect("expected second command in assistant reply to have a Run button");
     }
 
-    // Intentionally no assistant "tool" UI in the panel. Terminal context (if enabled)
-    // is injected into the request payload, not exposed as tool calls.
+    // Intentionally no assistant "tool" UI in the panel.
 
     #[gpui::test]
     fn assistant_user_messages_render_rerun_button_after_assistant_reply(
