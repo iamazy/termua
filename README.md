@@ -32,12 +32,6 @@
 - [x] Lock screen: application lock screen and automatic lock on idle timeout
 - [x] Static suggestions: preconfigured static command suggestions with wildcard support
 
-### Roadmap 🏁
-
-- [ ] Support Lua scripting for more customizable scenarios
-- [ ] Support workflows
-- [ ] ...
-
 ### Quick Start
 
 #### Play cast files
