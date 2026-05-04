@@ -475,6 +475,9 @@ impl TerminalView {
         range: Option<Range<usize>>,
         cx: &mut Context<Self>,
     ) {
+        if text.is_empty() {
+            return self.clear_marked_text(cx);
+        }
         self.ime_state = Some(ImeState {
             marked_text: text,
             marked_range_utf16: range,
@@ -484,9 +487,12 @@ impl TerminalView {
 
     /// Gets the current marked range (UTF-16).
     pub(crate) fn marked_text_range(&self) -> Option<Range<usize>> {
-        self.ime_state
-            .as_ref()
-            .and_then(|state| state.marked_range_utf16.clone())
+        self.ime_state.as_ref().map(|state| {
+            state
+                .marked_range_utf16
+                .clone()
+                .unwrap_or_else(|| 0..state.marked_text.encode_utf16().count())
+        })
     }
 
     /// Clears the marked (pre-edit) text state.
@@ -2298,6 +2304,84 @@ mod prompt_context_tests {
                 let ctx = this.prompt_context(cx).expect("expected prompt context");
                 assert!(this.suggestions_eligible_for_content(&ctx.content, cx));
                 assert_eq!(ctx.cursor_line_id, None);
+            });
+        });
+    }
+}
+
+#[cfg(test)]
+mod ime_state_tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::AppContext;
+    use gpui_component::Root;
+
+    use super::{scrollbar_preview_tests::PreviewBackend, *};
+
+    #[gpui::test]
+    fn marked_text_range_defaults_to_utf16_length_when_platform_does_not_supply_range(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(crate::init);
+
+        let view_slot: Rc<RefCell<Option<Entity<TerminalView>>>> = Rc::new(RefCell::new(None));
+        let view_slot_for_window = view_slot.clone();
+
+        let (_root, window_cx) = cx.add_window_view(|window, cx| {
+            let terminal = cx.new(|_| {
+                crate::Terminal::new(
+                    crate::TerminalType::WezTerm,
+                    Box::new(PreviewBackend::new()),
+                )
+            });
+            let terminal_view = cx.new(|cx| TerminalView::new(terminal, window, cx));
+            *view_slot_for_window.borrow_mut() = Some(terminal_view.clone());
+            Root::new(terminal_view, window, cx)
+        });
+
+        let view = view_slot
+            .borrow()
+            .clone()
+            .expect("expected terminal view to be captured");
+
+        window_cx.update(|_window, cx| {
+            view.update(cx, |this, cx| {
+                this.set_marked_text("😀".to_string(), None, cx);
+                assert_eq!(this.marked_text_range(), Some(0..2));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn empty_marked_text_clears_ime_state(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+
+        let view_slot: Rc<RefCell<Option<Entity<TerminalView>>>> = Rc::new(RefCell::new(None));
+        let view_slot_for_window = view_slot.clone();
+
+        let (_root, window_cx) = cx.add_window_view(|window, cx| {
+            let terminal = cx.new(|_| {
+                crate::Terminal::new(
+                    crate::TerminalType::WezTerm,
+                    Box::new(PreviewBackend::new()),
+                )
+            });
+            let terminal_view = cx.new(|cx| TerminalView::new(terminal, window, cx));
+            *view_slot_for_window.borrow_mut() = Some(terminal_view.clone());
+            Root::new(terminal_view, window, cx)
+        });
+
+        let view = view_slot
+            .borrow()
+            .clone()
+            .expect("expected terminal view to be captured");
+
+        window_cx.update(|_window, cx| {
+            view.update(cx, |this, cx| {
+                this.set_marked_text("i".to_string(), None, cx);
+                this.set_marked_text(String::new(), None, cx);
+                assert!(this.ime_state.is_none());
+                assert_eq!(this.marked_text_range(), None);
             });
         });
     }
