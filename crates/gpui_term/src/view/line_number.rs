@@ -4,7 +4,7 @@ use gpui::{App, Bounds, Pixels, TextAlign, TextRun, TextStyle, Window, point, px
 use gpui_component::ActiveTheme;
 
 use crate::{
-    TerminalMode, point_to_viewport,
+    CellFlags, IndexedCell, NamedColor, TermColor, TerminalMode, point_to_viewport,
     terminal::{Terminal, TerminalBounds},
 };
 
@@ -107,6 +107,32 @@ fn format_line_number(buf: &mut String, line_no: usize, digits: usize) {
     let _ = write!(buf, "{line_no} ");
 }
 
+fn cell_has_visible_content(cell: &IndexedCell) -> bool {
+    cell.c != ' '
+        || !cell.zerowidth.is_empty()
+        || cell.hyperlink.is_some()
+        || cell.flags != CellFlags::empty()
+        || cell.fg != TermColor::Named(NamedColor::Foreground)
+        || cell.bg != TermColor::Named(NamedColor::Background)
+}
+
+fn last_row_to_number_for_live_viewport(
+    rows: usize,
+    cursor_row: usize,
+    cells: &[IndexedCell],
+) -> usize {
+    let last_visible_cell_row = cells
+        .iter()
+        .rev()
+        .find(|cell| cell_has_visible_content(cell))
+        .and_then(|cell| point_to_viewport(0, cell.point).map(|p| p.line));
+
+    last_visible_cell_row
+        .unwrap_or(cursor_row)
+        .max(cursor_row)
+        .min(rows.saturating_sub(1))
+}
+
 pub(crate) fn compute_line_number_paint_data(
     terminal: &Terminal,
     display_offset: usize,
@@ -125,7 +151,8 @@ pub(crate) fn compute_line_number_paint_data(
     }
 
     let last_row_to_number = if display_offset == 0 {
-        terminal
+        let content = terminal.last_content();
+        let cursor_row = terminal
             .cursor_line_id()
             .and_then(|cursor_id| {
                 let top_id = terminal.scrollback_top_line_id();
@@ -137,11 +164,11 @@ pub(crate) fn compute_line_number_paint_data(
                 cursor_abs_idx.checked_sub(viewport_top_idx)
             })
             .or_else(|| {
-                let content = terminal.last_content();
                 point_to_viewport(content.display_offset, content.cursor.point).map(|p| p.line)
             })
-            .map(|cursor_row| cursor_row.min(rows.saturating_sub(1)))
-            .unwrap_or(rows.saturating_sub(1))
+            .unwrap_or(rows.saturating_sub(1));
+
+        last_row_to_number_for_live_viewport(rows, cursor_row, &content.cells)
     } else {
         rows.saturating_sub(1)
     };
@@ -234,7 +261,10 @@ pub(crate) fn paint_line_numbers(
 mod tests {
     use gpui::{Pixels, px};
 
-    use super::{compute_line_number_layout, format_line_number};
+    use super::{
+        compute_line_number_layout, format_line_number, last_row_to_number_for_live_viewport,
+    };
+    use crate::{Cell, GridPoint, IndexedCell, NamedColor, TermColor};
 
     #[test]
     fn reserves_minimum_gutter_without_line_numbers() {
@@ -252,5 +282,41 @@ mod tests {
         let mut buf = String::new();
         format_line_number(&mut buf, 42, 4);
         assert_eq!(buf, "  42 ");
+    }
+
+    #[test]
+    fn paint_data_includes_visible_rows_below_cursor() {
+        let cells = vec![IndexedCell {
+            point: GridPoint::new(4, 0),
+            cell: Cell {
+                c: 'x',
+                ..Cell::default()
+            },
+        }];
+
+        assert_eq!(last_row_to_number_for_live_viewport(5, 2, &cells), 4);
+    }
+
+    #[test]
+    fn paint_data_ignores_blank_rows_below_cursor() {
+        let cells = vec![IndexedCell {
+            point: GridPoint::new(4, 0),
+            cell: Cell::default(),
+        }];
+
+        assert_eq!(last_row_to_number_for_live_viewport(5, 2, &cells), 2);
+    }
+
+    #[test]
+    fn paint_data_includes_styled_blank_rows_below_cursor() {
+        let cells = vec![IndexedCell {
+            point: GridPoint::new(4, 0),
+            cell: Cell {
+                bg: TermColor::Named(NamedColor::BrightBlack),
+                ..Cell::default()
+            },
+        }];
+
+        assert_eq!(last_row_to_number_for_live_viewport(5, 2, &cells), 4);
     }
 }
