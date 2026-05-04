@@ -7,7 +7,6 @@ mod assistant;
 mod atomic_write;
 mod bootstrap;
 mod cast_player;
-mod command_history;
 mod env;
 mod footbar;
 mod globals;

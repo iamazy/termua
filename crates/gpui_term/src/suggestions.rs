@@ -1,27 +1,12 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use gpui::Global;
 
 use crate::TerminalContent;
 
-pub trait SuggestionHistoryProvider: Send + Sync + 'static {
-    fn seed(&self) -> Vec<String>;
-    fn append(&self, command: &str);
-}
-
 pub trait SuggestionStaticProvider: Send + Sync + 'static {
     fn for_each_candidate(&self, first_word: &str, f: &mut dyn FnMut(&str, Option<&str>));
 }
-
-#[derive(Default)]
-pub struct SuggestionHistoryConfig {
-    pub provider: Option<Arc<dyn SuggestionHistoryProvider>>,
-}
-
-impl Global for SuggestionHistoryConfig {}
 
 #[derive(Default)]
 pub struct SuggestionStaticConfig {
@@ -38,40 +23,7 @@ pub struct SuggestionItem {
     pub description: Option<String>,
 }
 
-#[derive(Debug)]
-pub struct HistoryStore {
-    capacity: usize,
-    entries: VecDeque<String>,
-}
-
-impl HistoryStore {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            entries: VecDeque::new(),
-        }
-    }
-
-    pub fn push(&mut self, command: String) -> bool {
-        let command = command.trim().to_string();
-        if command.is_empty() {
-            return false;
-        }
-
-        if self.entries.back().is_some_and(|v| v == &command) {
-            return false;
-        }
-
-        self.entries.push_back(command);
-        while self.entries.len() > self.capacity.max(1) {
-            self.entries.pop_front();
-        }
-        true
-    }
-}
-
 pub struct SuggestionEngine {
-    pub history: HistoryStore,
     pub max_items: usize,
     static_provider: Option<Arc<dyn SuggestionStaticProvider>>,
 }
@@ -79,7 +31,6 @@ pub struct SuggestionEngine {
 impl std::fmt::Debug for SuggestionEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SuggestionEngine")
-            .field("history", &self.history)
             .field("max_items", &self.max_items)
             .field("has_static_provider", &self.static_provider.is_some())
             .finish()
@@ -87,9 +38,8 @@ impl std::fmt::Debug for SuggestionEngine {
 }
 
 impl SuggestionEngine {
-    pub fn new(history_capacity: usize, max_items: usize) -> Self {
+    pub fn new(max_items: usize) -> Self {
         Self {
-            history: HistoryStore::new(history_capacity),
             max_items,
             static_provider: None,
         }
@@ -105,19 +55,7 @@ impl SuggestionEngine {
             return Vec::new();
         }
 
-        let mut meta_by_full_text: HashMap<String, SuggestionMeta> =
-            HashMap::with_capacity(self.history.entries.len().min(256) + 16);
-
-        // History suggestions: most recent first.
-        for (i, candidate) in self.history.entries.iter().rev().enumerate() {
-            push_candidate(
-                &mut meta_by_full_text,
-                input_prefix,
-                candidate,
-                1000 - i as i32,
-                None,
-            );
-        }
+        let mut meta_by_full_text: HashMap<String, SuggestionMeta> = HashMap::with_capacity(16);
 
         // Static suggestions.
         let first_word = input_prefix.split_whitespace().next().unwrap_or("");
@@ -599,7 +537,7 @@ mod tests {
 
     #[test]
     fn static_provider_is_used_when_set() {
-        let mut engine = SuggestionEngine::new(50, 8);
+        let mut engine = SuggestionEngine::new(8);
         engine.set_static_provider(Some(std::sync::Arc::new(TestStaticProvider)));
         let out = engine.suggest("ls");
         let item = out
@@ -611,7 +549,7 @@ mod tests {
 
     #[test]
     fn no_builtin_hints_when_no_static_provider() {
-        let engine = SuggestionEngine::new(50, 8);
+        let engine = SuggestionEngine::new(8);
         let out = engine.suggest("ls");
         assert!(
             out.is_empty(),
@@ -620,57 +558,46 @@ mod tests {
     }
 
     #[test]
-    fn history_extends_prefix_append_only() {
-        let mut engine = SuggestionEngine::new(50, 8);
-        engine.history.push("git status".to_string());
+    fn dedup_prefers_first_static_candidate() {
+        struct DuplicateStaticProvider;
 
-        let out = engine.suggest("g");
-        assert!(
-            out.iter().any(|s| s.full_text == "git status"),
-            "expected `git status` to extend `g`"
-        );
+        impl SuggestionStaticProvider for DuplicateStaticProvider {
+            fn for_each_candidate(&self, first_word: &str, f: &mut dyn FnMut(&str, Option<&str>)) {
+                if first_word == "ls" {
+                    f("ls -al", Some("first"));
+                    f("ls -al", Some("second"));
+                }
+            }
+        }
 
-        let out = engine.suggest("git status");
-        assert!(
-            !out.iter().any(|s| s.full_text == "git status"),
-            "expected exact matches to not be suggested (append-only)"
-        );
-    }
-
-    #[test]
-    fn history_suggests_when_prefix_has_extra_spaces() {
-        let mut engine = SuggestionEngine::new(50, 8);
-        engine.history.push("git status".to_string());
-
-        let out = engine.suggest("git    st");
-        assert!(
-            out.iter().any(|s| s.full_text == "git status"),
-            "expected `git    st` to match `git status`"
-        );
-    }
-
-    #[test]
-    fn dedup_prefers_higher_score() {
-        let mut engine = SuggestionEngine::new(50, 8);
-        engine.history.push("ls --all".to_string());
-        engine.set_static_provider(Some(std::sync::Arc::new(TestStaticProvider)));
+        let mut engine = SuggestionEngine::new(8);
+        engine.set_static_provider(Some(std::sync::Arc::new(DuplicateStaticProvider)));
 
         let out = engine.suggest("ls");
         let item = out
             .into_iter()
-            .find(|s| s.full_text == "ls --all")
-            .expect("expected ls --all");
-        assert!(item.score >= 900, "expected history to win dedup by score");
+            .find(|s| s.full_text == "ls -al")
+            .expect("expected ls -al");
+        assert_eq!(item.description.as_deref(), Some("first"));
     }
 
     #[test]
-    fn history_is_ranked_by_recency() {
-        let mut engine = SuggestionEngine::new(50, 8);
-        engine.history.push("echo one".to_string());
-        engine.history.push("echo two".to_string());
+    fn static_suggestions_extend_prefix_append_only() {
+        let mut engine = SuggestionEngine::new(8);
+        engine.set_static_provider(Some(std::sync::Arc::new(TestStaticProvider)));
 
-        let out = engine.suggest("e");
-        assert_eq!(out.first().map(|s| s.full_text.as_str()), Some("echo two"));
+        let out = engine.suggest("ls");
+        let item = out
+            .iter()
+            .find(|s| s.full_text == "ls -al")
+            .expect("expected ls -al");
+        assert_eq!(item.description.as_deref(), Some("List directory contents"));
+
+        let out = engine.suggest("ls -al");
+        assert!(
+            !out.iter().any(|s| s.full_text == "ls -al"),
+            "expected exact matches to not be suggested (append-only)"
+        );
     }
 
     mod prefix_extract {

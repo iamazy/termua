@@ -24,9 +24,7 @@ use crate::{
     record::render_recording_indicator_label,
     settings::{CursorShape, TerminalBlink, TerminalSettings},
     snippet::{SnippetJump, SnippetJumpDir, SnippetSession},
-    suggestions::{
-        SuggestionEngine, SuggestionHistoryConfig, SuggestionItem, SuggestionStaticConfig,
-    },
+    suggestions::{SuggestionEngine, SuggestionItem, SuggestionStaticConfig},
     terminal::{
         Clear, Event, Paste, SelectAll, ShowCharacterPalette, StartCastRecording,
         StopCastRecording, Terminal, TerminalBounds, ToggleCastRecording, UserInput,
@@ -148,15 +146,7 @@ struct SuggestionsState {
 impl SuggestionsState {
     fn new(cx: &App) -> Self {
         let settings = TerminalSettings::global(cx);
-        let mut engine = SuggestionEngine::new(200, settings.suggestions_max_items);
-        if let Some(provider) = cx
-            .try_global::<SuggestionHistoryConfig>()
-            .and_then(|cfg| cfg.provider.clone())
-        {
-            for cmd in provider.seed() {
-                let _ = engine.history.push(cmd);
-            }
-        }
+        let mut engine = SuggestionEngine::new(settings.suggestions_max_items);
 
         let (static_provider, static_epoch_seen) = cx
             .try_global::<SuggestionStaticConfig>()

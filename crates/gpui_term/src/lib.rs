@@ -30,7 +30,7 @@ pub use builder::*;
 pub use cast::CastRecordingOptions;
 pub use serial::*;
 pub use settings::*;
-pub use suggestions::{SuggestionHistoryProvider, SuggestionStaticProvider};
+pub use suggestions::SuggestionStaticProvider;
 pub use terminal::*;
 pub use theme::*;
 pub use view::*;
@@ -40,7 +40,6 @@ pub fn init(cx: &mut gpui::App) {
 
     cx.set_global(TerminalSettings::new());
     cx.set_global(cast::CastRecordingConfig::default());
-    cx.set_global(suggestions::SuggestionHistoryConfig::default());
     cx.set_global(suggestions::SuggestionStaticConfig::default());
 
     #[cfg(target_os = "macos")]
@@ -100,14 +99,6 @@ pub fn init(cx: &mut gpui::App) {
         gpui::KeyBinding::new("ctrl-0", ResetFontSize, Some("Terminal")),
     ];
     cx.bind_keys(keys);
-}
-
-pub fn set_suggestion_history_provider(
-    cx: &mut gpui::App,
-    provider: Option<std::sync::Arc<dyn SuggestionHistoryProvider>>,
-) {
-    cx.global_mut::<suggestions::SuggestionHistoryConfig>()
-        .provider = provider;
 }
 
 pub fn set_suggestion_static_provider(
