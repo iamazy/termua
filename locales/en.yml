@@ -219,8 +219,6 @@ MainWindow:
       Cancel: "Cancel"
   ContextMenu:
     OpenSftp: "Open SFTP"
-    CopyCommandBlockOutput: "Copy Command Block Output"
-    CopyCommandBlockId: "Copy Command Block Id"
 
 Menubar:
   FoldMenuFallback: "Menu"

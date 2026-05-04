@@ -197,9 +197,6 @@ pub(crate) fn ensure_app_globals(app: &mut App) {
     if app.try_global::<AssistantTerminalContextState>().is_none() {
         app.set_global(AssistantTerminalContextState::default());
     }
-    if app.try_global::<AssistantCommandOutputState>().is_none() {
-        app.set_global(AssistantCommandOutputState::default());
-    }
     if app.try_global::<TerminalRegistryState>().is_none() {
         app.set_global(TerminalRegistryState::default());
     }
@@ -209,7 +206,6 @@ pub(crate) fn ensure_globals<T>(cx: &mut Context<T>) {
     crate::globals::ensure_ctx_global::<AssistantState, _>(cx);
     crate::globals::ensure_ctx_global::<FocusedTerminalState, _>(cx);
     crate::globals::ensure_ctx_global::<AssistantTerminalContextState, _>(cx);
-    crate::globals::ensure_ctx_global::<AssistantCommandOutputState, _>(cx);
     crate::globals::ensure_ctx_global::<TerminalRegistryState, _>(cx);
 }
 
@@ -239,15 +235,6 @@ pub(crate) fn terminal_context_snapshot_text(
 ) -> Option<SharedString> {
     cx.borrow()
         .try_global::<AssistantTerminalContextState>()
-        .and_then(|s| s.get_snapshot_text(panel_id))
-}
-
-pub(crate) fn command_output_snapshot_text(
-    cx: &impl Borrow<App>,
-    panel_id: usize,
-) -> Option<SharedString> {
-    cx.borrow()
-        .try_global::<AssistantCommandOutputState>()
         .and_then(|s| s.get_snapshot_text(panel_id))
 }
 
@@ -393,90 +380,6 @@ where
     cx.read_entity(&target, |terminal, _app| terminal.tail_text(max_lines))
 }
 
-#[derive(Clone, Debug)]
-pub struct CommandOutputSnapshot {
-    pub block_id: u64,
-    pub text: SharedString,
-}
-
-#[derive(Default)]
-pub struct AssistantCommandOutputState {
-    snapshots: HashMap<usize, CommandOutputSnapshot>,
-}
-
-impl gpui::Global for AssistantCommandOutputState {}
-
-impl AssistantCommandOutputState {
-    pub fn upsert_snapshot(
-        &mut self,
-        panel_id: usize,
-        block_id: u64,
-        text: impl Into<SharedString>,
-    ) {
-        let text: SharedString = text.into();
-        let trimmed = text.as_ref().trim();
-        if trimmed.is_empty() {
-            self.snapshots.remove(&panel_id);
-            return;
-        }
-
-        let trimmed = truncate_text(trimmed, DEFAULT_TERMINAL_CONTEXT_MAX_CHARS);
-        if self
-            .snapshots
-            .get(&panel_id)
-            .is_some_and(|s| s.block_id == block_id && s.text.as_ref() == trimmed)
-        {
-            return;
-        }
-
-        self.snapshots.insert(
-            panel_id,
-            CommandOutputSnapshot {
-                block_id,
-                text: trimmed.to_string().into(),
-            },
-        );
-    }
-
-    pub fn get_snapshot_text(&self, panel_id: usize) -> Option<SharedString> {
-        self.snapshots.get(&panel_id).map(|s| s.text.clone())
-    }
-
-    pub fn get_snapshot_block_id(&self, panel_id: usize) -> Option<u64> {
-        self.snapshots.get(&panel_id).map(|s| s.block_id)
-    }
-}
-
-pub fn last_command_block_output_for_panel<C>(
-    cx: &C,
-    panel_id: usize,
-    last_seen_block_id: Option<u64>,
-) -> Option<(u64, String)>
-where
-    C: AppContext + Borrow<App>,
-{
-    let target = cx
-        .borrow()
-        .try_global::<TerminalRegistryState>()?
-        .get(panel_id)?
-        .terminal
-        .upgrade()?;
-
-    cx.read_entity(&target, |terminal, _app| {
-        let blocks = terminal.command_blocks()?;
-        let b = blocks
-            .into_iter()
-            .rev()
-            .find(|b| b.output_end_line.is_some())?;
-        if Some(b.id) == last_seen_block_id {
-            return None;
-        }
-        let end = b.output_end_line?;
-        let text = terminal.text_for_lines(b.output_start_line, end)?;
-        Some((b.id, text))
-    })
-}
-
 pub(crate) fn poll_terminal_context_snapshots<T>(cx: &mut Context<T>) {
     let attach_terminal_context = cx
         .try_global::<AssistantState>()
@@ -503,19 +406,6 @@ pub(crate) fn poll_terminal_context_snapshots<T>(cx: &mut Context<T>) {
     if cx.try_global::<AssistantTerminalContextState>().is_some() {
         cx.global_mut::<AssistantTerminalContextState>()
             .upsert_snapshot(panel_id, text);
-    }
-
-    let last_block_id = cx
-        .try_global::<AssistantCommandOutputState>()
-        .and_then(|s| s.get_snapshot_block_id(panel_id));
-    let Some((block_id, output)) = last_command_block_output_for_panel(cx, panel_id, last_block_id)
-    else {
-        return;
-    };
-
-    if cx.try_global::<AssistantCommandOutputState>().is_some() {
-        cx.global_mut::<AssistantCommandOutputState>()
-            .upsert_snapshot(panel_id, block_id, output);
     }
 }
 

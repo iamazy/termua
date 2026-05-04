@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 pub const SHELL_ENV_KEY: &str = "SHELL";
 pub const TERMUA_SHELL_ENV_KEY: &str = "TERMUA_SHELL";
-pub const TERMUA_BASH_RCFILE_ENV_KEY: &str = "TERMUA_BASH_RCFILE";
-pub const TERMUA_PWSH_INIT_ENV_KEY: &str = "TERMUA_PWSH_INIT";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellKind {
@@ -67,42 +65,6 @@ pub fn shell_display_name(program: &str) -> String {
             .and_then(|s| s.to_str())
             .unwrap_or(program.trim())
             .to_string(),
-    }
-}
-
-fn powershell_integration_args(bypass_execution_policy: bool) -> Vec<String> {
-    let mut args = vec!["-NoLogo".to_string(), "-NoExit".to_string()];
-    if bypass_execution_policy {
-        args.push("-ExecutionPolicy".to_string());
-        args.push("Bypass".to_string());
-    }
-    args.push("-Command".to_string());
-    args.push(". \"$env:TERMUA_PWSH_INIT\"".to_string());
-    args
-}
-
-pub fn shell_integration_args_for_env(program: &str, env: &HashMap<String, String>) -> Vec<String> {
-    match shell_kind(program) {
-        ShellKind::Bash => env
-            .get(TERMUA_BASH_RCFILE_ENV_KEY)
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|rcfile| {
-                vec![
-                    "--noprofile".to_string(),
-                    "--rcfile".to_string(),
-                    rcfile.to_string(),
-                    "-i".to_string(),
-                ]
-            })
-            .unwrap_or_default(),
-        ShellKind::Pwsh => env
-            .get(TERMUA_PWSH_INIT_ENV_KEY)
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|_init| powershell_integration_args(cfg!(windows)))
-            .unwrap_or_default(),
-        ShellKind::Zsh | ShellKind::PowerShell | ShellKind::Cmd | ShellKind::Other => Vec::new(),
     }
 }
 
@@ -251,45 +213,6 @@ mod tests {
 
         #[cfg(all(not(windows), not(target_os = "macos")))]
         assert_eq!(default_shell_program(), "bash");
-    }
-
-    #[test]
-    fn shell_integration_args_build_for_pwsh() {
-        let mut env = HashMap::new();
-        env.insert(
-            TERMUA_PWSH_INIT_ENV_KEY.to_string(),
-            "/tmp/init.ps1".to_string(),
-        );
-        assert_eq!(
-            shell_integration_args_for_env("pwsh", &env),
-            powershell_integration_args(cfg!(windows))
-        );
-    }
-
-    #[test]
-    fn shell_integration_args_do_not_build_for_windows_powershell() {
-        let mut env = HashMap::new();
-        env.insert(
-            TERMUA_PWSH_INIT_ENV_KEY.to_string(),
-            "/tmp/init.ps1".to_string(),
-        );
-
-        assert!(shell_integration_args_for_env("powershell", &env).is_empty());
-    }
-
-    #[test]
-    fn powershell_integration_args_can_enable_execution_policy_bypass() {
-        assert_eq!(
-            powershell_integration_args(true),
-            vec![
-                "-NoLogo".to_string(),
-                "-NoExit".to_string(),
-                "-ExecutionPolicy".to_string(),
-                "Bypass".to_string(),
-                "-Command".to_string(),
-                ". \"$env:TERMUA_PWSH_INIT\"".to_string(),
-            ]
-        );
     }
 
     #[test]

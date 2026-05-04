@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ops::Range, sync::Arc, time::Duration};
+use std::{ops::Range, sync::Arc, time::Duration};
 
 use gpui::{
     Action, AnyElement, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable,
@@ -219,15 +219,6 @@ struct ScrollbarPreviewLayoutState {
     total_lines: usize,
 }
 
-#[derive(Clone, Copy)]
-struct CommandBlockHitLayoutState {
-    bounds: Bounds<Pixels>,
-    line_height: Pixels,
-    display_offset: i32,
-    max_row: i32,
-    cols: usize,
-}
-
 /// A terminal view, maintains the PTY's file handles and communicates with the terminal
 pub struct TerminalView {
     pub terminal: Entity<Terminal>,
@@ -242,8 +233,6 @@ pub struct TerminalView {
     search: SearchState,
     suggestions: SuggestionsState,
     snippet: Option<SnippetSession>,
-    pending_history_commands: VecDeque<String>,
-    last_seen_history_block_id: Option<u64>,
     context_menu_enabled: bool,
     context_menu_provider: Option<Arc<dyn ContextMenuProvider>>,
     _subscriptions: Vec<Subscription>,
@@ -295,17 +284,6 @@ impl TerminalView {
             line_height: terminal_bounds.line_height,
             cell_width: terminal_bounds.cell_width,
             total_lines: terminal.total_lines(),
-        }
-    }
-
-    fn command_block_hit_layout_state(&self, cx: &App) -> CommandBlockHitLayoutState {
-        let content = self.terminal.read(cx).last_content();
-        CommandBlockHitLayoutState {
-            bounds: content.terminal_bounds.bounds,
-            line_height: content.terminal_bounds.line_height,
-            display_offset: content.display_offset as i32,
-            max_row: content.terminal_bounds.num_lines().saturating_sub(1) as i32,
-            cols: content.terminal_bounds.num_columns().max(1),
         }
     }
 
@@ -370,8 +348,6 @@ impl TerminalView {
             search: SearchState::default(),
             suggestions: SuggestionsState::new(cx),
             snippet: None,
-            pending_history_commands: VecDeque::new(),
-            last_seen_history_block_id: None,
             context_menu_enabled,
             context_menu_provider,
             _subscriptions: vec![focus_in, focus_out],
@@ -381,62 +357,6 @@ impl TerminalView {
 
     pub fn context_menu_enabled(&self) -> bool {
         self.context_menu_enabled
-    }
-
-    fn queue_command_for_history(&mut self, command: String, cx: &mut Context<Self>) {
-        let command = command.trim().to_string();
-        if command.is_empty() {
-            return;
-        }
-
-        // Only persist history when we can observe command success via OSC 133 command blocks.
-        let blocks = self.terminal.read(cx).command_blocks();
-        if blocks.is_none() {
-            return;
-        }
-
-        if self.last_seen_history_block_id.is_none() {
-            self.last_seen_history_block_id = blocks
-                .as_ref()
-                .and_then(|b| b.iter().rev().find(|v| v.ended_at.is_some()).map(|v| v.id))
-                .or(Some(0));
-        }
-
-        const MAX_PENDING_HISTORY: usize = 32;
-        while self.pending_history_commands.len() >= MAX_PENDING_HISTORY {
-            self.pending_history_commands.pop_front();
-        }
-        self.pending_history_commands.push_back(command);
-    }
-
-    fn flush_successful_history_from_blocks(
-        &mut self,
-        blocks: &[crate::command_blocks::CommandBlock],
-        cx: &mut Context<Self>,
-    ) {
-        let Some(last_seen) = self.last_seen_history_block_id.as_mut() else {
-            return;
-        };
-
-        let successful = crate::suggestions::drain_successful_history_commands(
-            &mut self.pending_history_commands,
-            last_seen,
-            blocks,
-        );
-        if successful.is_empty() {
-            return;
-        }
-
-        let provider = cx
-            .try_global::<SuggestionHistoryConfig>()
-            .and_then(|cfg| cfg.provider.clone());
-
-        for cmd in successful {
-            let inserted = self.suggestions.engine.history.push(cmd.clone());
-            if inserted && let Some(provider) = provider.as_ref() {
-                provider.append(&cmd);
-            }
-        }
     }
 
     fn show_toast(
@@ -1201,114 +1121,6 @@ impl TerminalView {
             .separator()
             .menu("Clear", Box::new(Clear))
     }
-
-    fn select_command_block_at_y(
-        &mut self,
-        y: Pixels,
-        _shift: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.focus(&self.focus_handle, cx);
-        let debug_toasts = cfg!(debug_assertions);
-
-        let CommandBlockHitLayoutState {
-            bounds,
-            line_height,
-            display_offset,
-            max_row,
-            cols,
-        } = self.command_block_hit_layout_state(cx);
-
-        if line_height <= px(0.0) || bounds.size.height <= px(0.0) {
-            return;
-        }
-
-        let rel_y = y - bounds.origin.y;
-        if rel_y < px(0.0) || rel_y >= bounds.size.height {
-            return;
-        }
-
-        let mut row = (rel_y / line_height).floor() as i32;
-        row = row.clamp(0, max_row);
-
-        let grid_line = row.saturating_sub(display_offset);
-
-        let Some((stable, blocks, block, start_line, end_line)) = (|| {
-            let terminal = self.terminal.read(cx);
-            let stable = terminal.stable_row_for_grid_line(grid_line)?;
-            let blocks = terminal.command_blocks()?;
-            let block = crate::command_blocks::block_at_stable_row(&blocks, stable).cloned();
-            let (start_line, end_line) = match block.as_ref() {
-                Some(block) => {
-                    let end_stable = block.output_end_line.unwrap_or(stable);
-                    (
-                        terminal.grid_line_for_stable_row(block.output_start_line)?,
-                        terminal.grid_line_for_stable_row(end_stable)?,
-                    )
-                }
-                None => (0, 0),
-            };
-            Some((stable, blocks, block, start_line, end_line))
-        })() else {
-            if debug_toasts {
-                self.show_toast(
-                    PromptLevel::Info,
-                    "Command blocks unavailable",
-                    Some("This terminal backend doesn't expose command blocks.".to_string()),
-                    window,
-                    cx,
-                );
-            }
-            return;
-        };
-
-        let Some(_block) = block else {
-            self.terminal.update(cx, |terminal, _| {
-                terminal.set_selection_range(None);
-            });
-            window.refresh();
-            if debug_toasts {
-                self.show_toast(
-                    PromptLevel::Info,
-                    "No command block here",
-                    Some(no_command_block_detail(&blocks, stable)),
-                    window,
-                    cx,
-                );
-            }
-            return;
-        };
-
-        let last_col = cols.saturating_sub(1);
-
-        self.terminal.update(cx, |terminal, _cx| {
-            terminal.set_selection_range(Some(crate::SelectionRange {
-                start: crate::GridPoint::new(start_line, 0),
-                end: crate::GridPoint::new(end_line, last_col),
-            }));
-        });
-        window.refresh();
-        cx.notify();
-    }
-}
-
-fn no_command_block_detail(blocks: &[crate::command_blocks::CommandBlock], stable: i64) -> String {
-    if blocks.is_empty() {
-        "No OSC 133 blocks detected yet. Ensure this tab is a local bash or zsh shell with TERMUA \
-         OSC 133 integration active."
-            .to_string()
-    } else {
-        match blocks.last() {
-            Some(last) => format!(
-                "stable_row={stable} blocks={} last_block.start={} last_block.end={:?}",
-                blocks.len(),
-                last.output_start_line,
-                last.output_end_line
-            ),
-            None => format!("stable_row={stable} blocks=0"),
-        }
-    }
 }
 
 fn subscribe_for_terminal_events(
@@ -1316,10 +1128,7 @@ fn subscribe_for_terminal_events(
     window: &mut Window,
     cx: &mut Context<TerminalView>,
 ) -> Vec<Subscription> {
-    let terminal_subscription = cx.observe(terminal, |terminal_view, terminal, cx| {
-        if let Some(blocks) = terminal.read(cx).command_blocks() {
-            terminal_view.flush_successful_history_from_blocks(&blocks, cx);
-        }
+    let terminal_subscription = cx.observe(terminal, |_terminal_view, _terminal, cx| {
         cx.notify();
     });
 
@@ -2567,9 +2376,6 @@ mod snippet_placeholder_key_down_tests {
 mod tests {
     use std::time::Duration;
 
-    use super::no_command_block_detail;
-    use crate::command_blocks::CommandBlock;
-
     fn format_clock(d: Duration) -> String {
         let secs = d.as_secs();
         let h = secs / 3600;
@@ -2589,41 +2395,6 @@ mod tests {
         assert_eq!(
             format_clock(std::time::Duration::from_secs(3661)),
             "01:01:01"
-        );
-    }
-
-    #[test]
-    fn no_command_block_detail_mentions_supported_shells() {
-        let detail = no_command_block_detail(&[], 42);
-        assert!(detail.contains("bash or zsh"));
-        assert!(detail.contains("OSC 133"));
-    }
-
-    #[test]
-    fn no_command_block_detail_reports_last_block_context() {
-        let blocks = vec![CommandBlock {
-            id: 1,
-            started_at: std::time::Instant::now(),
-            ended_at: None,
-            exit_code: None,
-            command: None,
-            output_start_line: 10,
-            output_end_line: Some(20),
-        }];
-
-        let detail = no_command_block_detail(&blocks, 42);
-        assert!(detail.contains("stable_row=42"));
-        assert!(detail.contains("last_block.start=10"));
-        assert!(detail.contains("last_block.end=Some(20)"));
-    }
-
-    #[test]
-    fn command_block_debug_toasts_are_gated_by_debug_assertions() {
-        let src = include_str!("mod.rs");
-        let gate = "let debug_toasts = cfg!(debug_assertions);";
-        assert!(
-            src.contains(gate),
-            "expected command block selection to gate debug toasts on debug assertions"
         );
     }
 }

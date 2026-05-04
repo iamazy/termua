@@ -218,8 +218,6 @@ MainWindow:
       Cancel: "取消"
   ContextMenu:
     OpenSftp: "打开 SFTP"
-    CopyCommandBlockOutput: "复制命令块输出"
-    CopyCommandBlockId: "复制命令块 ID"
 
 Menubar:
   FoldMenuFallback: "菜单"

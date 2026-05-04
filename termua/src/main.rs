@@ -23,7 +23,6 @@ mod serial;
 mod session;
 mod settings;
 mod sharing;
-mod shell_integration;
 mod ssh;
 mod static_suggestions;
 mod theme_manager;

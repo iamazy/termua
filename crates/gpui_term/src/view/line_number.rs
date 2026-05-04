@@ -76,8 +76,8 @@ pub(crate) fn compute_line_number_layout(
     let gutter = if show_line_numbers {
         cell_width / 3.0 + line_number_width
     } else if reserve_left_padding_without_line_numbers {
-        // When line numbers are hidden, still reserve enough space for interaction affordances
-        // in the left gutter (e.g. command block selection).
+        // When line numbers are hidden, still reserve enough space for left-gutter
+        // interaction affordances.
         (cell_width / 3.0).max(px(8.0)).max(px(14.0))
     } else {
         Pixels::ZERO
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn reserves_minimum_gutter_without_line_numbers() {
         // Even when line numbers are hidden, we still want enough left gutter space for
-        // interaction affordances (e.g. command block selection).
+        // interaction affordances.
         let cell_width = px(9.0);
         let state = compute_line_number_layout(cell_width, false, true, 10_000);
         assert!(state.gutter >= px(14.0));

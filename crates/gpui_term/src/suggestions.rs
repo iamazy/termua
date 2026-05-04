@@ -5,7 +5,7 @@ use std::{
 
 use gpui::Global;
 
-use crate::{TerminalContent, command_blocks::CommandBlock};
+use crate::TerminalContent;
 
 pub trait SuggestionHistoryProvider: Send + Sync + 'static {
     fn seed(&self) -> Vec<String>;
@@ -380,37 +380,6 @@ fn cursor_at_eol_slow(content: &TerminalContent) -> bool {
     true
 }
 
-pub(crate) fn drain_successful_history_commands(
-    pending: &mut VecDeque<String>,
-    last_seen_block_id: &mut u64,
-    blocks: &[CommandBlock],
-) -> Vec<String> {
-    let old_last_seen = *last_seen_block_id;
-    let mut out = Vec::<String>::new();
-
-    let mut new_last_seen = old_last_seen;
-    for block in blocks {
-        if block.id <= old_last_seen {
-            continue;
-        }
-        if block.ended_at.is_none() {
-            continue;
-        }
-
-        new_last_seen = new_last_seen.max(block.id);
-        let Some(cmd) = pending.pop_front() else {
-            continue;
-        };
-
-        if block.exit_code == Some(0) {
-            out.push(cmd);
-        }
-    }
-
-    *last_seen_block_id = new_last_seen;
-    out
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SelectionMove {
     Up,
@@ -591,75 +560,6 @@ fn loose_prefix_match_end_ascii(full: &[u8], prefix: &[u8]) -> Option<usize> {
     }
 
     Some(matched_end)
-}
-
-#[cfg(test)]
-mod history_drain_tests {
-    use super::*;
-
-    fn block(id: u64, exit_code: Option<i32>, ended: bool) -> CommandBlock {
-        CommandBlock {
-            id,
-            started_at: std::time::Instant::now(),
-            ended_at: ended.then_some(std::time::Instant::now()),
-            exit_code,
-            command: None,
-            output_start_line: 0,
-            output_end_line: None,
-        }
-    }
-
-    #[test]
-    fn drains_only_successful_commands_in_order() {
-        let mut pending = VecDeque::from(["ok".to_string(), "bad".to_string(), "ok2".to_string()]);
-        let mut last_seen = 0u64;
-        let blocks = vec![
-            block(1, Some(0), true),
-            block(2, Some(1), true),
-            block(3, Some(0), true),
-        ];
-
-        let out = drain_successful_history_commands(&mut pending, &mut last_seen, &blocks);
-        assert_eq!(out, vec!["ok".to_string(), "ok2".to_string()]);
-        assert!(pending.is_empty());
-        assert_eq!(last_seen, 3);
-    }
-
-    #[test]
-    fn does_not_drain_for_running_blocks() {
-        let mut pending = VecDeque::from(["x".to_string()]);
-        let mut last_seen = 0u64;
-        let blocks = vec![block(1, None, false)];
-
-        let out = drain_successful_history_commands(&mut pending, &mut last_seen, &blocks);
-        assert!(out.is_empty());
-        assert_eq!(pending.len(), 1);
-        assert_eq!(last_seen, 0);
-    }
-
-    #[test]
-    fn drains_when_running_block_later_finishes() {
-        let mut pending = VecDeque::from(["x".to_string()]);
-        let mut last_seen = 0u64;
-
-        let out = drain_successful_history_commands(
-            &mut pending,
-            &mut last_seen,
-            &[block(1, None, false)],
-        );
-        assert!(out.is_empty());
-        assert_eq!(pending.len(), 1);
-        assert_eq!(last_seen, 0);
-
-        let out = drain_successful_history_commands(
-            &mut pending,
-            &mut last_seen,
-            &[block(1, Some(0), true)],
-        );
-        assert_eq!(out, vec!["x".to_string()]);
-        assert!(pending.is_empty());
-        assert_eq!(last_seen, 1);
-    }
 }
 
 #[cfg(test)]

@@ -95,20 +95,14 @@ impl TerminalView {
         let root = root.on_mouse_down(
             MouseButton::Left,
             cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                // Treat the left gutter (line numbers/padding) as UI chrome: allow selecting
-                // command blocks there rather than starting a terminal selection.
+                // Treat the left gutter (line numbers/padding) as UI chrome, not terminal input.
                 let content_bounds = {
                     let terminal = this.terminal.read(cx);
                     terminal.last_content().terminal_bounds.bounds
                 };
                 if event.position.x < content_bounds.origin.x {
                     this.close_suggestions(cx);
-                    this.select_command_block_at_y(
-                        event.position.y,
-                        event.modifiers.shift,
-                        window,
-                        cx,
-                    );
+                    window.focus(&this.focus_handle, cx);
                     cx.stop_propagation();
                 }
             }),
@@ -137,13 +131,6 @@ impl TerminalView {
                 };
                 let clicked_in_gutter = event.position.x < content_bounds.origin.x;
                 if clicked_in_gutter {
-                    // Pre-select the block (if any) so context-menu actions apply.
-                    this.select_command_block_at_y(
-                        event.position.y,
-                        event.modifiers.shift,
-                        window,
-                        cx,
-                    );
                     return;
                 }
 

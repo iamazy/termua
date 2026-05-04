@@ -258,26 +258,6 @@ pub trait TerminalBackend: Send {
         None
     }
 
-    /// Returns the terminal's recent command blocks, if supported by the backend.
-    fn command_blocks(&self) -> Option<Vec<crate::command_blocks::CommandBlock>> {
-        None
-    }
-
-    /// Convert a backend `GridPoint.line` coordinate into a stable row identifier suitable for
-    /// matching against command blocks.
-    ///
-    /// This is a best-effort adapter for UI integrations (e.g. context menus). Backends that
-    /// don't have a stable row concept may return `None`.
-    fn stable_row_for_grid_line(&self, _line: i32) -> Option<i64> {
-        None
-    }
-
-    /// Convert a stable row identifier (as used by command blocks) into a backend `GridPoint.line`
-    /// coordinate suitable for creating a selection range.
-    fn grid_line_for_stable_row(&self, _stable_row: i64) -> Option<i32> {
-        None
-    }
-
     /// Set the current selection range.
     ///
     /// Backends should treat this as a UI-only operation and avoid emitting PTY input.
@@ -1472,18 +1452,6 @@ impl Terminal {
 
     pub fn text_for_lines(&self, start_line: i64, end_line: i64) -> Option<String> {
         self.inner.text_for_lines(start_line, end_line)
-    }
-
-    pub fn command_blocks(&self) -> Option<Vec<crate::command_blocks::CommandBlock>> {
-        self.inner.command_blocks()
-    }
-
-    pub fn stable_row_for_grid_line(&self, line: i32) -> Option<i64> {
-        self.inner.stable_row_for_grid_line(line)
-    }
-
-    pub fn grid_line_for_stable_row(&self, stable_row: i64) -> Option<i32> {
-        self.inner.grid_line_for_stable_row(stable_row)
     }
 
     pub fn set_selection_range(&mut self, range: Option<crate::SelectionRange>) {

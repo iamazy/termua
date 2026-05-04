@@ -5,7 +5,6 @@ use bitflags::bitflags;
 mod backends;
 mod builder;
 pub mod cast;
-pub mod command_blocks;
 mod element;
 pub mod remote;
 mod serial;

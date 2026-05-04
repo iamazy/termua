@@ -210,7 +210,7 @@ impl AssistantPanelView {
             String::new()
         };
 
-        let (terminal_context, last_command_output) = if attach_terminal_context {
+        let terminal_context = if attach_terminal_context {
             let terminal_context = terminal_context_panel_id
                 .and_then(|panel_id| {
                     crate::assistant::terminal_context_snapshot_text(cx, panel_id)
@@ -221,39 +221,23 @@ impl AssistantPanelView {
                 })
                 .unwrap_or_default();
 
-            let last_command_output = terminal_context_panel_id
-                .and_then(|panel_id| {
-                    crate::assistant::command_output_snapshot_text(cx, panel_id)
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-
-            (terminal_context, last_command_output)
+            terminal_context
         } else {
-            (String::new(), String::new())
+            String::new()
         };
 
         PromptAttachments {
             selection,
             terminal_context,
-            last_command_output,
         }
     }
 
     fn compose_full_prompt(prompt: &str, attachments: &PromptAttachments) -> String {
-        if attachments.last_command_output.is_empty()
-            && attachments.terminal_context.is_empty()
-            && attachments.selection.is_empty()
-        {
+        if attachments.terminal_context.is_empty() && attachments.selection.is_empty() {
             return prompt.to_string();
         }
 
         let mut out = String::new();
-        if !attachments.last_command_output.is_empty() {
-            out.push_str("Last command output:\n");
-            out.push_str(&attachments.last_command_output);
-            out.push_str("\n\n");
-        }
         if !attachments.terminal_context.is_empty() {
             out.push_str("Terminal context (tail):\n");
             out.push_str(&attachments.terminal_context);
@@ -350,7 +334,6 @@ impl AssistantPanelView {
 struct PromptAttachments {
     selection: String,
     terminal_context: String,
-    last_command_output: String,
 }
 
 #[derive(Clone)]

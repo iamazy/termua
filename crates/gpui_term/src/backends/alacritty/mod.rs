@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     ops::RangeInclusive,
     sync::Arc,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
 use alacritty_terminal::{
@@ -50,7 +50,6 @@ use crate::{
     TerminalBackend, TerminalBounds, TerminalContent, TerminalMode, TerminalShutdownPolicy,
     TerminalType, backends,
     cast::{CastHeader, CastRecorderSender, CastRecorderState, start_cast_recorder},
-    command_blocks::CommandBlockTracker,
     settings::{CursorShape, TerminalSettings},
 };
 
@@ -66,98 +65,15 @@ fn local_pty_options_for_program_exists(
     program_exists: impl FnOnce(&str) -> bool,
 ) -> Options {
     let shell_program = crate::shell::pick_shell_program_from_env(&env);
-    let shell = shell_program.filter(|p| program_exists(p)).map(|p| {
-        let args = crate::shell::shell_integration_args_for_env(p, &env);
-
-        tty::Shell::new(p.to_string(), args)
-    });
+    let shell = shell_program
+        .filter(|p| program_exists(p))
+        .map(|p| tty::Shell::new(p.to_string(), Vec::new()));
 
     Options {
         shell,
         env,
         ..Options::default()
     }
-}
-
-fn prev_stable_row(stable: i64) -> i64 {
-    if stable > 0 { stable - 1 } else { 0 }
-}
-
-fn adjust_osc133_boundary(payload: &str, stable: i64, cursor_x: usize) -> i64 {
-    // Keep consistent with the WezTerm backend heuristic.
-    //
-    // When the cursor is at column 0, it often means:
-    // - For `C`: the user hit enter and the cursor moved to the next line, so the command line
-    //   itself is the previous row.
-    // - For `D`: the command finished and the cursor is on the next (prompt) line, so the output
-    //   ends on the previous row.
-    let kind = payload.trim_start().as_bytes().first().copied();
-    if cursor_x == 0 && matches!(kind, Some(b'A') | Some(b'C') | Some(b'D')) {
-        prev_stable_row(stable)
-    } else {
-        stable
-    }
-}
-
-fn stable_row_texts(term: &Term<EventProxy>) -> Vec<(i64, String)> {
-    let grid = term.grid();
-    let last_col = grid.last_column();
-
-    (grid.topmost_line().0..=grid.bottommost_line().0)
-        .map(|line| {
-            let stable = grid.stable_row_id_for_line(Line(line));
-            let text = term
-                .bounds_to_string(
-                    AlacPoint::new(Line(line), Column(0)),
-                    AlacPoint::new(Line(line), last_col),
-                )
-                .trim_end()
-                .to_string();
-            (stable, text)
-        })
-        .collect()
-}
-
-fn wrapped_command_span_for_stable_row(
-    term: &Term<EventProxy>,
-    stable_row: i64,
-) -> Option<(i64, String)> {
-    let grid = term.grid();
-    let mut line = grid.line_for_stable_row_id(stable_row)?;
-    let last_col = grid.last_column();
-
-    while line.0 > grid.topmost_line().0 {
-        let prev = Line(line.0 - 1);
-        if !grid[prev][last_col].flags.contains(Flags::WRAPLINE) {
-            break;
-        }
-        line = prev;
-    }
-
-    let mut command = String::new();
-    let end = grid.line_for_stable_row_id(stable_row)?;
-    for row in line.0..=end.0 {
-        command.push_str(
-            term.bounds_to_string(
-                AlacPoint::new(Line(row), Column(0)),
-                AlacPoint::new(Line(row), last_col),
-            )
-            .trim_end_matches(|c: char| c.is_whitespace()),
-        );
-    }
-
-    let command = command.trim_end().to_string();
-    (!command.trim().is_empty()).then(|| (grid.stable_row_id_for_line(line), command))
-}
-
-fn stable_row_for_grid_line(term: &Term<EventProxy>, line: i32) -> Option<i64> {
-    let grid = term.grid();
-    let top = grid.topmost_line().0;
-    let bottom = grid.bottommost_line().0;
-    if line < top || line > bottom {
-        return None;
-    }
-    Some(grid.stable_row_id_for_line(Line(line)))
 }
 
 fn selection_from_lines(start_line: i32, end_line: i32, last_col: usize) -> Selection {
@@ -380,7 +296,6 @@ impl TerminalBuilder {
                 content: TerminalContent::default(),
                 sftp,
                 record: RecordState::new(cast_slot),
-                blocks: CommandBlockTracker::new(200),
             },
             events_rx,
         })
@@ -464,7 +379,6 @@ impl TerminalBuilder {
 struct SelectionState {
     head: Option<AlacPoint>,
     phase: SelectionPhase,
-    command_block_id: Option<u64>,
 }
 
 impl Default for SelectionState {
@@ -472,7 +386,6 @@ impl Default for SelectionState {
         Self {
             head: None,
             phase: SelectionPhase::Ended,
-            command_block_id: None,
         }
     }
 }
@@ -522,8 +435,6 @@ pub struct AlacrittyBackend {
 
     // Asciinema cast recording.
     record: RecordState,
-
-    blocks: CommandBlockTracker,
 }
 
 impl AlacrittyBackend {
@@ -626,37 +537,6 @@ impl AlacrittyBackend {
             }
             AlacTermEvent::Wakeup => {
                 self.search.dirty = true;
-            }
-            AlacTermEvent::Osc133 {
-                payload,
-                stable_row,
-                cursor_col,
-            } => {
-                let mut line = adjust_osc133_boundary(&payload, stable_row, cursor_col);
-                let command = if payload.trim_start().starts_with('C') {
-                    let term = self.term.lock_unfair();
-                    match wrapped_command_span_for_stable_row(&term, line) {
-                        Some((start_line, command)) => {
-                            line = start_line;
-                            Some(command)
-                        }
-                        None => {
-                            let grid = term.grid();
-                            grid.line_for_stable_row_id(line).map(|row| {
-                                term.bounds_to_string(
-                                    AlacPoint::new(row, Column(0)),
-                                    AlacPoint::new(row, grid.last_column()),
-                                )
-                                .trim_end()
-                                .to_string()
-                            })
-                        }
-                    }
-                } else {
-                    None
-                };
-                self.blocks
-                    .apply_osc133(&payload, Instant::now(), line, command);
             }
             AlacTermEvent::Bell => cx.emit(Event::Bell),
             AlacTermEvent::Exit => {
@@ -779,21 +659,6 @@ impl AlacrittyBackend {
         }
         self.pty_tx.0.send(Msg::Resize(new_bounds.into())).ok();
         term.resize(new_bounds);
-        let cursor_stable = term
-            .grid()
-            .stable_row_id_for_line(term.grid().cursor.point.line);
-        let lines = stable_row_texts(term);
-        self.blocks.remap_after_rewrap(&lines, cursor_stable);
-        if let Some(block_id) = self.selection.command_block_id
-            && let Some((start_stable, end_stable)) = self.blocks.range_for_block_id(block_id)
-            && let Some(start_line) = term.grid().line_for_stable_row_id(start_stable)
-            && let Some(end_line) = term.grid().line_for_stable_row_id(end_stable)
-        {
-            let last_col = new_bounds.num_columns().saturating_sub(1);
-            term.selection = Some(selection_from_lines(start_line.0, end_line.0, last_col));
-            self.selection.head = None;
-            self.selection.phase = SelectionPhase::Ended;
-        }
     }
 
     fn apply_clear_op(term: &mut Term<EventProxy>, cx: &mut Context<Terminal>) {
@@ -838,7 +703,6 @@ impl AlacrittyBackend {
             selection.update(point, side);
             term.selection = Some(selection);
             self.selection.head = Some(point);
-            self.selection.command_block_id = None;
             cx.emit(Event::SelectionsChanged);
         }
     }
@@ -973,7 +837,6 @@ impl TerminalBackend for AlacrittyBackend {
     fn clear_selection(&mut self) {
         self.selection.head = None;
         self.selection.phase = SelectionPhase::Ended;
-        self.selection.command_block_id = None;
         self.pending_ops.push_back(TermOp::SetSelection(None));
     }
 
@@ -1201,36 +1064,9 @@ impl TerminalBackend for AlacrittyBackend {
         Some(term.bounds_to_string(start, end).trim_end().to_string())
     }
 
-    fn command_blocks(&self) -> Option<Vec<crate::command_blocks::CommandBlock>> {
-        Some(self.blocks.blocks())
-    }
-
-    fn stable_row_for_grid_line(&self, line: i32) -> Option<i64> {
-        let term = self.term.lock_unfair();
-        let grid = term.grid();
-        let top = grid.topmost_line().0;
-        let bottom = grid.bottommost_line().0;
-        if line < top || line > bottom {
-            return None;
-        }
-        Some(grid.stable_row_id_for_line(Line(line)))
-    }
-
-    fn grid_line_for_stable_row(&self, stable_row: i64) -> Option<i32> {
-        let term = self.term.lock_unfair();
-        let grid = term.grid();
-        grid.line_for_stable_row_id(stable_row).map(|l| l.0)
-    }
-
     fn set_selection_range(&mut self, range: Option<crate::SelectionRange>) {
         self.selection.head = None;
         self.selection.phase = SelectionPhase::Ended;
-        self.selection.command_block_id = range.as_ref().and_then(|range| {
-            let term = self.term.lock_unfair();
-            let start = stable_row_for_grid_line(&term, range.start.line)?;
-            let end = stable_row_for_grid_line(&term, range.end.line)?;
-            self.blocks.block_id_for_range(start, end)
-        });
 
         let Some(range) = range else {
             self.pending_ops.push_back(TermOp::SetSelection(None));
@@ -1375,7 +1211,6 @@ impl TerminalBackend for AlacrittyBackend {
             SelectionType::Semantic
         };
         let selection = Selection::new(ty, point, side);
-        self.selection.command_block_id = None;
         self.pending_ops
             .push_back(TermOp::SetSelection(Some((selection, point))));
     }
@@ -1389,7 +1224,6 @@ impl TerminalBackend for AlacrittyBackend {
         let position = e.position - self.content.terminal_bounds.bounds.origin;
         if !self.mouse_mode(e.modifiers.shift) {
             self.selection.phase = SelectionPhase::Selecting;
-            self.selection.command_block_id = None;
             self.pending_ops
                 .push_back(TermOp::UpdateSelection(position));
 
@@ -1450,7 +1284,6 @@ impl TerminalBackend for AlacrittyBackend {
                 self.content.display_offset,
             );
             let selection = Selection::new(SelectionType::Simple, point, side);
-            self.selection.command_block_id = None;
             self.pending_ops
                 .push_back(TermOp::SetSelection(Some((selection, point))));
             cx.notify();
@@ -1868,46 +1701,12 @@ mod shell_tests {
     }
 
     #[test]
-    fn local_pty_options_uses_shell_integration_args() {
-        let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "pwsh".to_string());
-        env.insert(
-            "TERMUA_PWSH_INIT".to_string(),
-            "/tmp/termua-test.ps1".to_string(),
-        );
-
-        let opts = local_pty_options_for_program_exists(env, |p| p == "pwsh");
-        let shell = opts.shell.expect("expected shell");
-        let shell_debug = format!("{shell:?}");
-        assert!(shell_debug.contains("pwsh"));
-        assert!(shell_debug.contains("-NoLogo"));
-        assert!(shell_debug.contains("-NoExit"));
-        assert!(shell_debug.contains(". \\\"$env:TERMUA_PWSH_INIT\\\""));
-    }
-
-    #[test]
     fn local_pty_options_falls_back_when_shell_not_found() {
         let mut env = HashMap::new();
         env.insert("TERMUA_SHELL".to_string(), "fish".to_string());
 
         let opts = local_pty_options_for_program_exists(env, |_p| false);
         assert!(opts.shell.is_none());
-    }
-}
-
-#[cfg(test)]
-mod command_block_tests {
-    #[test]
-    fn adjust_osc133_boundary_matches_wezterm_heuristic() {
-        assert_eq!(super::adjust_osc133_boundary("C", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("D;0", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("A", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("C", 0, 0), 0);
-
-        assert_eq!(super::adjust_osc133_boundary("C", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("D;0", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("A", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("B", 10, 0), 10);
     }
 }
 
@@ -1930,9 +1729,7 @@ mod selection_tests {
         AlacTermEvent, AlacrittyBackend, EventProxy, RecordState, SearchState, SelectionState,
         TermOp,
     };
-    use crate::{
-        TerminalBackend, TerminalBounds, TerminalContent, command_blocks::CommandBlockTracker,
-    };
+    use crate::{TerminalBackend, TerminalBounds, TerminalContent};
 
     #[derive(Default)]
     struct DummyPty {
@@ -2020,7 +1817,6 @@ mod selection_tests {
             content: TerminalContent::default(),
             sftp: None,
             record: RecordState::new(cast_slot),
-            blocks: CommandBlockTracker::new(200),
         }
     }
 
@@ -2096,7 +1892,6 @@ mod selection_tests {
             content: TerminalContent::default(),
             sftp: None,
             record: RecordState::new(cast_slot),
-            blocks: CommandBlockTracker::new(200),
         };
 
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(30.0)));
