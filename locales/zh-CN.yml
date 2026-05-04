@@ -148,7 +148,6 @@ Footbar:
     LockUnsupported: "锁屏（不支持）"
     LockDisabled: "锁屏（已禁用）"
   Issues:
-    Label: "问题反馈"
     Tooltip: "打开 Termua Issues"
 
 Transfers:

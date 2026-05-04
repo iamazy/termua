@@ -104,11 +104,11 @@ impl FootbarView {
                     .compact()
                     .link()
                     .icon(Icon::default().path(TermuaIcon::Bug))
-                    .label(t!("Footbar.Issues.Label").to_string())
                     .tooltip(t!("Footbar.Issues.Tooltip").to_string())
                     .debug_selector(|| "termua-footbar-issues".to_string())
                     .on_click(|_, _, cx| {
-                        cx.open_url("https://github.com/iamazy/termua/issues");
+                        let repository = env!("CARGO_PKG_REPOSITORY");
+                        cx.open_url(format!("{repository}/issues").as_str());
                     }),
             )
             .child(

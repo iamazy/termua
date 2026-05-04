@@ -149,7 +149,6 @@ Footbar:
     LockUnsupported: "Lock (unsupported)"
     LockDisabled: "Lock (disabled)"
   Issues:
-    Label: "Termua Issues"
     Tooltip: "Open Termua Issues"
 
 Transfers:
