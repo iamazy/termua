@@ -19,7 +19,7 @@ use smol::channel::{Receiver, Sender};
 use wezterm_surface::{CursorShape as WezCursorShape, CursorVisibility};
 use wezterm_term::{
     Alert, AlertHandler, Cell as WezCell, CellAttributes, Intensity, PhysRowIndex, Screen,
-    StableRowIndex, Terminal, TerminalConfiguration, TerminalSize, Underline, VisibleRowIndex,
+    StableRowIndex, Terminal, TerminalConfiguration, TerminalSize, Underline,
     color::{ColorAttribute, ColorPalette},
     input::{
         KeyCode, KeyModifiers, MouseButton as WezMouseButton, MouseEvent as WezMouseEvent,
@@ -33,7 +33,6 @@ use crate::{
     TerminalType,
     backends::{self, ssh},
     cast::{CastHeader, CastRecorderSender, CastRecorderState, start_cast_recorder},
-    command_blocks::{CommandBlockTracker, OscEvent, OscStreamParser},
     serial::{serial2_char_size, serial2_flow_control, serial2_parity, serial2_stop_bits},
     settings::{CursorShape, TerminalSettings},
     terminal::Terminal as WidgetTerminal,
@@ -297,8 +296,6 @@ fn build_backend(
             scroll_px: px(0.0),
             sftp,
             record: RecordState::new(cast_slot),
-            osc: OscStreamParser::new(),
-            blocks: CommandBlockTracker::new(200),
         },
         events_rx,
     ))
@@ -314,88 +311,6 @@ fn current_dir_path_from_term(term: &Terminal) -> Option<String> {
     urlencoding::decode(url.path()).ok().map(|s| s.into_owned())
 }
 
-fn cursor_stable_line(term: &Terminal) -> (i64, usize) {
-    let screen = term.screen();
-    let cursor = term.cursor_pos();
-    let max_y = screen.physical_rows.saturating_sub(1) as VisibleRowIndex;
-    let y = cursor.y.clamp(0, max_y);
-    let phys = screen.phys_row(y);
-    (screen.phys_to_stable_row_index(phys) as i64, cursor.x)
-}
-
-fn prev_stable_row(stable: i64) -> i64 {
-    if stable > 0 { stable - 1 } else { 0 }
-}
-
-fn adjust_osc133_boundary(payload: &str, stable: i64, cursor_x: usize) -> i64 {
-    // Heuristic: when the cursor is at column 0, it often means:
-    // - For `C`: the user hit enter and the cursor moved to the next line, so the command line
-    //   itself is the previous row.
-    // - For `D`: the command finished and the cursor is on the next (prompt) line, so the output
-    //   ends on the previous row.
-    //
-    // This approximates Warp-style "command line + output" blocks without requiring prompt
-    // markers (OSC 133 A/B).
-    let kind = payload.trim_start().as_bytes().first().copied();
-    if cursor_x == 0 && matches!(kind, Some(b'A') | Some(b'C') | Some(b'D')) {
-        prev_stable_row(stable)
-    } else {
-        stable
-    }
-}
-
-fn stable_row_text(screen: &wezterm_term::Screen, stable_row: i64) -> Option<String> {
-    let stable_row = StableRowIndex::try_from(stable_row).ok()?;
-    let phys_range = screen.stable_range(&(stable_row..stable_row.saturating_add(1)));
-    let line = screen.lines_in_phys_range(phys_range).into_iter().next()?;
-    Some(line.as_str().trim_end().to_string())
-}
-
-fn wrapped_command_span_for_stable_row(
-    screen: &wezterm_term::Screen,
-    stable_row: i64,
-) -> Option<(i64, String)> {
-    let stable_row = StableRowIndex::try_from(stable_row).ok()?;
-    let phys_range = screen.stable_range(&(stable_row..stable_row.saturating_add(1)));
-    let mut start = phys_range.start;
-    let end = phys_range.end.checked_sub(1)?;
-
-    while start > 0 {
-        let prev = screen
-            .lines_in_phys_range(start - 1..start)
-            .into_iter()
-            .next()?;
-        if !prev.last_cell_was_wrapped() {
-            break;
-        }
-        start -= 1;
-    }
-
-    let lines = screen.lines_in_phys_range(start..end.saturating_add(1));
-    let mut command = String::new();
-    for line in lines {
-        command.push_str(line.as_str().trim_end_matches(|c: char| c.is_whitespace()));
-    }
-
-    let command = command.trim_end().to_string();
-    (!command.trim().is_empty()).then(|| (screen.phys_to_stable_row_index(start) as i64, command))
-}
-
-fn stable_row_texts(screen: &wezterm_term::Screen) -> Vec<(i64, String)> {
-    let total = screen.scrollback_rows();
-    screen
-        .lines_in_phys_range(0..total)
-        .into_iter()
-        .enumerate()
-        .map(|(phys, line)| {
-            (
-                screen.phys_to_stable_row_index(phys) as i64,
-                line.as_str().trim_end().to_string(),
-            )
-        })
-        .collect()
-}
-
 #[derive(Clone)]
 enum TermOp {
     Resize(TerminalBounds),
@@ -409,7 +324,6 @@ struct SelectionState {
     range: Option<crate::SelectionRange>,
     selecting: bool,
     anchor: Option<GridPoint>,
-    command_block_id: Option<u64>,
 }
 
 #[derive(Default)]
@@ -493,9 +407,6 @@ pub struct WezTermBackend {
 
     // Asciinema cast recording.
     record: RecordState,
-
-    osc: OscStreamParser,
-    blocks: CommandBlockTracker,
 }
 
 impl WezTermBackend {
@@ -664,74 +575,6 @@ impl WezTermBackend {
         }
     }
 
-    fn stable_row_for_grid_line_on_screen(screen: &wezterm_term::Screen, line: i32) -> Option<i64> {
-        let total = screen.scrollback_rows();
-        if total == 0 {
-            return None;
-        }
-
-        let rows = screen.physical_rows.max(1);
-        let base_start = total.saturating_sub(rows);
-        let base_stable = screen.phys_to_stable_row_index(base_start);
-
-        let stable = if line >= 0 {
-            base_stable.saturating_add(line as StableRowIndex)
-        } else {
-            base_stable.saturating_sub((-line) as StableRowIndex)
-        };
-
-        Some(stable as i64)
-    }
-
-    fn grid_line_for_stable_row_on_screen(
-        screen: &wezterm_term::Screen,
-        stable_row: i64,
-    ) -> Option<i32> {
-        let total = screen.scrollback_rows();
-        if total == 0 {
-            return None;
-        }
-
-        let rows = screen.physical_rows.max(1);
-        let base_start = total.saturating_sub(rows);
-        let base_stable = screen.phys_to_stable_row_index(base_start) as i64;
-
-        let line = stable_row.saturating_sub(base_stable);
-        Some(line.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
-    }
-
-    fn command_block_id_for_selection_range(
-        &self,
-        selection: &crate::SelectionRange,
-    ) -> Option<u64> {
-        let term = self.term.lock();
-        let screen = term.screen();
-        let start = Self::stable_row_for_grid_line_on_screen(screen, selection.start.line)?;
-        let end = Self::stable_row_for_grid_line_on_screen(screen, selection.end.line)?;
-        self.blocks.block_id_for_range(start, end)
-    }
-
-    fn remapped_selected_command_block_selection_range(
-        &self,
-        screen: &wezterm_term::Screen,
-        cols: usize,
-    ) -> Option<crate::SelectionRange> {
-        let block_id = self.selection.command_block_id?;
-        let (start_stable, end_stable) = self.blocks.range_for_block_id(block_id)?;
-        let start_line = Self::grid_line_for_stable_row_on_screen(screen, start_stable);
-        let end_line = Self::grid_line_for_stable_row_on_screen(screen, end_stable);
-
-        let (Some(start_line), Some(end_line)) = (start_line, end_line) else {
-            return None;
-        };
-
-        let last_col = cols.saturating_sub(1);
-        Some(crate::SelectionRange {
-            start: GridPoint::new(start_line, 0),
-            end: GridPoint::new(end_line, last_col),
-        })
-    }
-
     fn select_line_at_event_position(&mut self, e: &MouseDownEvent) {
         if self.mouse_mode(e.modifiers.shift) || e.modifiers.secondary() {
             return;
@@ -781,7 +624,6 @@ impl WezTermBackend {
         });
         self.selection.selecting = false;
         self.selection.anchor = None;
-        self.selection.command_block_id = None;
     }
 
     fn selection_to_string(&self, selection: &crate::SelectionRange) -> String {
@@ -1354,14 +1196,7 @@ fn shell_command_candidates_for_local_env(
     let mut candidates = Vec::new();
 
     if let Some(shell) = crate::shell::pick_shell_program_from_env(env) {
-        let args = crate::shell::shell_integration_args_for_env(shell, env);
-        if args.is_empty() {
-            candidates.push(CommandBuilder::new(shell));
-        } else {
-            let mut cmd = CommandBuilder::new(shell);
-            cmd.args(args);
-            candidates.push(cmd);
-        }
+        candidates.push(CommandBuilder::new(shell));
     }
 
     for cmd in default_shell_command_candidates() {
@@ -1407,37 +1242,7 @@ impl TerminalBackend for WezTermBackend {
                     }
 
                     let mut term = self.term.lock();
-                    let completions = self.osc.push_with_offsets(&bytes);
-
-                    let mut prev = 0usize;
-                    for (end, ev) in completions {
-                        let end = end.min(bytes.len());
-                        if end > prev {
-                            term.advance_bytes(&bytes[prev..end]);
-                        }
-
-                        let (cursor_line, cursor_x) = cursor_stable_line(&term);
-                        let OscEvent::Osc133(payload) = ev;
-                        let mut line = adjust_osc133_boundary(&payload, cursor_line, cursor_x);
-                        let command = if payload.trim_start().starts_with('C') {
-                            match wrapped_command_span_for_stable_row(term.screen(), line) {
-                                Some((start_line, command)) => {
-                                    line = start_line;
-                                    Some(command)
-                                }
-                                None => stable_row_text(term.screen(), line),
-                            }
-                        } else {
-                            None
-                        };
-                        self.blocks
-                            .apply_osc133(&payload, Instant::now(), line, command);
-                        prev = end;
-                    }
-
-                    if prev < bytes.len() {
-                        term.advance_bytes(&bytes[prev..]);
-                    }
+                    term.advance_bytes(&bytes);
                     self.search.dirty = true;
                     cx.emit(Event::Wakeup);
                 }
@@ -1462,24 +1267,7 @@ impl TerminalBackend for WezTermBackend {
         }
     }
 
-    fn command_blocks(&self) -> Option<Vec<crate::command_blocks::CommandBlock>> {
-        Some(self.blocks.blocks())
-    }
-
-    fn stable_row_for_grid_line(&self, line: i32) -> Option<i64> {
-        let term = self.term.lock();
-        Self::stable_row_for_grid_line_on_screen(term.screen(), line)
-    }
-
-    fn grid_line_for_stable_row(&self, stable_row: i64) -> Option<i32> {
-        let term = self.term.lock();
-        Self::grid_line_for_stable_row_on_screen(term.screen(), stable_row)
-    }
-
     fn set_selection_range(&mut self, range: Option<crate::SelectionRange>) {
-        self.selection.command_block_id = range
-            .as_ref()
-            .and_then(|range| self.command_block_id_for_selection_range(range));
         self.selection.range = range;
         self.selection.selecting = false;
         self.selection.anchor = None;
@@ -1561,17 +1349,6 @@ impl TerminalBackend for WezTermBackend {
                         pixel_height: usize::from(bounds.height().ceil()),
                         dpi: 0,
                     });
-                    let cursor_stable = cursor_stable_line(&term).0;
-                    let lines = stable_row_texts(term.screen());
-                    self.blocks.remap_after_rewrap(&lines, cursor_stable);
-                    let remapped_selection =
-                        self.remapped_selected_command_block_selection_range(term.screen(), cols);
-                    drop(term);
-                    if let Some(range) = remapped_selection {
-                        self.selection.range = Some(range);
-                        self.selection.selecting = false;
-                        self.selection.anchor = None;
-                    }
                     self.search.dirty = true;
                 }
                 TermOp::Clear => {
@@ -1655,7 +1432,6 @@ impl TerminalBackend for WezTermBackend {
         self.selection.selecting = false;
         self.selection.anchor = None;
         self.selection.range = None;
-        self.selection.command_block_id = None;
     }
 
     fn set_cursor_shape(&mut self, cursor_shape: CursorShape) {
@@ -1746,7 +1522,6 @@ impl TerminalBackend for WezTermBackend {
         });
         self.selection.selecting = false;
         self.selection.anchor = None;
-        self.selection.command_block_id = None;
     }
 
     fn copy(&mut self, keep_selection: Option<bool>, _cx: &mut Context<WidgetTerminal>) {
@@ -2040,7 +1815,6 @@ impl TerminalBackend for WezTermBackend {
         });
         self.selection.selecting = false;
         self.selection.anchor = None;
-        self.selection.command_block_id = None;
     }
 
     fn mouse_drag(
@@ -2105,7 +1879,6 @@ impl TerminalBackend for WezTermBackend {
                 let p = GridPoint::new(line, col);
 
                 self.selection.range = Some(Self::normalize_selection(anchor, p));
-                self.selection.command_block_id = None;
                 cx.emit(Event::SelectionsChanged);
             }
             return;
@@ -2148,7 +1921,6 @@ impl TerminalBackend for WezTermBackend {
                 self.selection.selecting = true;
                 self.selection.anchor = Some(p);
                 self.selection.range = Some(crate::SelectionRange { start: p, end: p });
-                self.selection.command_block_id = None;
                 cx.emit(Event::SelectionsChanged);
             }
             return;
@@ -2569,9 +2341,8 @@ mod tests {
     use wezterm_term::{Terminal, TerminalConfiguration, TerminalSize};
 
     use super::{
-        Instant, Mutex, SharedWriter, WezEvent, WezTermBackend, compute_viewport_plan,
-        cursor_stable_line, default_shell_command_candidates, stable_row_texts,
-        wrapped_command_span_for_stable_row,
+        Mutex, SharedWriter, WezEvent, WezTermBackend, compute_viewport_plan,
+        default_shell_command_candidates,
     };
     use crate::{
         CastRecordingOptions, TerminalContent, TerminalType,
@@ -2707,8 +2478,6 @@ mod tests {
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
-            osc: crate::command_blocks::OscStreamParser::new(),
-            blocks: crate::command_blocks::CommandBlockTracker::new(200),
         };
 
         let term = backend.term.lock();
@@ -2730,172 +2499,6 @@ mod tests {
             <WezTermBackend as TerminalBackend>::text_for_lines(&backend, s1, s2).as_deref(),
             Some("two\nthree")
         );
-    }
-
-    fn test_backend(rows: usize, cols: usize, scrollback: usize) -> WezTermBackend {
-        let cast_slot = Arc::new(Mutex::new(None));
-        let writer = SharedWriter {
-            inner: Arc::new(Mutex::new(
-                Box::new(std::io::sink()) as Box<dyn Write + Send>
-            )),
-            cast: Arc::clone(&cast_slot),
-        };
-        let cfg = Arc::new(TestConfig { scrollback });
-        let wezterm_term = Terminal::new(
-            TerminalSize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-                dpi: 0,
-            },
-            cfg,
-            "termua",
-            "0",
-            Box::new(writer.clone()),
-        );
-
-        WezTermBackend {
-            master: Box::new(DummyMasterPty),
-            writer,
-            term: Arc::new(Mutex::new(wezterm_term)),
-            child_killer: Box::new(DummyChildKiller),
-            shutdown: super::ShutdownState::default(),
-            pending_ops: VecDeque::new(),
-            viewport_top_stable: None,
-            last_clicked_line: None,
-            search: super::SearchState::default(),
-            content: TerminalContent::default(),
-            exited: false,
-            last_mouse_pos: None,
-            selection: super::SelectionState::default(),
-            default_cursor_shape: crate::CursorShape::default(),
-            scroll_px: px(0.0),
-            sftp: None,
-            record: super::RecordState::new(cast_slot),
-            osc: crate::command_blocks::OscStreamParser::new(),
-            blocks: crate::command_blocks::CommandBlockTracker::new(200),
-        }
-    }
-
-    #[test]
-    fn selected_command_block_selection_tracks_resize_rewrap() {
-        let mut backend = test_backend(5, 20, 100);
-        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(50.0)));
-        backend.content.terminal_bounds = crate::TerminalBounds::new(px(10.0), px(10.0), bounds);
-
-        {
-            let mut term = backend.term.lock();
-            term.advance_bytes(b"$ echo 123456\r\nout\r\n% ");
-        }
-
-        let (start_stable, end_stable, start_line, end_line) = {
-            let term = backend.term.lock();
-            let screen = term.screen();
-            let start_stable = screen.phys_to_stable_row_index(0) as i64;
-            let end_stable = screen.phys_to_stable_row_index(1) as i64;
-            (
-                start_stable,
-                end_stable,
-                WezTermBackend::grid_line_for_stable_row_on_screen(screen, start_stable)
-                    .expect("start line"),
-                WezTermBackend::grid_line_for_stable_row_on_screen(screen, end_stable)
-                    .expect("end line"),
-            )
-        };
-
-        backend.blocks.apply_osc133(
-            "C",
-            Instant::now(),
-            start_stable,
-            Some("$ echo 123456".to_string()),
-        );
-        backend
-            .blocks
-            .apply_osc133("D;0", Instant::now(), end_stable, None);
-
-        <WezTermBackend as TerminalBackend>::set_selection_range(
-            &mut backend,
-            Some(crate::SelectionRange {
-                start: crate::GridPoint::new(start_line, 0),
-                end: crate::GridPoint::new(end_line, 19),
-            }),
-        );
-        let block_id = backend
-            .selection
-            .command_block_id
-            .expect("selection should remember selected command block");
-
-        {
-            let mut term = backend.term.lock();
-            term.resize(TerminalSize {
-                rows: 5,
-                cols: 8,
-                pixel_width: 0,
-                pixel_height: 0,
-                dpi: 0,
-            });
-            let cursor_stable = cursor_stable_line(&term).0;
-            let lines = stable_row_texts(term.screen());
-            backend.blocks.remap_after_rewrap(&lines, cursor_stable);
-            let remapped_selection =
-                backend.remapped_selected_command_block_selection_range(term.screen(), 8);
-            drop(term);
-            if let Some(range) = remapped_selection {
-                backend.selection.range = Some(range);
-                backend.selection.selecting = false;
-                backend.selection.anchor = None;
-            }
-
-            let (expected_start, expected_end) = backend
-                .blocks
-                .range_for_block_id(block_id)
-                .expect("block should still exist after resize");
-            let selection = backend
-                .selection
-                .range
-                .clone()
-                .expect("selection should remain active");
-            let term = backend.term.lock();
-            let selected_start = WezTermBackend::stable_row_for_grid_line_on_screen(
-                term.screen(),
-                selection.start.line,
-            )
-            .expect("selected start stable row");
-            let selected_end = WezTermBackend::stable_row_for_grid_line_on_screen(
-                term.screen(),
-                selection.end.line,
-            )
-            .expect("selected end stable row");
-
-            assert_eq!(
-                (selected_start, selected_end),
-                (expected_start, expected_end)
-            );
-            assert_eq!(selection.start.column, 0);
-            assert_eq!(selection.end.column, 7);
-        }
-    }
-
-    #[test]
-    fn wrapped_command_span_starts_at_first_visual_row() {
-        let backend = test_backend(5, 8, 100);
-        {
-            let mut term = backend.term.lock();
-            term.advance_bytes(b"$ 111111111111");
-        }
-
-        let term = backend.term.lock();
-        let screen = term.screen();
-        assert_eq!(line_text_at_phys(screen, 0), "$ 111111");
-        assert_eq!(line_text_at_phys(screen, 1), "111111");
-
-        let last_command_row = screen.phys_to_stable_row_index(1) as i64;
-        let (start_stable, command) =
-            wrapped_command_span_for_stable_row(screen, last_command_row).expect("wrapped span");
-
-        assert_eq!(start_stable, screen.phys_to_stable_row_index(0) as i64);
-        assert_eq!(command, "$ 111111111111");
     }
 
     #[test]
@@ -3057,8 +2660,6 @@ mod tests {
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
-            osc: crate::command_blocks::OscStreamParser::new(),
-            blocks: crate::command_blocks::CommandBlockTracker::new(200),
         };
 
         // 3 rows x 10 cols.
@@ -3143,8 +2744,6 @@ mod tests {
             scroll_px: px(0.0),
             sftp: None,
             record: super::RecordState::new(cast_slot),
-            osc: crate::command_blocks::OscStreamParser::new(),
-            blocks: crate::command_blocks::CommandBlockTracker::new(200),
         };
 
         let terminal = cx.new(|_| WidgetTerminal::new(TerminalType::WezTerm, Box::new(backend)));
@@ -3256,65 +2855,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn local_shell_candidates_uses_bash_rcfile_when_configured() {
-        let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "/bin/bash".to_string());
-        env.insert(
-            "TERMUA_BASH_RCFILE".to_string(),
-            "/tmp/termua-test.bashrc".to_string(),
-        );
-
-        let candidates = super::shell_command_candidates_for_local_env(&env);
-        let argv: Vec<String> = candidates[0]
-            .get_argv()
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-
-        assert_eq!(
-            argv,
-            vec![
-                "/bin/bash",
-                "--noprofile",
-                "--rcfile",
-                "/tmp/termua-test.bashrc",
-                "-i"
-            ]
-        );
-    }
-
-    #[test]
-    fn local_shell_candidates_uses_powershell_init_when_configured() {
-        let mut env = std::collections::HashMap::new();
-        env.insert("TERMUA_SHELL".to_string(), "pwsh".to_string());
-        env.insert(
-            "TERMUA_PWSH_INIT".to_string(),
-            "/tmp/termua-init.ps1".to_string(),
-        );
-
-        let candidates = super::shell_command_candidates_for_local_env(&env);
-        let argv: Vec<String> = candidates[0]
-            .get_argv()
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-
-        let mut expected = vec!["pwsh", "-NoLogo", "-NoExit"];
-        if cfg!(windows) {
-            expected.extend(["-ExecutionPolicy", "Bypass"]);
-        }
-        expected.extend(["-Command", ". \"$env:TERMUA_PWSH_INIT\""]);
-
-        assert_eq!(
-            argv,
-            expected
-                .into_iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        );
-    }
-
     #[cfg(windows)]
     #[test]
     fn default_shell_candidates_includes_cmd_fallback_on_windows() {
@@ -3360,18 +2900,5 @@ mod tests {
             current_dir_path_from_term(&term).as_deref(),
             Some("/home/user name")
         );
-    }
-
-    #[test]
-    fn osc133_boundary_adjusts_for_column_zero() {
-        assert_eq!(super::adjust_osc133_boundary("C", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("D;0", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("A", 10, 0), 9);
-        assert_eq!(super::adjust_osc133_boundary("C", 0, 0), 0);
-
-        assert_eq!(super::adjust_osc133_boundary("C", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("D;0", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("A", 10, 5), 10);
-        assert_eq!(super::adjust_osc133_boundary("B", 10, 0), 10);
     }
 }

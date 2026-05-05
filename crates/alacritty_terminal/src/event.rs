@@ -60,15 +60,6 @@ pub enum Event {
 
     /// Child process exited.
     ChildExit(ExitStatus),
-
-    /// OSC 133 shell integration event.
-    ///
-    /// This is used by downstream UIs to build "command blocks".
-    Osc133 {
-        payload: String,
-        stable_row: i64,
-        cursor_col: usize,
-    },
 }
 
 impl Debug for Event {
@@ -87,14 +78,6 @@ impl Debug for Event {
             Event::Bell => write!(f, "Bell"),
             Event::Exit => write!(f, "Exit"),
             Event::ChildExit(status) => write!(f, "ChildExit({status:?})"),
-            Event::Osc133 {
-                payload,
-                stable_row,
-                cursor_col,
-            } => write!(
-                f,
-                "Osc133(payload={payload:?}, stable_row={stable_row}, cursor_col={cursor_col})"
-            ),
         }
     }
 }

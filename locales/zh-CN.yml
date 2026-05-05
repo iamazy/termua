@@ -148,7 +148,6 @@ Footbar:
     LockUnsupported: "锁屏（不支持）"
     LockDisabled: "锁屏（已禁用）"
   Issues:
-    Label: "问题反馈"
     Tooltip: "打开 Termua Issues"
 
 Transfers:
@@ -218,8 +217,6 @@ MainWindow:
       Cancel: "取消"
   ContextMenu:
     OpenSftp: "打开 SFTP"
-    CopyCommandBlockOutput: "复制命令块输出"
-    CopyCommandBlockId: "复制命令块 ID"
 
 Menubar:
   FoldMenuFallback: "菜单"

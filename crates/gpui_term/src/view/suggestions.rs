@@ -114,17 +114,7 @@ impl TerminalView {
                     return true;
                 }
 
-                if let Some(prompt_prefix) = self.suggestions.prompt_prefix.take() {
-                    let line_prefix = extract_cursor_line_prefix(&prompt.content);
-                    let input = line_prefix
-                        .strip_prefix(&prompt_prefix)
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-                    if !input.is_empty() {
-                        self.queue_command_for_history(input, cx);
-                    }
-                }
+                self.suggestions.prompt_prefix = None;
                 self.suggestions.close();
                 false
             }

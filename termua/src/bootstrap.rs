@@ -19,15 +19,6 @@ fn init_app(cx: &mut App, settings: &crate::settings::SettingsFile) {
     gpui_dock::init(cx);
     crate::panel::assistant_panel::bind_keybindings(cx);
 
-    match crate::command_history::CommandHistory::load_default() {
-        Ok(history) => {
-            gpui_term::set_suggestion_history_provider(cx, Some(std::sync::Arc::new(history)));
-        }
-        Err(err) => {
-            log::warn!("termua: failed to load command history: {err:#}");
-        }
-    }
-
     match crate::static_suggestions::StaticSuggestionsDb::load_default() {
         Ok(db) => {
             gpui_term::set_suggestion_static_provider(cx, Some(std::sync::Arc::new(db)));

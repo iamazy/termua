@@ -32,160 +32,6 @@ pub(crate) const READ_BUFFER_SIZE: usize = 0x10_0000;
 /// Max bytes to read from the PTY while the terminal is locked.
 const MAX_LOCKED_READ: usize = u16::MAX as usize;
 
-#[derive(Debug, Default)]
-struct Osc133StreamParser {
-    pending_start_esc: bool,
-    in_osc: bool,
-    osc_id: u32,
-    osc_id_digits: bool,
-    osc_seen_semicolon: bool,
-    osc_payload: Vec<u8>,
-    osc_pending_st_esc: bool,
-    osc_invalid: bool,
-}
-
-/// Offset is the exclusive end position in the pushed `bytes` slice.
-type Osc133Completion = (usize, String);
-
-impl Osc133StreamParser {
-    #[cfg(test)]
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn push_with_offsets(&mut self, bytes: &[u8]) -> Vec<Osc133Completion> {
-        let mut out: Vec<Osc133Completion> = Vec::new();
-
-        let mut i = 0usize;
-        while i < bytes.len() {
-            let b = bytes[i];
-
-            if !self.in_osc {
-                if self.pending_start_esc {
-                    self.pending_start_esc = false;
-                    if b == b']' {
-                        self.begin_osc();
-                        i += 1;
-                        continue;
-                    }
-                }
-
-                if b == 0x1b {
-                    self.pending_start_esc = i + 1 == bytes.len();
-                    if !self.pending_start_esc && bytes[i + 1] == b']' {
-                        self.begin_osc();
-                        i += 2;
-                        continue;
-                    }
-                }
-
-                i += 1;
-                continue;
-            }
-
-            // In OSC body.
-            if self.osc_pending_st_esc {
-                self.osc_pending_st_esc = false;
-                if b == b'\\' {
-                    self.finish_osc(&mut out, i + 1);
-                    i += 1;
-                    continue;
-                }
-                self.push_osc_byte(0x1b);
-                self.push_osc_byte(b);
-                i += 1;
-                continue;
-            }
-
-            match b {
-                0x07 => {
-                    self.finish_osc(&mut out, i + 1);
-                    i += 1;
-                }
-                0x1b => {
-                    if i + 1 == bytes.len() {
-                        self.osc_pending_st_esc = true;
-                        i += 1;
-                    } else if bytes[i + 1] == b'\\' {
-                        self.finish_osc(&mut out, i + 2);
-                        i += 2;
-                    } else {
-                        self.push_osc_byte(b);
-                        i += 1;
-                    }
-                }
-                _ => {
-                    self.push_osc_byte(b);
-                    i += 1;
-                }
-            }
-        }
-
-        out
-    }
-
-    fn begin_osc(&mut self) {
-        self.in_osc = true;
-        self.osc_id = 0;
-        self.osc_id_digits = false;
-        self.osc_seen_semicolon = false;
-        self.osc_payload.clear();
-        self.osc_pending_st_esc = false;
-        self.osc_invalid = false;
-    }
-
-    fn push_osc_byte(&mut self, b: u8) {
-        if self.osc_invalid {
-            return;
-        }
-
-        if !self.osc_seen_semicolon {
-            if b.is_ascii_digit() {
-                self.osc_id_digits = true;
-                self.osc_id = match self
-                    .osc_id
-                    .checked_mul(10)
-                    .and_then(|v| v.checked_add(u32::from(b - b'0')))
-                {
-                    Some(v) => v,
-                    None => {
-                        self.osc_invalid = true;
-                        return;
-                    }
-                };
-                return;
-            }
-
-            if b == b';' && self.osc_id_digits {
-                self.osc_seen_semicolon = true;
-                return;
-            }
-
-            self.osc_invalid = true;
-            return;
-        }
-
-        if self.osc_id == 133 {
-            self.osc_payload.push(b);
-        }
-    }
-
-    fn finish_osc(&mut self, out: &mut Vec<Osc133Completion>, end_offset: usize) {
-        if !self.osc_invalid && self.osc_seen_semicolon && self.osc_id == 133 {
-            let payload = String::from_utf8_lossy(&self.osc_payload).to_string();
-            out.push((end_offset, payload));
-        }
-
-        self.in_osc = false;
-        self.osc_pending_st_esc = false;
-        self.osc_payload.clear();
-        self.osc_invalid = false;
-        self.osc_id_digits = false;
-        self.osc_seen_semicolon = false;
-        self.osc_id = 0;
-    }
-}
-
 /// Messages that may be sent to the `EventLoop`.
 #[derive(Debug)]
 pub enum Msg {
@@ -313,30 +159,7 @@ where
                 writer.write_all(&buf[..unprocessed]).unwrap();
             }
 
-            // Parse the incoming bytes, interleaving OSC 133 completions so we can report cursor
-            // position at the completion boundary.
-            let completions = state.osc.push_with_offsets(&buf[..unprocessed]);
-            let mut prev = 0usize;
-            for (end, payload) in completions {
-                let end = end.min(unprocessed);
-                if end > prev {
-                    state.parser.advance(&mut **terminal, &buf[prev..end]);
-                }
-
-                let cursor = terminal.grid().cursor.point;
-                let stable_row = terminal.grid().stable_row_id_for_line(cursor.line);
-                self.event_proxy.send_event(Event::Osc133 {
-                    payload,
-                    stable_row,
-                    cursor_col: cursor.column.0,
-                });
-                prev = end;
-            }
-            if prev < unprocessed {
-                state
-                    .parser
-                    .advance(&mut **terminal, &buf[prev..unprocessed]);
-            }
+            state.parser.advance(&mut **terminal, &buf[..unprocessed]);
 
             processed += unprocessed;
             unprocessed = 0;
@@ -590,7 +413,6 @@ pub struct State {
     write_list: VecDeque<Cow<'static, [u8]>>,
     writing: Option<Writing>,
     parser: ansi::Processor,
-    osc: Osc133StreamParser,
 }
 
 impl State {
@@ -674,36 +496,5 @@ impl<T> PeekableReceiver<T> {
                 res => res.ok(),
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod osc133_stream_parser_tests {
-    use super::*;
-
-    #[test]
-    fn osc133_stream_parser_reads_bel_terminated_sequences_with_offsets() {
-        let mut p = Osc133StreamParser::new();
-        let evs = p.push_with_offsets(b"\x1b]133;C\x07");
-        assert_eq!(evs.len(), 1);
-        assert_eq!(evs[0].0, b"\x1b]133;C\x07".len());
-        assert_eq!(evs[0].1, "C".to_string());
-    }
-
-    #[test]
-    fn osc133_stream_parser_reads_st_terminated_sequences_with_offsets() {
-        let mut p = Osc133StreamParser::new();
-        let evs = p.push_with_offsets(b"\x1b]133;D;0\x1b\\");
-        assert_eq!(evs.len(), 1);
-        assert_eq!(evs[0].0, b"\x1b]133;D;0\x1b\\".len());
-        assert_eq!(evs[0].1, "D;0".to_string());
-    }
-
-    #[test]
-    fn osc133_stream_parser_handles_split_reads() {
-        let mut p = Osc133StreamParser::new();
-        assert!(p.push_with_offsets(b"\x1b]133;C").is_empty());
-        let evs = p.push_with_offsets(b"\x07");
-        assert_eq!(evs, vec![(1, "C".to_string())]);
     }
 }

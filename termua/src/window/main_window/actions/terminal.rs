@@ -589,11 +589,6 @@ impl TermuaWindow {
         let id = self.next_terminal_id;
         self.next_terminal_id += 1;
 
-        let env = match kind {
-            PanelKind::Local => crate::shell_integration::maybe_inject_local_shell_osc133(env, id),
-            PanelKind::Ssh | PanelKind::Serial | PanelKind::Recorder => env,
-        };
-
         let tab_label = match kind {
             PanelKind::Local => crate::panel::local_terminal_panel_tab_name(
                 &env,

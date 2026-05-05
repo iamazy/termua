@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use gpui::{App, AppContext, ClipboardItem, Context, Focusable, Styled, Subscription, Window};
+use gpui::{App, AppContext, Context, Focusable, Styled, Subscription, Window};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
 use gpui_dock::{DockArea, DockItem, DockPlacement, PanelView};
@@ -173,77 +173,8 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             }
         }
 
-        if !cfg!(debug_assertions) {
-            return menu;
-        }
-
-        let Some(block) = command_block_at_current_selection(&terminal, cx) else {
-            return menu;
-        };
-
-        let Some(output_end) = block.output_end_line else {
-            // The block is still running (no end marker yet). Skip export actions.
-            return menu;
-        };
-        let mut output_start = block.output_start_line;
-
-        const MAX_EXPORT_LINES: i64 = 2_000;
-        if output_end.saturating_sub(output_start).saturating_add(1) > MAX_EXPORT_LINES {
-            output_start = output_end.saturating_sub(MAX_EXPORT_LINES.saturating_sub(1));
-        }
-
-        menu = menu
-            .separator()
-            .item(
-                gpui_component::menu::PopupMenuItem::new(
-                    t!("MainWindow.ContextMenu.CopyCommandBlockOutput").to_string(),
-                )
-                .on_click({
-                    let terminal = terminal.clone();
-                    move |_, _window, cx| {
-                        let text = terminal
-                            .read(cx)
-                            .text_for_lines(output_start, output_end)
-                            .unwrap_or_default();
-                        terminal.update(cx, |_terminal, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(text));
-                        });
-                    }
-                }),
-            )
-            .item(
-                gpui_component::menu::PopupMenuItem::new(
-                    t!("MainWindow.ContextMenu.CopyCommandBlockId").to_string(),
-                )
-                .on_click({
-                    let id_text = format!("block_id={}", block.id);
-                    move |_, _window, cx| {
-                        terminal.update(cx, |_terminal, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(id_text.clone()));
-                        });
-                    }
-                }),
-            );
-
         menu
     }
-}
-
-fn command_block_at_current_selection(
-    terminal: &gpui::Entity<gpui_term::Terminal>,
-    cx: &gpui::App,
-) -> Option<gpui_term::command_blocks::CommandBlock> {
-    let (stable, blocks) = {
-        let terminal = terminal.read(cx);
-        let selection_start_line = terminal.last_content().selection.as_ref()?.start.line;
-        let stable = terminal.stable_row_for_grid_line(selection_start_line)?;
-        let blocks = terminal.command_blocks()?;
-        Some((stable, blocks))
-    }?;
-    blocks.into_iter().rev().find(|b| match b.output_end_line {
-        Some(end) => stable >= b.output_start_line && stable <= end,
-        None => stable >= b.output_start_line,
-    })
 }
 
 impl TermuaWindow {
@@ -292,7 +223,6 @@ impl TermuaWindow {
 
         this.install_language_subscription(window, cx);
         Self::spawn_lock_state_monitor(cx);
-        Self::spawn_terminal_context_poll(cx);
         this.install_app_state_subscription(window, cx);
         this.install_lock_state_subscription(window, cx);
         this.install_sessions_sidebar_subscription(window, cx);
@@ -399,27 +329,6 @@ impl TermuaWindow {
         .detach();
     }
 
-    fn spawn_terminal_context_poll(cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(
-                        crate::assistant::DEFAULT_TERMINAL_CONTEXT_POLL_INTERVAL_MS,
-                    ))
-                    .await;
-
-                let _ = this.update(cx, |_this, cx| {
-                    Self::poll_terminal_context_snapshots(cx);
-                });
-            }
-        })
-        .detach();
-    }
-
-    fn poll_terminal_context_snapshots(cx: &mut Context<Self>) {
-        crate::assistant::poll_terminal_context_snapshots(cx);
-    }
-
     fn install_app_state_subscription(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions
             .push(
@@ -485,48 +394,5 @@ impl TermuaWindow {
                     set_theme_mode(ThemeMode::System, Some(window), cx);
                 }
             }));
-    }
-}
-
-#[cfg(test)]
-mod command_block_context_menu_tests {
-    #[test]
-    fn command_block_menu_items_are_debug_only_and_no_select_action() {
-        // Source-level guardrail: the command-block context menu entries are a debug-only
-        // developer feature, and we should not expose a "select block" action.
-        //
-        // This lives here because the context menu builder depends on GPUI window/app wiring
-        // that isn't trivial to instantiate in unit tests.
-        let src = include_str!("state.rs");
-
-        let select_label = ["Select", " command", " block"].concat();
-        let select_item = format!("PopupMenuItem::new(\"{}\")", select_label);
-        assert!(
-            !src.contains(&select_item),
-            "unexpected command-block select action is still present"
-        );
-
-        let debug_gate = "cfg!(debug_assertions)";
-        let gate_pos = src
-            .find(debug_gate)
-            .expect("expected a debug-assertions gate for command-block context menu items");
-
-        let copy_output_item = "t!(\"MainWindow.ContextMenu.CopyCommandBlockOutput\")";
-        let copy_output_pos = src
-            .find(&copy_output_item)
-            .expect("expected a command-block output copy action");
-        assert!(
-            gate_pos < copy_output_pos,
-            "debug-assertions gate should appear before command-block actions"
-        );
-
-        assert!(
-            {
-                let hint_label = ["Command blocks", " (no block", " at cursor)"].concat();
-                let hint_item = format!("PopupMenuItem::new(\"{}\")", hint_label);
-                !src.contains(&hint_item)
-            },
-            "no-block hint menu item should not exist"
-        );
     }
 }
