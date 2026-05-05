@@ -51,7 +51,7 @@ parking_lot = "0.12"
 passfd = "0.1.6"
 piper = "0.2"
 polling = "3"
-rand = "0.9"
+rand = "0.10"
 regex = "1"
 regex-automata = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
