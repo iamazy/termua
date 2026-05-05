@@ -12,5 +12,5 @@ zeroclaw = { package = "zeroclawlabs", version = "0.5.7", default-features = fal
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
-ureq = { version = "2.12", default-features = true, features = ["tls", "json"] }
+ureq = { version = "3.3", default-features = true, features = ["tls", "json"] }
 sysinfo.workspace = true
