@@ -71,10 +71,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
+          # Trigger cargo to resolve deps, generate Cargo.lock, and check out git deps
+          cargo check -p gpui_platform --no-default-features 2>/dev/null || true
           GPUI_REV=$(grep -A3 'name = "gpui"' Cargo.lock | grep 'source =' | sed 's/.*#//')
           echo "gpui revision: $GPUI_REV"
-          # Trigger cargo to check out git dependencies (ignore errors)
-          cargo check -p gpui_platform --no-default-features 2>/dev/null || true
           # Locate the checkout directory
           GPUI_DIR=$(find ~/.cargo/git/checkouts -maxdepth 2 -name "$GPUI_REV" -type d 2>/dev/null | head -1)
           if [ -z "$GPUI_DIR" ]; then
