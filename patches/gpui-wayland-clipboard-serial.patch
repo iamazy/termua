@@ -1,0 +1,57 @@
+diff --git a/crates/gpui/src/platform/linux/wayland/client.rs b/crates/gpui/src/platform/linux/wayland/client.rs
+index 41f12916b9..71bbf5c1d8 100644
+--- a/crates/gpui/src/platform/linux/wayland/client.rs
++++ b/crates/gpui/src/platform/linux/wayland/client.rs
+@@ -836,7 +836,9 @@ impl LinuxClient for WaylandClient {
+         };
+         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
+             state.clipboard.set_primary(item);
+-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
++            let serial = state
++                .serial_tracker
++                .best_serial();
+             let data_source = primary_selection_manager.create_source(&state.globals.qh, ());
+             for mime_type in TEXT_MIME_TYPES {
+                 data_source.offer(mime_type.to_string());
+@@ -856,7 +858,9 @@ impl LinuxClient for WaylandClient {
+         };
+         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
+             state.clipboard.set(item);
+-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
++            let serial = state
++                .serial_tracker
++                .best_serial();
+             let data_source = data_device_manager.create_data_source(&state.globals.qh, ());
+             for mime_type in TEXT_MIME_TYPES {
+                 data_source.offer(mime_type.to_string());
+diff --git a/crates/gpui/src/platform/linux/wayland/serial.rs b/crates/gpui/src/platform/linux/wayland/serial.rs
+index eadc7a9ca9..11d89d9309 100644
+--- a/crates/gpui/src/platform/linux/wayland/serial.rs
++++ b/crates/gpui/src/platform/linux/wayland/serial.rs
+@@ -46,4 +46,26 @@ impl SerialTracker {
+             .map(|serial_data| serial_data.serial)
+             .unwrap_or(0)
+     }
++
++    /// Returns the best available serial for clipboard selection operations.
++    ///
++    /// Wayland requires a valid input-event serial for `set_selection`. On first
++    /// launch, `KeyPress` may still be 0 if no keyboard key has been pressed yet.
++    /// Fall back through `MousePress` → `MouseEnter` so that mouse-triggered
++    /// clipboard writes (e.g. copy-on-select) work before the first keypress.
++    pub fn best_serial(&self) -> u32 {
++        // Prefer KeyPress – keyboard shortcuts are the most common clipboard trigger.
++        if let Some(s) = self.serials.get(&SerialKind::KeyPress) {
++            return s.serial;
++        }
++        // Fall back for mouse-driven copies (select-to-copy, context menu).
++        if let Some(s) = self.serials.get(&SerialKind::MousePress) {
++            return s.serial;
++        }
++        // Last resort – pointer enter always fires before any interaction.
++        if let Some(s) = self.serials.get(&SerialKind::MouseEnter) {
++            return s.serial;
++        }
++        0
++    }
+ }
