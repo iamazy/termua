@@ -12,12 +12,14 @@ use crate::{
     new_session::NewSessionWindow,
     right_sidebar::{RightSidebarState, RightSidebarTab},
     sharing::JoinSharing,
+    window::about::AboutWindow,
 };
 
 actions!(
     termua,
     [
         Quit,
+        OpenAbout,
         OpenNewSession,
         NewLocalTerminal,
         NewWindow,
@@ -33,6 +35,7 @@ actions!(
 
 pub(crate) fn register(cx: &mut App) {
     cx.on_action(quit);
+    cx.on_action(open_about);
     cx.on_action(open_new_session);
     cx.on_action(new_local_terminal);
     cx.on_action(new_window);
@@ -86,6 +89,28 @@ fn quit(_: &Quit, cx: &mut App) {
 
         cx.quit();
     });
+}
+
+fn open_about(_: &OpenAbout, cx: &mut App) {
+    // Reuse existing About window if it's still open.
+    let existing = cx.global::<TermuaAppState>().about_window;
+    if let Some(handle) = existing {
+        if handle
+            .update(cx, |_, window, _cx| {
+                window.activate_window();
+            })
+            .is_ok()
+        {
+            return;
+        }
+    }
+
+    match AboutWindow::open(cx) {
+        Ok(handle) => {
+            cx.global_mut::<TermuaAppState>().about_window = Some(handle);
+        }
+        Err(err) => log::error!("OpenAbout: failed to open about window: {err:#}"),
+    }
 }
 
 fn open_new_session(_: &OpenNewSession, cx: &mut App) {
@@ -252,6 +277,7 @@ pub(crate) fn build_menus(multi_exec_enabled: bool) -> Vec<Menu> {
     // menus[0] is the fold/app menu (menubar crate expects this).
     vec![
         Menu::new(t!("Menu.App.Name").to_string()).items(vec![
+            MenuItem::action(t!("Menu.App.AboutTermua").to_string(), OpenAbout),
             MenuItem::action(t!("Menu.App.OpenSettings").to_string(), OpenSettings),
             MenuItem::separator(),
             MenuItem::action(t!("Menu.App.Quit").to_string(), Quit),
@@ -371,7 +397,7 @@ mod tests {
         // We intentionally assert a non-English label to ensure the menu is localized.
         assert_eq!(menus[0].name.as_ref(), "Termua");
         match &menus[0].items[0] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "打开设置"),
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "关于 Termua"),
             _ => panic!("expected first Termua menu item to be an Action"),
         }
     }
@@ -385,14 +411,18 @@ mod tests {
         assert!(!menus.is_empty());
         assert_eq!(menus[0].name.as_ref(), "Termua");
 
-        // Termua menu: Open Settings, <separator>, Quit
-        assert_eq!(menus[0].items.len(), 3);
+        // Termua menu: About Termua, Open Settings, <separator>, Quit
+        assert_eq!(menus[0].items.len(), 4);
         match &menus[0].items[0] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Open Settings"),
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "About Termua"),
             _ => panic!("expected first Termua menu item to be an Action"),
         }
-        assert!(matches!(menus[0].items[1], MenuItem::Separator));
-        match &menus[0].items[2] {
+        match &menus[0].items[1] {
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Open Settings"),
+            _ => panic!("expected second Termua menu item to be an Action"),
+        }
+        assert!(matches!(menus[0].items[2], MenuItem::Separator));
+        match &menus[0].items[3] {
             MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Quit"),
             _ => panic!("expected Quit to be an Action"),
         }
@@ -556,7 +586,7 @@ mod tests {
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_en.items.first() else {
             panic!("expected first Termua menu item to be an Action");
         };
-        assert_eq!(name, "Open Settings");
+        assert_eq!(name, "About Termua");
 
         cx.update(|app| crate::settings::set_language(crate::settings::Language::ZhCn, app));
 
@@ -567,6 +597,6 @@ mod tests {
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_zh.items.first() else {
             panic!("expected first Termua menu item to be an Action");
         };
-        assert_eq!(name, "打开设置");
+        assert_eq!(name, "关于 Termua");
     }
 }

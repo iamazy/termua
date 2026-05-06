@@ -92,7 +92,7 @@ chmod +x "$appdir/usr/bin/termua-relay"
 
 # Desktop integration (appimagetool expects these at the root of AppDir)
 cp packaging/linux/termua.desktop "$appdir/termua.desktop"
-cp assets/logo/termua.svg "$appdir/termua.svg"
+cp assets/icons/termua.svg "$appdir/termua.svg"
 
 cat >"$appdir/AppRun" <<'EOF'
 #!/bin/sh

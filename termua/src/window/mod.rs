@@ -1,3 +1,4 @@
+pub mod about;
 pub mod main_window;
 mod nav_tree;
 pub mod new_session;

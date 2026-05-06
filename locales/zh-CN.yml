@@ -1,3 +1,7 @@
+About:
+  Title: "关于 Termua"
+  Close: "关闭"
+
 Dock:
   Unnamed: "未命名"
   Zoom In: "放大"
@@ -11,6 +15,7 @@ Dock:
 Menu:
   App:
     Name: "Termua"
+    AboutTermua: "关于 Termua"
     OpenSettings: "打开设置"
     Quit: "退出"
   Session:
