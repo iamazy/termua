@@ -165,7 +165,10 @@ impl FootbarView {
                         .selected(assistant_selected)
                         .debug_selector(|| "termua-footbar-assistant".to_string())
                         .on_click(|_, _, cx| {
-                            crate::menu::toggle_assistant_sidebar(&crate::ToggleAssistantSidebar, cx)
+                            crate::menu::toggle_assistant_sidebar(
+                                &crate::ToggleAssistantSidebar,
+                                cx,
+                            )
                         }),
                 )
             })
