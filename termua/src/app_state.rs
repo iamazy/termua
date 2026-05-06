@@ -50,6 +50,7 @@ impl SerialParams {
 pub(crate) struct TermuaAppState {
     pub(crate) main_window: Option<gpui::WindowHandle<gpui_component::Root>>,
     pub(crate) settings_window: Option<gpui::WindowHandle<gpui_component::Root>>,
+    pub(crate) about_window: Option<gpui::WindowHandle<gpui_component::Root>>,
     pub(crate) multi_exec_enabled: bool,
     pub(crate) sessions_sidebar_visible: bool,
     pub(crate) sessions_sidebar_width: gpui::Pixels,
@@ -61,6 +62,7 @@ impl Default for TermuaAppState {
         Self {
             main_window: None,
             settings_window: None,
+            about_window: None,
             multi_exec_enabled: false,
             sessions_sidebar_visible: true,
             sessions_sidebar_width: px(280.0),

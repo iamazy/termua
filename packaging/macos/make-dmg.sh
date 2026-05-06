@@ -16,7 +16,7 @@ set -euo pipefail
 #   VOLNAME=termua
 #   OUT_DMG=target/dmg/<arch>/termua.dmg
 #   ICON_ICNS=packaging/macos/termua.icns  # Optional; copied into .app Resources/
-#   ICON_SVG=assets/logo/termua.svg         # Used to generate .icns if ICON_ICNS is not set
+#   ICON_SVG=assets/icons/termua.svg         # Used to generate .icns if ICON_ICNS is not set
 #
 # Notes:
 #   - This script does NOT codesign or notarize. For distribution outside local
@@ -98,7 +98,7 @@ if [[ -z "$icon_icns" ]]; then
   if [[ -f "$cached_icns" ]]; then
     icon_icns="$cached_icns"
   else
-    icon_svg="${ICON_SVG:-assets/logo/termua.svg}"
+    icon_svg="${ICON_SVG:-assets/icons/termua.svg}"
     if [[ -f "$icon_svg" ]]; then
       generated_icns="$cached_icns"
       echo "==> Generating .icns from: $icon_svg"

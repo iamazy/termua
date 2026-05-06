@@ -4,7 +4,7 @@ set -euo pipefail
 # Convert an SVG into an .icns file (macOS icon) by generating an .iconset and running iconutil.
 #
 # Usage:
-#   packaging/macos/build-icns.sh assets/logo/termua.svg target/icons/termua.icns
+#   packaging/macos/build-icns.sh assets/icons/termua.svg target/icons/termua.icns
 #
 # Requirements:
 #   - macOS: `sips`, `iconutil` (built-in)
