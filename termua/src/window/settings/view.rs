@@ -1266,6 +1266,7 @@ impl SettingsWindow {
                     this.settings.assistant.enabled = checked;
                     this.settings.apply_assistant_settings(cx);
                     this.save_only(window, cx);
+                    cx.refresh_windows();
 
                     if checked {
                         // If enabled and zeroclaw isn't running, pull it up.
