@@ -475,72 +475,6 @@ function Ensure-WixDesktopShortcut([string] $repoRoot) {
   }
 }
 
-function Ensure-WixRelayBinary([string] $repoRoot, [string] $target) {
-  $relayExe = Join-Path $repoRoot "target\$target\release\termua-relay.exe"
-  if (-not (Test-Path $relayExe)) {
-    throw "missing relay binary after build: $relayExe"
-  }
-
-  Invoke-WxsFileUpdate $repoRoot {
-    param(
-      [System.Xml.XmlDocument] $doc,
-      [System.Xml.XmlNamespaceManager] $ns,
-      [string] $filePath
-    )
-
-    $changed = $false
-    $product = $doc.SelectSingleNode("/wix:Wix/wix:Product", $ns)
-    if (-not $product) { return $false }
-
-    $mainFile = $doc.SelectSingleNode("//wix:File[@Name='termua.exe']", $ns)
-    if (-not $mainFile) { return $false }
-
-    $mainComponent = $mainFile.ParentNode
-    if (-not $mainComponent -or $mainComponent.LocalName -ne "Component") { return $false }
-
-    $mainDirectory = $mainComponent.ParentNode
-    if (-not $mainDirectory -or ($mainDirectory.LocalName -ne "Directory" -and $mainDirectory.LocalName -ne "DirectoryRef")) {
-      return $false
-    }
-
-    $relayComponent = $mainDirectory.SelectSingleNode("wix:Component[@Id='RelayExecutable']", $ns)
-    if (-not $relayComponent) {
-      $relayComponent = New-WixElement $doc "Component"
-      $null = Set-WixAttribute $relayComponent "Id" "RelayExecutable"
-      $null = Set-WixAttribute $relayComponent "Guid" "*"
-      $relayFile = New-WixElement $doc "File"
-      $null = Set-WixAttribute $relayFile "Id" "termuaRelayExeFile"
-      $null = Set-WixAttribute $relayFile "Name" "termua-relay.exe"
-      $null = Set-WixAttribute $relayFile "Source" '$(var.CargoTargetBinDir)\termua-relay.exe'
-      $null = Set-WixAttribute $relayFile "KeyPath" "yes"
-      $null = Set-WixAttribute $relayFile "Checksum" "yes"
-      $null = $relayComponent.AppendChild($relayFile)
-      $null = $mainDirectory.AppendChild($relayComponent)
-      $changed = $true
-    } else {
-      $changed = (Set-WixAttribute $relayComponent "Guid" "*") -or $changed
-      $relayFile = $relayComponent.SelectSingleNode("wix:File[@Name='termua-relay.exe']", $ns)
-      if (-not $relayFile) {
-        $relayFile = New-WixElement $doc "File"
-        $null = $relayComponent.AppendChild($relayFile)
-        $changed = $true
-      }
-      $changed = (Set-WixAttribute $relayFile "Id" "termuaRelayExeFile") -or $changed
-      $changed = (Set-WixAttribute $relayFile "Name" "termua-relay.exe") -or $changed
-      $changed = (Set-WixAttribute $relayFile "Source" '$(var.CargoTargetBinDir)\termua-relay.exe') -or $changed
-      $changed = (Set-WixAttribute $relayFile "KeyPath" "yes") -or $changed
-      $changed = (Set-WixAttribute $relayFile "Checksum" "yes") -or $changed
-    }
-
-    $binariesFeature = $product.SelectSingleNode(".//wix:Feature[@Id='Binaries']", $ns)
-    if ($binariesFeature) {
-      $changed = (Add-WixComponentRefToFeature $doc $ns $binariesFeature "RelayExecutable") -or $changed
-    }
-
-    return $changed
-  }
-}
-
 function Invoke-CargoWixPackage([string] $target) {
   $args = @("wix", "--package", "termua", "--no-build", "--target", $target, "--nocapture")
   $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
@@ -643,11 +577,9 @@ if ([string]::IsNullOrWhiteSpace($outDir)) {
   $outDir = "target\\msi\\$arch"
 }
 
-Write-Host "==> Building termua + termua-relay (release)"
+Write-Host "==> Building termua (release)"
 & cargo build -p termua --release --target $target
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
-& cargo build -p termua_relay --release --target $target
-if ($LASTEXITCODE -ne 0) { throw "cargo build termua_relay failed ($LASTEXITCODE)" }
 
 if ((Find-WxsFiles $repoRoot).Count -eq 0) {
   Write-Host "==> Initializing WiX sources (cargo wix init)"
@@ -664,8 +596,6 @@ $icoPath = Ensure-TermuaIco $repoRoot $arch
 if ($icoPath) {
   Ensure-WixIcon $repoRoot $icoPath
 }
-Ensure-WixRelayBinary $repoRoot $target
-
 Write-Host "==> Packaging MSI (cargo wix)"
 Invoke-CargoWixPackage $target
 
