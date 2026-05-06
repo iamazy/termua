@@ -217,9 +217,22 @@ pub(crate) fn toggle_messages_sidebar(_: &ToggleMessagesSidebar, cx: &mut App) {
 }
 
 pub(crate) fn toggle_assistant_sidebar(_: &ToggleAssistantSidebar, cx: &mut App) {
+    let assistant_enabled = cx
+        .try_global::<crate::settings::AssistantSettings>()
+        .map(|s| s.enabled)
+        .unwrap_or(true);
+
     if cx.try_global::<RightSidebarState>().is_none() {
         cx.set_global(RightSidebarState::default());
     }
+
+    // Block opening the assistant panel when the feature is disabled,
+    // but allow closing it if it was already open (e.g. after a settings change).
+    let state = cx.global::<RightSidebarState>();
+    if !assistant_enabled && !(state.visible && state.active_tab == RightSidebarTab::Assistant) {
+        return;
+    }
+
     cx.global_mut::<RightSidebarState>()
         .toggle_tab(RightSidebarTab::Assistant);
     cx.refresh_windows();

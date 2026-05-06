@@ -16,6 +16,7 @@ use crate::{
     globals::{ensure_ctx_global, ensure_ctx_global_with},
     lock_screen, notification,
     right_sidebar::{RightSidebarState, RightSidebarTab},
+    settings::AssistantSettings,
 };
 
 mod transfers;
@@ -93,6 +94,7 @@ impl FootbarView {
         lock_enabled: bool,
         lock_tooltip: SharedString,
         messages_selected: bool,
+        assistant_enabled: bool,
         assistant_selected: bool,
     ) -> gpui::AnyElement {
         h_flex()
@@ -152,19 +154,21 @@ impl FootbarView {
                         crate::menu::toggle_messages_sidebar(&crate::ToggleMessagesSidebar, cx)
                     }),
             )
-            .child(
-                Button::new("termua-footbar-assistant-button")
-                    .xsmall()
-                    .compact()
-                    .ghost()
-                    .icon(Icon::default().path(TermuaIcon::Bot))
-                    .tooltip(t!("Footbar.Tooltip.Assistant").to_string())
-                    .selected(assistant_selected)
-                    .debug_selector(|| "termua-footbar-assistant".to_string())
-                    .on_click(|_, _, cx| {
-                        crate::menu::toggle_assistant_sidebar(&crate::ToggleAssistantSidebar, cx)
-                    }),
-            )
+            .when(assistant_enabled, |this| {
+                this.child(
+                    Button::new("termua-footbar-assistant-button")
+                        .xsmall()
+                        .compact()
+                        .ghost()
+                        .icon(Icon::default().path(TermuaIcon::Bot))
+                        .tooltip(t!("Footbar.Tooltip.Assistant").to_string())
+                        .selected(assistant_selected)
+                        .debug_selector(|| "termua-footbar-assistant".to_string())
+                        .on_click(|_, _, cx| {
+                            crate::menu::toggle_assistant_sidebar(&crate::ToggleAssistantSidebar, cx)
+                        }),
+                )
+            })
             .into_any_element()
     }
 }
@@ -189,7 +193,19 @@ impl Render for FootbarView {
         let sessions_visible = cx.global::<TermuaAppState>().sessions_sidebar_visible;
         let right = cx.global::<RightSidebarState>();
         let messages_selected = right.visible && right.active_tab == RightSidebarTab::Notifications;
-        let assistant_selected = right.visible && right.active_tab == RightSidebarTab::Assistant;
+        let assistant_enabled = cx
+            .try_global::<AssistantSettings>()
+            .map(|s| s.enabled)
+            .unwrap_or(true);
+        let assistant_selected =
+            assistant_enabled && right.visible && right.active_tab == RightSidebarTab::Assistant;
+
+        // When assistant is disabled while the AI panel is open, close the panel.
+        if !assistant_enabled && right.visible && right.active_tab == RightSidebarTab::Assistant {
+            cx.defer(|cx| {
+                crate::menu::toggle_assistant_sidebar(&crate::ToggleAssistantSidebar, cx);
+            });
+        }
 
         let icon_path = Self::multi_exec_icon_path(enabled);
         let lock_state = cx.global::<lock_screen::LockState>();
@@ -217,6 +233,7 @@ impl Render for FootbarView {
             lock_enabled,
             lock_tooltip,
             messages_selected,
+            assistant_enabled,
             assistant_selected,
         );
 
