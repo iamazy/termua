@@ -22,7 +22,6 @@ Menu:
     Name: "会话"
     NewSession: "新建会话"
     NewWindow: "新建窗口"
-    JoinSharing: "加入共享…"
   Recorder:
     Name: "录制"
     Play: "播放"
@@ -295,9 +294,6 @@ Settings:
     Font: "字体"
     KeyBindings: "快捷键"
     Rendering: "渲染"
-    Sharing: "共享"
-  Sharing:
-    RelayUrlPlaceholder: "ws://127.0.0.1:7231/ws"
   Recording:
     CastRecording: "Cast 录制"
   Logging:
@@ -431,16 +427,6 @@ Settings:
         reset_font_size:
           Title: "重置字号"
           Description: "重置终端字号的快捷键。"
-    sharing:
-      enabled:
-        Title: "启用"
-        Description: "启用通过中继器进行终端共享。"
-      relay_url:
-        Title: "中继器 URL"
-        Description: "中继器服务器的 WebSocket 地址。"
-      local_relay:
-        Title: "本地中继器"
-        Description: "启动/停止本地中继器进程（仅测试）。"
     recording:
       include_input_by_default:
         Title: "默认包含输入"

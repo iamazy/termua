@@ -1,14 +1,10 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, atomic::AtomicBool},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use gpui::{AppContext, Context, FocusHandle, ReadGlobal, SharedString, Window};
 use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     CursorShape, Event as TerminalEvent, PtySource, SerialOptions, SshOptions, TerminalBuilder,
     TerminalSettings, TerminalType, TerminalView, UserInput as TerminalUserInput,
-    remote::RemoteInputEvent,
 };
 
 use super::TermuaWindow;
@@ -17,10 +13,6 @@ use crate::{
     env::{build_terminal_env, cast_player_child_env},
     lock_screen, notification,
     panel::{PanelKind, TerminalPanel, terminal_panel_tab_name},
-    sharing::{
-        ClientToRelay as RelayClientToRelay, RelaySharingState, ViewerShare, compose_share_key,
-        connect_relay,
-    },
     ssh::{dedupe_tab_label, ssh_tab_tooltip},
 };
 
@@ -100,109 +92,6 @@ impl TermuaWindow {
         // `DockArea` will re-render itself, but we also mutate our own state (`next_terminal_id`),
         // so we must notify.
         cx.notify();
-    }
-
-    pub(super) fn add_relay_viewer_terminal(
-        &mut self,
-        relay_url: String,
-        room_id: String,
-        join_key: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn_in(window, async move |this, window| {
-            let conn = connect_relay(
-                &relay_url,
-                RelayClientToRelay::Join {
-                    room_id: room_id.clone(),
-                    join_key: join_key.clone(),
-                },
-            )
-            .await;
-
-            let _ = this.update_in(window, move |this, window, cx| match conn {
-                Ok(conn) => {
-                    let id = this.next_terminal_id;
-                    this.next_terminal_id += 1;
-
-                    let tab_label: SharedString = format!("share {id}").into();
-                    let tab_tooltip: SharedString =
-                        format!("Share Key {}", compose_share_key(&room_id, &join_key)).into();
-
-                    let viewer_id = Arc::new(Mutex::new(None::<String>));
-                    let controlled = Arc::new(AtomicBool::new(false));
-
-                    let room_id_for_input = room_id.clone();
-                    let conn_for_input = conn.clone();
-                    let viewer_id_for_input = Arc::clone(&viewer_id);
-                    let send_input: Arc<dyn Send + Sync + Fn(RemoteInputEvent)> =
-                        Arc::new(move |ev| {
-                            let Some(viewer_id) =
-                                viewer_id_for_input.lock().ok().and_then(|v| v.clone())
-                            else {
-                                return;
-                            };
-                            let Ok(payload) = serde_json::to_value(ev) else {
-                                return;
-                            };
-                            conn_for_input.send(RelayClientToRelay::InputEvent {
-                                room_id: room_id_for_input.clone(),
-                                viewer_id,
-                                payload,
-                            });
-                        });
-
-                    let terminal = crate::sharing::make_remote_terminal(
-                        send_input,
-                        Arc::clone(&controlled),
-                        cx,
-                    );
-                    let panel = this.build_wired_terminal_panel(
-                        id,
-                        PanelKind::Local,
-                        tab_label,
-                        Some(tab_tooltip),
-                        terminal,
-                        window,
-                        cx,
-                    );
-                    let terminal_view = panel.read(cx).terminal_view();
-
-                    let terminal_view_id = terminal_view.entity_id();
-                    cx.global_mut::<RelaySharingState>().viewers.insert(
-                        terminal_view_id,
-                        ViewerShare {
-                            room_id,
-                            viewer_id: Arc::clone(&viewer_id),
-                            controlled: Arc::clone(&controlled),
-                            conn,
-                        },
-                    );
-
-                    let relay_terminal = terminal_view.read(cx).terminal.clone();
-                    this.spawn_relay_pump_for_viewer(terminal_view_id, relay_terminal, window, cx);
-                    this.dock_area.update(cx, |dock, cx| {
-                        dock.add_panel(
-                            Arc::new(panel) as Arc<dyn PanelView>,
-                            DockPlacement::Center,
-                            None,
-                            window,
-                            cx,
-                        );
-                    });
-                    cx.notify();
-                }
-                Err(err) => {
-                    notification::notify_deferred(
-                        notification::MessageKind::Error,
-                        format!("Join sharing failed: {err:#}"),
-                        window,
-                        cx,
-                    );
-                }
-            });
-        })
-        .detach();
     }
 
     pub(super) fn add_serial_terminal_with_params(
@@ -782,7 +671,6 @@ mod tests {
             gpui_term::init(app);
             gpui_dock::init(app);
             app.set_global(TermuaAppState::default());
-            crate::sharing::init_globals(app);
         });
     }
 
@@ -803,35 +691,6 @@ mod tests {
             .expect("expected TermuaWindow view to be captured")
             .clone();
         (termua, window_cx)
-    }
-
-    #[gpui::test]
-    fn add_relay_viewer_terminal_invalid_url_reports_notification(cx: &mut gpui::TestAppContext) {
-        init_test_app(cx);
-        let (termua, window_cx) = add_termua_window(cx);
-
-        window_cx.update(|window, app| {
-            termua.update(app, |this, cx| {
-                this.add_relay_viewer_terminal(
-                    "http://relay.example/ws".to_string(),
-                    "AbC234xYz".to_string(),
-                    "k3Y9a2".to_string(),
-                    window,
-                    cx,
-                );
-            });
-        });
-        window_cx.run_until_parked();
-
-        window_cx.update(|_window, app| {
-            let notifications = &app.global::<notification::NotifyState>().messages;
-            assert!(
-                notifications
-                    .iter()
-                    .any(|msg| msg.message.contains("Join sharing failed:")),
-                "expected a join sharing error notification for an invalid relay URL"
-            );
-        });
     }
 
     #[gpui::test]

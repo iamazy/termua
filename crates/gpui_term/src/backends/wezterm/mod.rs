@@ -1912,6 +1912,7 @@ impl TerminalBackend for WezTermBackend {
                 // Double-click selects a word, matching typical terminal behavior.
                 // Triple-click selects the current line.
                 self.select_word_at_event_position(e);
+                self.selection.selecting = true;
                 cx.emit(Event::SelectionsChanged);
                 return;
             }

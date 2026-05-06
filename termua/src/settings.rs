@@ -228,17 +228,6 @@ pub struct UiSettings {
     pub last_settings_page: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SharingSettings {
-    /// Whether the terminal sharing feature is enabled.
-    pub enabled: bool,
-    /// Optional relay websocket URL (e.g. "ws://127.0.0.1:7231/ws").
-    pub relay_url: Option<String>,
-}
-
-impl gpui::Global for SharingSettings {}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AssistantSettings {
@@ -441,8 +430,6 @@ pub struct SettingsFile {
     #[serde(default)]
     pub ui: UiSettings,
     #[serde(default)]
-    pub sharing: SharingSettings,
-    #[serde(default)]
     pub assistant: AssistantSettings,
     #[serde(default)]
     pub lock_screen: LockScreenSettings,
@@ -471,8 +458,6 @@ struct SettingsFilePatch {
     recording: RecordingSettings,
     logging: LoggingSettings,
     ui: UiSettings,
-    #[serde(default)]
-    sharing: SharingSettings,
     assistant: AssistantSettings,
     lock_screen: LockScreenSettings,
     terminal: TerminalSettingsPatch,
@@ -602,7 +587,6 @@ impl SettingsFile {
             recording: patch.recording,
             logging: patch.logging,
             ui: patch.ui,
-            sharing: patch.sharing,
             assistant: patch.assistant,
             lock_screen: patch.lock_screen,
         })
@@ -676,12 +660,6 @@ impl SettingsFile {
             *cx.global_mut::<RecordingSettings>() = self.recording.clone();
         } else {
             cx.set_global(self.recording.clone());
-        }
-
-        if cx.has_global::<SharingSettings>() {
-            *cx.global_mut::<SharingSettings>() = self.sharing.clone();
-        } else {
-            cx.set_global(self.sharing.clone());
         }
 
         self.apply_assistant_settings(cx);
@@ -1068,33 +1046,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(settings.terminal.copy_on_select, false);
-    }
-
-    #[test]
-    fn parsing_empty_object_defaults_sharing_disabled() {
-        let settings = SettingsFile::load_from_str_lenient("{}").unwrap();
-        assert_eq!(settings.sharing.enabled, false);
-    }
-
-    #[test]
-    fn parsing_sharing_relay_url_roundtrips() {
-        let settings = SettingsFile::load_from_str_lenient(
-            r#"
-            {
-              "sharing": {
-                "enabled": true,
-                "relay_url": "wss://example.com/ws"
-              }
-            }
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(settings.sharing.enabled, true);
-        assert_eq!(
-            settings.sharing.relay_url.as_deref(),
-            Some("wss://example.com/ws")
-        );
     }
 
     #[test]

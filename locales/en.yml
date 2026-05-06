@@ -22,7 +22,6 @@ Menu:
     Name: "Session"
     NewSession: "New Session"
     NewWindow: "New Window"
-    JoinSharing: "Join Sharing…"
   Recorder:
     Name: "Recorder"
     Play: "Play"
@@ -296,9 +295,6 @@ Settings:
     Font: "Font"
     KeyBindings: "Key Bindings"
     Rendering: "Rendering"
-    Sharing: "Sharing"
-  Sharing:
-    RelayUrlPlaceholder: "ws://127.0.0.1:7231/ws"
   Recording:
     CastRecording: "Cast Recording"
   Logging:
@@ -432,16 +428,6 @@ Settings:
         reset_font_size:
           Title: "Reset font size"
           Description: "Keybinding to reset terminal font size."
-    sharing:
-      enabled:
-        Title: "Enabled"
-        Description: "Enable terminal sharing via a relay server."
-      relay_url:
-        Title: "Relay URL"
-        Description: "WebSocket URL of the relay server."
-      local_relay:
-        Title: "Local relay"
-        Description: "Start/stop a local relay process (test only)."
     recording:
       include_input_by_default:
         Title: "Include input by default"

@@ -21,11 +21,6 @@ use crate::{
     panel::{RightSidebarView, SessionsSidebarEvent, SessionsSidebarView},
     right_sidebar,
     settings::{ThemeMode, set_theme_mode, theme_mode},
-    sharing::{
-        ReleaseControl, RequestControl, RevokeControl, StartSharing, StopSharing,
-        host_controller_present, host_sharing, is_remote_terminal, viewer_can_copy_paste,
-        viewer_controlled, viewer_sharing,
-    },
     ssh::SshTerminalBuilderFn,
 };
 pub(crate) struct TermuaWindow {
@@ -71,38 +66,6 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
 
         let has_sftp = terminal.read(cx).sftp().is_some();
 
-        let terminal_view_id = terminal_view.entity_id();
-        let is_remote = is_remote_terminal(&terminal, cx);
-        let is_viewer = viewer_sharing(terminal_view_id, cx);
-        let is_host = host_sharing(terminal_view_id, cx);
-        let viewer_has_control = viewer_controlled(terminal_view_id, cx);
-        let sharing_enabled = crate::sharing::sharing_feature_enabled(cx);
-
-        // Viewer terminals should only expose sharing-related actions in the context menu.
-        if is_viewer {
-            let mut menu = menu;
-            if viewer_has_control {
-                menu = menu
-                    .menu_with_icon("Copy", IconName::Copy, Box::new(CopyAction))
-                    .menu("Paste", Box::new(Paste))
-                    .separator();
-            }
-
-            menu = if viewer_has_control {
-                menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Release Control")
-                        .action(Box::new(ReleaseControl)),
-                )
-            } else {
-                menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Request Control")
-                        .action(Box::new(RequestControl)),
-                )
-            };
-
-            return menu;
-        }
-
         let mut menu = if has_sftp {
             menu.menu(
                 t!("MainWindow.ContextMenu.OpenSftp").to_string(),
@@ -122,56 +85,13 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             )
             .separator();
 
-        if !is_remote || viewer_can_copy_paste(&terminal, terminal_view_id, cx) {
-            menu = menu
-                .menu_with_icon("Copy", IconName::Copy, Box::new(CopyAction))
-                .menu("Paste", Box::new(Paste))
-                .separator()
-                .menu("SelectAll", Box::new(SelectAll))
-                .separator()
-                .menu("Clear", Box::new(Clear));
-        } else {
-            // Viewer (not controlling): hide copy/paste/select/clear per sharing UX rules.
-            menu = menu.menu("Clear", Box::new(Clear));
-        }
-
-        // Sharing / Control (mutually exclusive entries by role/state).
-        let show_sharing_section = is_host || (!is_remote && sharing_enabled);
-        if show_sharing_section {
-            menu = menu.separator();
-
-            if is_host {
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Stop Sharing")
-                        .action(Box::new(StopSharing)),
-                );
-                if host_controller_present(terminal_view_id, cx) {
-                    menu = menu.item(
-                        gpui_component::menu::PopupMenuItem::new("Revoke Control")
-                            .action(Box::new(RevokeControl)),
-                    );
-                }
-            } else if !is_remote && sharing_enabled {
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Sharing")
-                        .action(Box::new(StartSharing)),
-                );
-            }
-        }
-
-        if is_viewer {
-            if viewer_has_control {
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Release Control")
-                        .action(Box::new(ReleaseControl)),
-                );
-            } else {
-                menu = menu.item(
-                    gpui_component::menu::PopupMenuItem::new("Request Control")
-                        .action(Box::new(RequestControl)),
-                );
-            }
-        }
+        menu = menu
+            .menu_with_icon("Copy", IconName::Copy, Box::new(CopyAction))
+            .menu("Paste", Box::new(Paste))
+            .separator()
+            .menu("SelectAll", Box::new(SelectAll))
+            .separator()
+            .menu("Clear", Box::new(Clear));
 
         menu
     }

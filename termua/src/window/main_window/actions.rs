@@ -1,7 +1,6 @@
 //! TermuaWindow behavior and event handling.
 
 mod sftp;
-mod sharing;
 mod ssh;
 mod terminal;
 
@@ -123,16 +122,6 @@ impl TermuaWindow {
                 }
                 PendingCommand::OpenCastPicker => {
                     self.open_cast_player_picker(window, cx);
-                }
-                PendingCommand::OpenJoinSharingDialog => {
-                    self.open_join_sharing_dialog(window, cx);
-                }
-                PendingCommand::JoinRelaySharing {
-                    relay_url,
-                    room_id,
-                    join_key,
-                } => {
-                    self.add_relay_viewer_terminal(relay_url, room_id, join_key, window, cx);
                 }
             }
         }

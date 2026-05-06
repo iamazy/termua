@@ -24,7 +24,6 @@
 - [x] SSH: based on `wezterm-ssh`, with support for Password / SSH Config login
 - [x] Serial: supports serial sessions, baud rate / parity / flow control configuration
 - [x] SFTP file operations: supports file upload (including drag-and-drop), concurrency control, and more
-- [x] Terminal sharing: share terminal sessions through a relay
 - [x] Cast recording and playback: record and replay terminal activity
 - [x] Batch execution: run commands across multiple terminals
 - [x] AI assistant: built-in ZeroClaw Assistant
@@ -42,16 +41,6 @@ In addition to the built-in GUI recording and playback features, Termua can also
 termua --play-cast demo.cast
 termua --play-cast demo.cast --speed 2
 ```
-
-#### Terminal session sharing
-
-In addition to starting a relay process with `termua-relay`, you can also start a local relay process from the Termua settings page for testing:
-
-```bash
-termua-relay --listen 127.0.0.1:7231
-```
-
-During a shared session, viewers can request control of the terminal, and the host side can revoke that control at any time.
 
 ### Configuration
 
@@ -78,10 +67,6 @@ During a shared session, viewers can request control of the terminal, and the ho
     "suggestions_enabled": false,
     "suggestions_max_items": 8,
     "sftp_upload_max_concurrency": 5
-  },
-  "sharing": {
-    "enabled": false,
-    "relay_url": "ws://127.0.0.1:7231/ws"
   },
   "recording": {
     "include_input_by_default": false,

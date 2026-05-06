@@ -105,12 +105,6 @@ pub(crate) enum PendingCommand {
     ReloadSessionsSidebar,
     ShowSessionsSidebarError(String),
     OpenCastPicker,
-    OpenJoinSharingDialog,
-    JoinRelaySharing {
-        relay_url: String,
-        room_id: String,
-        join_key: String,
-    },
 }
 
 impl PendingCommand {
@@ -119,7 +113,6 @@ impl PendingCommand {
             (self, other),
             (Self::ReloadSessionsSidebar, Self::ReloadSessionsSidebar)
                 | (Self::OpenCastPicker, Self::OpenCastPicker)
-                | (Self::OpenJoinSharingDialog, Self::OpenJoinSharingDialog)
         )
     }
 }
@@ -158,10 +151,8 @@ mod tests {
         state.pending_command(PendingCommand::ReloadSessionsSidebar);
         state.pending_command(PendingCommand::OpenCastPicker);
         state.pending_command(PendingCommand::OpenCastPicker);
-        state.pending_command(PendingCommand::OpenJoinSharingDialog);
-        state.pending_command(PendingCommand::OpenJoinSharingDialog);
 
-        assert_eq!(state.pending_commands.len(), 3);
+        assert_eq!(state.pending_commands.len(), 2);
         assert!(matches!(
             state.pending_commands[0],
             PendingCommand::ReloadSessionsSidebar
@@ -169,10 +160,6 @@ mod tests {
         assert!(matches!(
             state.pending_commands[1],
             PendingCommand::OpenCastPicker
-        ));
-        assert!(matches!(
-            state.pending_commands[2],
-            PendingCommand::OpenJoinSharingDialog
         ));
     }
 
