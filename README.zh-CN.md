@@ -45,17 +45,6 @@ termua --play-cast demo.cast
 termua --play-cast demo.cast --speed 2
 ```
 
-#### 终端会话共享
-
-除了可以使用 `termua-relay` 启动 relay 进程，也可以在 Termua 配置页中启动本地 relay 进程用于测试
-
-```bash
-termua-relay --listen 127.0.0.1:7231
-```
-
-观看侧在会话共享期间可以申请操作终端，共享侧也支持回收操作权限。
-
-
 ### 配置
 
 #### `settings.json` 示例
@@ -82,10 +71,6 @@ termua-relay --listen 127.0.0.1:7231
     "suggestions_max_items": 8,
     "sftp_upload_max_concurrency": 5
   },
-  "sharing": {
-    "enabled": false,
-    "relay_url": "ws://127.0.0.1:7231/ws"
-  },
   "recording": {
     "include_input_by_default": false,
     "playback_speed": 1.0
@@ -101,7 +86,7 @@ termua-relay --listen 127.0.0.1:7231
 
 ### 发布 🦀
 
-你可以在 [Releases 页](https://github.com/iamazy/nxshell/actions) 下载二进制产物。
+你可以在 [Releases 页](https://github.com/iamazy/termua/releases) 下载二进制产物。
 
 ### 致谢 ❤️
 

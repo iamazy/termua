@@ -42,16 +42,6 @@ termua --play-cast demo.cast
 termua --play-cast demo.cast --speed 2
 ```
 
-#### Terminal session sharing
-
-In addition to starting a relay process with `termua-relay`, you can also start a local relay process from the Termua settings page for testing:
-
-```bash
-termua-relay --listen 127.0.0.1:7231
-```
-
-During a shared session, viewers can request control of the terminal, and the host side can revoke that control at any time.
-
 ### Configuration
 
 #### Example `settings.json`
@@ -77,10 +67,6 @@ During a shared session, viewers can request control of the terminal, and the ho
     "suggestions_enabled": false,
     "suggestions_max_items": 8,
     "sftp_upload_max_concurrency": 5
-  },
-  "sharing": {
-    "enabled": false,
-    "relay_url": "ws://127.0.0.1:7231/ws"
   },
   "recording": {
     "include_input_by_default": false,
