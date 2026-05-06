@@ -11,7 +11,6 @@ use crate::{
     config::SettingsWindow,
     new_session::NewSessionWindow,
     right_sidebar::{RightSidebarState, RightSidebarTab},
-    sharing::JoinSharing,
     window::about::AboutWindow,
 };
 
@@ -45,7 +44,6 @@ pub(crate) fn register(cx: &mut App) {
     cx.on_action(toggle_assistant_sidebar);
     cx.on_action(toggle_multi_exec);
     cx.on_action(play_cast);
-    cx.on_action(join_sharing);
 }
 
 fn quit(_: &Quit, cx: &mut App) {
@@ -238,19 +236,6 @@ fn play_cast(_: &PlayCast, cx: &mut App) {
     cx.refresh_windows();
 }
 
-fn join_sharing(_: &JoinSharing, cx: &mut App) {
-    if cx.global::<crate::lock_screen::LockState>().locked() {
-        return;
-    }
-    if cx.global::<TermuaAppState>().main_window.is_none() {
-        log::warn!("JoinSharing: main window not ready yet");
-        return;
-    }
-    cx.global_mut::<TermuaAppState>()
-        .pending_command(PendingCommand::OpenJoinSharingDialog);
-    cx.refresh_windows();
-}
-
 pub(crate) fn bind_menu_shortcuts(cx: &mut App) {
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
@@ -285,8 +270,6 @@ pub(crate) fn build_menus(multi_exec_enabled: bool) -> Vec<Menu> {
         Menu::new(t!("Menu.Session.Name").to_string()).items(vec![
             MenuItem::action(t!("Menu.Session.NewSession").to_string(), OpenNewSession),
             MenuItem::action(t!("Menu.Session.NewWindow").to_string(), NewWindow),
-            MenuItem::separator(),
-            MenuItem::action(t!("Menu.Session.JoinSharing").to_string(), JoinSharing),
         ]),
         Menu::new(t!("Menu.Recorder.Name").to_string()).items(vec![MenuItem::action(
             t!("Menu.Recorder.Play").to_string(),

@@ -24,7 +24,6 @@
 - [x] SSH: based on `wezterm-ssh`, with support for Password / SSH Config login
 - [x] Serial: supports serial sessions, baud rate / parity / flow control configuration
 - [x] SFTP file operations: supports file upload (including drag-and-drop), concurrency control, and more
-- [x] Terminal sharing: share terminal sessions through a relay
 - [x] Cast recording and playback: record and replay terminal activity
 - [x] Batch execution: run commands across multiple terminals
 - [x] AI assistant: built-in ZeroClaw Assistant

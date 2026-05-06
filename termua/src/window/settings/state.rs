@@ -130,7 +130,6 @@ pub enum SettingsPage {
     TerminalBehavior,
     TerminalSftp,
     TerminalSuggestions,
-    TerminalSharing,
     RecordingCast,
     Logging,
     Assistant,
@@ -247,15 +246,6 @@ const SETTINGS_PAGE_SPECS: &[SettingsPageSpec] = &[
         is_sidebar_item: true,
     },
     SettingsPageSpec {
-        section: SettingsNavSection::Terminal,
-        item_label_key: "Settings.Terminal.Sharing",
-        page: SettingsPage::TerminalSharing,
-        nav_item_id: "nav.page.terminal.sharing",
-        heading_key: "Settings.Terminal.Sharing",
-        hint_key: None,
-        is_sidebar_item: true,
-    },
-    SettingsPageSpec {
         section: SettingsNavSection::Recording,
         item_label_key: "Settings.Recording.CastRecording",
         page: SettingsPage::RecordingCast,
@@ -354,7 +344,6 @@ fn nav_item_sort_key(page: SettingsPage) -> &'static str {
         SettingsPage::TerminalBehavior => "Behavior",
         SettingsPage::TerminalSftp => "SFTP",
         SettingsPage::TerminalSuggestions => "Suggestions",
-        SettingsPage::TerminalSharing => "Sharing",
         SettingsPage::RecordingCast => "Cast Recording",
         SettingsPage::Logging => "General",
         SettingsPage::Assistant => "ZeroClaw",
@@ -788,7 +777,6 @@ pub struct SettingsWindow {
         Entity<SelectState<SearchableVec<SshBackendSelectItem>>>,
     pub(super) terminal_keybinding_focus: [FocusHandle; 10],
     pub(super) logging_path_input: Entity<InputState>,
-    pub(super) sharing_relay_url_input: Entity<InputState>,
     pub(super) recording_playback_speed_select:
         Entity<SelectState<SearchableVec<PlaybackSpeedSelectItem>>>,
     pub(super) static_suggestions_reload_in_flight: bool,
@@ -1179,19 +1167,6 @@ impl SettingsWindow {
         )
     }
 
-    fn sharing_relay_url_input(
-        settings: &SettingsFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::Entity<InputState> {
-        Self::new_input_with_initial(
-            window,
-            cx,
-            t!("Settings.Sharing.RelayUrlPlaceholder").to_string(),
-            Self::trimmed_nonempty(settings.sharing.relay_url.as_deref()),
-        )
-    }
-
     fn recording_playback_speed_select(
         settings: &SettingsFile,
         window: &mut Window,
@@ -1296,7 +1271,6 @@ impl SettingsWindow {
 
         let lock_overlay = crate::lock_screen::overlay::LockOverlayState::new(window, cx);
         let logging_path_input = Self::logging_path_input(&settings, window, cx);
-        let sharing_relay_url_input = Self::sharing_relay_url_input(&settings, window, cx);
         let recording_playback_speed_select =
             Self::recording_playback_speed_select(&settings, window, cx);
 
@@ -1337,7 +1311,6 @@ impl SettingsWindow {
             terminal_ssh_backend_select,
             terminal_keybinding_focus,
             logging_path_input,
-            sharing_relay_url_input,
             recording_playback_speed_select,
             static_suggestions_reload_in_flight,
             assistant_temperature_input,
@@ -1369,7 +1342,6 @@ impl SettingsWindow {
         self.install_search_subscription(window, cx);
         self.install_logging_path_subscription(window, cx);
         self.install_recording_subscriptions(window, cx);
-        self.install_sharing_subscriptions(window, cx);
         self.install_assistant_subscriptions(window, cx);
         self.install_terminal_subscriptions(window, cx);
         self.install_lock_state_subscription(window, cx);
@@ -1409,27 +1381,6 @@ impl SettingsWindow {
             |this, speed, window, cx| {
                 this.settings.recording.playback_speed = *speed;
                 this.apply_and_save(window, cx);
-            },
-        );
-    }
-
-    fn install_sharing_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let sharing_relay_url_input = self.sharing_relay_url_input.clone();
-        self.subscribe_change_input(
-            &sharing_relay_url_input,
-            window,
-            cx,
-            |this, value, window, cx| {
-                this.settings.sharing.relay_url = value;
-
-                if cx.has_global::<crate::settings::SharingSettings>() {
-                    *cx.global_mut::<crate::settings::SharingSettings>() =
-                        this.settings.sharing.clone();
-                } else {
-                    cx.set_global(this.settings.sharing.clone());
-                }
-
-                this.save_only(window, cx);
             },
         );
     }

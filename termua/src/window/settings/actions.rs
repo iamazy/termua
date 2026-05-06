@@ -85,10 +85,6 @@ impl SettingsWindow {
                     self.logging_path_input.clone(),
                     t!("Settings.Logging.PathPlaceholder").to_string(),
                 ),
-                (
-                    self.sharing_relay_url_input.clone(),
-                    t!("Settings.Sharing.RelayUrlPlaceholder").to_string(),
-                ),
             ],
         );
         self.sync_assistant_placeholders(window, cx);

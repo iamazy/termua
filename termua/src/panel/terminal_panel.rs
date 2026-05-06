@@ -507,7 +507,6 @@ impl Panel for TerminalPanel {
         );
 
         crate::assistant::unregister_terminal_target(cx, self.id);
-        crate::sharing::disconnect_terminal_sharing(self.terminal_view.entity_id(), cx);
 
         // Ensure the backend releases its PTY/process resources when the tab is explicitly closed.
         self.terminal_view.update(cx, |terminal_view, cx| {

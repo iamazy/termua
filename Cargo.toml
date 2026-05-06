@@ -7,7 +7,6 @@ members = [
     "crates/gpui_sftp",
     "crates/gpui_term",
     "crates/gpui_transfer",
-    "crates/termua_relay",
     "crates/termua_zeroclaw",
     "crates/wezterm-ssh",
     "crates/menubar",
@@ -92,7 +91,6 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.gi
 alacritty_terminal = { path = "crates/alacritty_terminal" }
 gpui_common = { path = "crates/gpui_common" }
 termua_zeroclaw = { path = "crates/termua_zeroclaw" }
-termua_relay = { path = "crates/termua_relay" }
 gpui_dock = { path = "crates/gpui_dock" }
 gpui_term = { path = "crates/gpui_term" }
 gpui_sftp = { path = "crates/gpui_sftp" }

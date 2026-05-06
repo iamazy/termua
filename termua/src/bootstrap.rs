@@ -49,7 +49,6 @@ fn init_app(cx: &mut App, settings: &crate::settings::SettingsFile) {
     cx.set_global(crate::notification::NotifyState::default());
     cx.set_global(crate::right_sidebar::RightSidebarState::default());
     crate::assistant::ensure_app_globals(cx);
-    crate::sharing::init_globals(cx);
     cx.set_global(TransferCenterState::default());
 
     cx.activate(true);

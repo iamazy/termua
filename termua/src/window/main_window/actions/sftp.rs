@@ -14,7 +14,6 @@ use super::TermuaWindow;
 use crate::{
     notification,
     panel::{PanelKind, TerminalPanel},
-    sharing::compose_share_key,
 };
 
 impl TermuaWindow {
@@ -383,16 +382,6 @@ impl TermuaWindow {
         format!("[{}] Upload via SFTP cancelled", tab_label.as_ref())
     }
 
-    pub(in crate::window::main_window::actions) fn sharing_started_message(
-        room_id: &str,
-        join_key: &str,
-    ) -> String {
-        format!(
-            "Sharing started\nShare Key: {}",
-            compose_share_key(room_id, join_key)
-        )
-    }
-
     fn handle_sftp_upload_file_cancelled(
         panel_id: usize,
         transfer_id: &u64,
@@ -465,14 +454,6 @@ mod tests {
         assert_eq!(
             TermuaWindow::sftp_upload_cancelled_message(&label),
             "[ssh 1] Upload via SFTP cancelled"
-        );
-    }
-
-    #[test]
-    fn sharing_started_message_uses_share_key_copy() {
-        assert_eq!(
-            TermuaWindow::sharing_started_message("AbC234xYz", "k3Y9a2"),
-            "Sharing started\nShare Key: AbC234xYz-k3Y9a2"
         );
     }
 

@@ -81,9 +81,6 @@ macro_rules! settings_supported_id_matches {
                 | "terminal.suggestions_enabled"
                 | "terminal.suggestions_max_items"
                 | "terminal.suggestions_json_dir"
-                | "sharing.enabled"
-                | "sharing.relay_url"
-                | "sharing.local_relay"
                 | "recording.include_input_by_default"
                 | "recording.playback_speed"
                 | "logging.level"
@@ -1473,9 +1470,6 @@ impl SettingsWindow {
         if let Some(control) = self.render_control_for_terminal(id, window, cx) {
             return control;
         }
-        if let Some(control) = self.render_control_for_sharing(id, window, cx) {
-            return control;
-        }
         if let Some(control) = self.render_control_for_recording(id, window, cx) {
             return control;
         }
@@ -1642,91 +1636,6 @@ impl SettingsWindow {
             }
             "terminal.suggestions_json_dir" => {
                 Some(self.render_terminal_suggestions_json_dir_control(cx))
-            }
-            _ => None,
-        }
-    }
-
-    fn render_control_for_sharing(
-        &self,
-        id: &'static str,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        match id {
-            "sharing.enabled" => Some(self.render_bool_switch(
-                "settings-sharing-enabled",
-                self.settings.sharing.enabled,
-                |this, checked, window, cx| {
-                    this.settings.sharing.enabled = checked;
-                    this.apply_and_save(window, cx);
-                },
-                cx,
-            )),
-            "sharing.relay_url" => Some(
-                div()
-                    .w(px(420.))
-                    .child(
-                        Input::new(&self.sharing_relay_url_input)
-                            .cleanable(true)
-                            .disabled(!self.settings.sharing.enabled),
-                    )
-                    .into_any_element(),
-            ),
-            "sharing.local_relay" => {
-                let this = cx.entity();
-                let running = crate::sharing::local_relay_running(cx);
-                let state_id = "settings-sharing-local-relay";
-
-                Some(
-                    Switch::new(state_id)
-                        .checked(running)
-                        .on_click(move |checked, window, cx| {
-                            let want_running = *checked;
-                            this.update(cx, |this, cx| {
-                                let relay_url =
-                                    this.settings.sharing.relay_url.clone().unwrap_or_else(|| {
-                                        crate::sharing::DEFAULT_RELAY_URL.to_string()
-                                    });
-
-                                if want_running {
-                                    match crate::sharing::local_relay_listen_addr_from_ws_url(
-                                        &relay_url,
-                                    ) {
-                                        Ok(listen) => {
-                                            if let Err(err) =
-                                                crate::sharing::start_local_relay(&listen, cx)
-                                            {
-                                                notification::notify_deferred(
-                                                    notification::MessageKind::Error,
-                                                    format!("Start local relay failed: {err:#}"),
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-                                        }
-                                        Err(err) => {
-                                            notification::notify_deferred(
-                                                notification::MessageKind::Warning,
-                                                format!(
-                                                    "Relay URL is not usable for local relay: \
-                                                     {err:#}"
-                                                ),
-                                                window,
-                                                cx,
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    crate::sharing::stop_local_relay(cx);
-                                }
-
-                                cx.notify();
-                            });
-                            window.refresh();
-                        })
-                        .into_any_element(),
-                )
             }
             _ => None,
         }

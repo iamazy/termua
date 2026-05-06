@@ -27,7 +27,6 @@
 - [x] SSH：基于 `wezterm-ssh`，支持 Password / SSH Config 登录
 - [x] 串口：支持串口会话、波特率 / 校验位 / 流控配置
 - [x] SFTP 文件操作：支持文件（拖拽）上传、并发控制等
-- [x] 终端共享：通过 relay 分享终端会话
 - [x] Cast 录制回放：录制与回放终端操作
 - [x] 批量支持：多终端批量执行
 - [x] AI 助手：内置 ZeroClaw Assistant
