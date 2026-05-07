@@ -88,15 +88,19 @@ impl ScrollbarHandle for TerminalScrollbarHandle {
     }
 
     fn set_offset(&self, offset: Point<Pixels>) {
-        let state = self.state.get();
+        let mut state = self.state.get();
         let max_offset = state.total_lines.saturating_sub(state.viewport_lines);
         if max_offset == 0 {
+            state.display_offset = 0;
+            self.state.set(state);
             self.target_display_offset.set(Some(0));
             return;
         }
 
         let offset_delta = (offset.y / state.line_height).round() as i32;
         let display_offset = (max_offset as i32 + offset_delta).clamp(0, max_offset as i32);
+        state.display_offset = display_offset as usize;
+        self.state.set(state);
         self.target_display_offset
             .set(Some(display_offset as usize));
     }
@@ -1000,12 +1004,15 @@ mod tests {
 
         handle.set_offset(point(Pixels::ZERO, px(-450.0)));
         assert_eq!(handle.take_target_display_offset(), Some(45));
+        assert_eq!(handle.offset().y, px(-450.0));
 
         handle.set_offset(point(Pixels::ZERO, px(100.0)));
         assert_eq!(handle.take_target_display_offset(), Some(90));
+        assert_eq!(handle.offset().y, Pixels::ZERO);
 
         handle.set_offset(point(Pixels::ZERO, px(-10_000.0)));
         assert_eq!(handle.take_target_display_offset(), Some(0));
+        assert_eq!(handle.offset().y, px(-900.0));
     }
 
     #[test]
