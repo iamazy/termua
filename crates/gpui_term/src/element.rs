@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     ops::RangeInclusive,
     panic::Location,
     rc::Rc,
@@ -33,14 +33,7 @@ use crate::{
             reserve_left_padding_without_line_numbers, should_relayout_for_mode_change,
             should_show_line_numbers,
         },
-        scrolling::{
-            SCROLLBAR_WIDTH, ScrollbarLayoutState, overlay_scrollbar_layout_state,
-            paint_overlay_scrollbar, scroll_offset_for_drag_delta,
-            scroll_offset_for_line_coord_centered, scroll_offset_for_thumb_center_y,
-            scrollbar_bounds_for_terminal, scrollbar_marker_y_for_line_coord,
-            scrollbar_track_bounds, search_match_index_for_scrollbar_click,
-            search_match_index_for_scrollbar_hover, thumb_bounds_for_track,
-        },
+        scrolling::{SCROLLBAR_WIDTH, scrollbar_geometry_for_terminal},
     },
 };
 
@@ -137,10 +130,7 @@ pub struct LayoutState {
     line_number_paint_data: Option<LineNumberPaintData>,
     block_below_cursor_element: Option<AnyElement>,
     base_text_style: TextStyle,
-    scrollbar: ScrollbarLayoutState,
-    scrollbar_visible: bool,
-    scrollbar_markers: Vec<Pixels>,
-    scrollbar_active_marker: Option<Pixels>,
+    scrollbar_bounds: Bounds<Pixels>,
 }
 
 /// Helper struct for converting backend cursor points to displayed cursor points.
@@ -689,73 +679,6 @@ impl TerminalElement {
         false
     }
 
-    fn handle_scrollbar_left_down(
-        terminal: &Entity<Terminal>,
-        terminal_view: &Entity<TerminalView>,
-        e: &MouseDownEvent,
-        cx: &mut App,
-    ) -> bool {
-        // Scrollbar interaction: clicking/dragging on the scrollbar should not start a terminal
-        // selection.
-        let term_bounds = terminal.read(cx).last_content().terminal_bounds.bounds;
-        let sb_width = if TerminalSettings::global(cx).show_scrollbar {
-            SCROLLBAR_WIDTH
-        } else {
-            Pixels::ZERO
-        };
-        let sb_bounds = scrollbar_bounds_for_terminal(term_bounds, sb_width);
-        if !sb_bounds.contains(&e.position) {
-            return false;
-        }
-
-        terminal_view.update(cx, |view: &mut TerminalView, view_cx| {
-            view.set_scrollbar_hovered(true, view_cx);
-            view.begin_scrollbar_drag(e.position.y, view_cx);
-            view.set_mouse_left_down_in_terminal(false);
-
-            let track = scrollbar_track_bounds(sb_bounds);
-            let total_lines = view.terminal.read(view_cx).total_lines();
-            let viewport_lines = view.terminal.read(view_cx).viewport_lines();
-            let current_offset = view.terminal.read(view_cx).last_content().display_offset;
-
-            // Determine whether the press is on the thumb; only track presses jump.
-            let thumb_bounds =
-                thumb_bounds_for_track(track, total_lines, viewport_lines, current_offset);
-
-            if thumb_bounds.contains(&e.position) {
-                return;
-            }
-
-            let marker_hit_radius = px(7.0);
-            let matches = view.terminal.read(view_cx).matches();
-            let best = search_match_index_for_scrollbar_click(
-                track,
-                total_lines,
-                viewport_lines,
-                matches,
-                e.position.y,
-                marker_hit_radius,
-            );
-
-            let target_offset = if let Some(match_idx) = best {
-                let line = matches[match_idx].start().line;
-                let target_offset =
-                    scroll_offset_for_line_coord_centered(total_lines, viewport_lines, line);
-                view.terminal.update(view_cx, |term, _| {
-                    term.activate_match(match_idx);
-                });
-                target_offset
-            } else {
-                scroll_offset_for_thumb_center_y(track, e.position.y, total_lines, viewport_lines)
-            };
-
-            view.apply_scrollbar_target_offset(target_offset, view_cx);
-            view.set_scrollbar_drag_origin(e.position.y, target_offset);
-        });
-
-        true
-    }
-
     fn begin_terminal_left_drag(
         terminal: &Entity<Terminal>,
         terminal_view: &Entity<TerminalView>,
@@ -766,7 +689,6 @@ impl TerminalElement {
         // corresponding reset is handled both by the terminal hitbox mouse-up handler and a
         // window-level mouse-up handler (for releases outside the terminal).
         terminal_view.update(cx, |view: &mut TerminalView, _| {
-            view.end_scrollbar_drag();
             view.set_mouse_left_down_in_terminal(true);
         });
 
@@ -802,61 +724,8 @@ impl TerminalElement {
                 return;
             }
 
-            let total_lines = view.terminal.read(view_cx).total_lines();
-            let viewport_lines = view.terminal.read(view_cx).viewport_lines();
-            let matches = view.terminal.read(view_cx).matches();
-            let marker_hit_radius = px(7.0);
-
-            if let Some(match_idx) = search_match_index_for_scrollbar_hover(
-                track,
-                total_lines,
-                viewport_lines,
-                matches,
-                e.position.y,
-                marker_hit_radius,
-            ) {
-                view.set_scrollbar_preview_for_match(match_idx, e.position, view_cx);
-            } else {
-                view.clear_scrollbar_preview(view_cx);
-            }
+            view.update_scrollbar_preview_at(track, e.position, view_cx);
         });
-    }
-
-    fn handle_scrollbar_drag_mouse_move(
-        terminal_view: &Entity<TerminalView>,
-        track: Bounds<Pixels>,
-        e: &MouseMoveEvent,
-        cx: &mut App,
-    ) -> bool {
-        if !terminal_view.read(cx).scrollbar_dragging() {
-            return false;
-        }
-
-        // If we lost the actual MouseUp, clear drag state as soon as possible.
-        if !e.dragging() {
-            terminal_view.update(cx, |view: &mut TerminalView, _| {
-                view.end_scrollbar_drag();
-            });
-            return true;
-        }
-
-        terminal_view.update(cx, |view: &mut TerminalView, view_cx| {
-            let total_lines = view.terminal.read(view_cx).total_lines();
-            let viewport_lines = view.terminal.read(view_cx).viewport_lines();
-            if let Some((drag_start_y, drag_start_offset)) = view.scrollbar_drag_origin() {
-                let target_offset = scroll_offset_for_drag_delta(
-                    track,
-                    drag_start_y,
-                    e.position.y,
-                    drag_start_offset,
-                    total_lines,
-                    viewport_lines,
-                );
-                view.apply_scrollbar_target_offset(target_offset, view_cx);
-            }
-        });
-
-        true
     }
 
     fn handle_missing_left_up_for_terminal_drag(
@@ -988,10 +857,6 @@ impl TerminalElement {
                     return;
                 }
 
-                if Self::handle_scrollbar_left_down(&terminal, &terminal_view, e, cx) {
-                    return;
-                }
-
                 Self::begin_terminal_left_drag(&terminal, &terminal_view, e, cx);
             }
         });
@@ -1014,14 +879,9 @@ impl TerminalElement {
                 let suggestions_hovered_row =
                     suggestions_overlay_row_at_position(&terminal, &terminal_view, e.position, cx);
 
-                let term_bounds = terminal.read(cx).last_content().terminal_bounds.bounds;
-                let sb_width = if TerminalSettings::global(cx).show_scrollbar {
-                    SCROLLBAR_WIDTH
-                } else {
-                    Pixels::ZERO
-                };
-                let sb_bounds = scrollbar_bounds_for_terminal(term_bounds, sb_width);
-                let track = scrollbar_track_bounds(sb_bounds);
+                let geometry = terminal_view.read(cx).scrollbar_geometry(cx);
+                let sb_bounds = geometry.bounds;
+                let track = geometry.track;
 
                 Self::update_scrollbar_hover_state(
                     &terminal_view,
@@ -1031,10 +891,6 @@ impl TerminalElement {
                     e,
                     cx,
                 );
-
-                if Self::handle_scrollbar_drag_mouse_move(&terminal_view, track, e, cx) {
-                    return;
-                }
 
                 let dragging_from_terminal = terminal_view.read(cx).mouse_left_down_in_terminal();
                 if Self::handle_missing_left_up_for_terminal_drag(
@@ -1086,7 +942,6 @@ impl TerminalElement {
                 let was_scrollbar_dragging = terminal_view.read(cx).scrollbar_dragging();
                 terminal_view.update(cx, |view: &mut TerminalView, _| {
                     view.set_mouse_left_down_in_terminal(false);
-                    view.end_scrollbar_drag();
                 });
 
                 if was_scrollbar_dragging {
@@ -1127,7 +982,6 @@ impl TerminalElement {
                 let was_scrollbar_dragging = terminal_view.read(cx).scrollbar_dragging();
                 terminal_view.update(cx, |view: &mut TerminalView, _| {
                     view.set_mouse_left_down_in_terminal(false);
-                    view.end_scrollbar_drag();
                 });
 
                 if was_scrollbar_dragging {
@@ -1238,7 +1092,6 @@ struct SyncedLayout {
     line_number_width: Pixels,
     line_number_digits: usize,
     scrollbar_width: Pixels,
-    scrollbar_visible: bool,
     last_hovered_word: Option<HoveredWord>,
 }
 
@@ -1253,9 +1106,7 @@ struct PrepaintArtifacts {
     relative_highlighted_ranges: Vec<(RangeInclusive<GridPoint>, Hsla)>,
     bg_quads: Vec<BgQuad>,
     text_spans: Vec<TextSpan>,
-    scrollbar: ScrollbarLayoutState,
-    scrollbar_markers: Vec<Pixels>,
-    scrollbar_active_marker: Option<Pixels>,
+    scrollbar_bounds: Bounds<Pixels>,
 }
 
 impl TerminalElement {
@@ -1334,9 +1185,6 @@ impl TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> SyncedLayout {
-        let scrollbar_visible =
-            Self::should_show_scrollbar_overlay(typography.show_scrollbar, terminal_view, cx);
-
         // Use the previous snapshot mode as an early hint; we'll reconcile after sync.
         let (initial_mode, total_lines_for_digits) =
             Self::initial_terminal_mode_and_total_lines(terminal, cx);
@@ -1417,7 +1265,6 @@ impl TerminalElement {
             line_number_width,
             line_number_digits,
             scrollbar_width,
-            scrollbar_visible,
             last_hovered_word,
         }
     }
@@ -1441,7 +1288,6 @@ impl TerminalElement {
             line_number_width,
             line_number_digits,
             scrollbar_width,
-            scrollbar_visible,
             last_hovered_word,
         } = synced_layout;
 
@@ -1451,7 +1297,6 @@ impl TerminalElement {
             dimensions,
             line_number_digits,
             scrollbar_width,
-            scrollbar_visible,
             &typography,
             last_hovered_word.as_ref(),
             cx,
@@ -1500,10 +1345,7 @@ impl TerminalElement {
             line_number_paint_data: artifacts.line_number_paint_data,
             block_below_cursor_element,
             base_text_style: typography.text_style,
-            scrollbar: artifacts.scrollbar,
-            scrollbar_visible,
-            scrollbar_markers: artifacts.scrollbar_markers,
-            scrollbar_active_marker: artifacts.scrollbar_active_marker,
+            scrollbar_bounds: artifacts.scrollbar_bounds,
         }
     }
 
@@ -1514,15 +1356,12 @@ impl TerminalElement {
         dimensions: TerminalBounds,
         line_number_digits: usize,
         scrollbar_width: Pixels,
-        scrollbar_visible: bool,
         typography: &PrepaintTypography,
         last_hovered_word: Option<&HoveredWord>,
         cx: &App,
     ) -> PrepaintArtifacts {
         let terminal_read = terminal.read(cx);
         let search_matches = terminal_read.matches().to_vec();
-        let total_lines = terminal_read.total_lines();
-        let viewport_lines = terminal_read.viewport_lines();
         let line_number_paint_data = (line_number_digits != 0)
             .then(|| {
                 compute_line_number_paint_data(
@@ -1548,18 +1387,8 @@ impl TerminalElement {
         let terminal_view_read = terminal_view.read(cx);
         let scroll_top = terminal_view_read.scroll_top();
 
-        let (scrollbar, scrollbar_markers, scrollbar_active_marker) =
-            Self::compute_scrollbar_layout_and_markers(
-                scrollbar_visible,
-                dimensions,
-                scrollbar_width,
-                total_lines,
-                viewport_lines,
-                display_offset,
-                terminal_view_read,
-                &search_matches,
-                active_match_index,
-            );
+        let scrollbar_bounds =
+            scrollbar_geometry_for_terminal(dimensions.bounds, scrollbar_width).bounds;
 
         let relative_highlighted_ranges = Self::build_relative_highlighted_ranges(
             &search_matches,
@@ -1597,47 +1426,8 @@ impl TerminalElement {
             relative_highlighted_ranges,
             bg_quads,
             text_spans,
-            scrollbar,
-            scrollbar_markers,
-            scrollbar_active_marker,
+            scrollbar_bounds,
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn compute_scrollbar_layout_and_markers(
-        scrollbar_visible: bool,
-        dimensions: TerminalBounds,
-        scrollbar_width: Pixels,
-        total_lines: usize,
-        viewport_lines: usize,
-        display_offset: usize,
-        terminal_view: &TerminalView,
-        search_matches: &[RangeInclusive<GridPoint>],
-        active_match_index: Option<usize>,
-    ) -> (ScrollbarLayoutState, Vec<Pixels>, Option<Pixels>) {
-        // While the user is dragging the scrollbar, use the view-local "virtual" offset so the
-        // thumb updates immediately, without waiting for the backend sync.
-        let display_offset_for_thumb = terminal_view
-            .scrollbar_virtual_offset()
-            .unwrap_or(display_offset);
-        let scrollbar = overlay_scrollbar_layout_state(
-            dimensions.bounds,
-            scrollbar_width,
-            total_lines,
-            viewport_lines,
-            display_offset_for_thumb,
-        );
-
-        let (scrollbar_markers, scrollbar_active_marker) = Self::compute_scrollbar_markers(
-            scrollbar_visible,
-            &scrollbar,
-            search_matches,
-            total_lines,
-            viewport_lines,
-            active_match_index,
-        );
-
-        (scrollbar, scrollbar_markers, scrollbar_active_marker)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1695,20 +1485,6 @@ impl TerminalElement {
     ) -> (TerminalMode, usize) {
         let terminal = terminal.read(cx);
         (terminal.last_content().mode, terminal.total_lines())
-    }
-
-    fn should_show_scrollbar_overlay(
-        show_scrollbar: bool,
-        terminal_view: &Entity<TerminalView>,
-        cx: &App,
-    ) -> bool {
-        show_scrollbar && {
-            let view = terminal_view.read(cx);
-            view.scrollbar_dragging()
-                || view.scrollbar_hovered()
-                || view.scrollbar_revealed()
-                || view.is_search_open()
-        }
     }
 
     fn build_terminal_link_style(font_weight: gpui::FontWeight, cx: &App) -> HighlightStyle {
@@ -1774,54 +1550,6 @@ impl TerminalElement {
                 None
             }
         })
-    }
-
-    fn compute_scrollbar_markers(
-        scrollbar_visible: bool,
-        scrollbar: &ScrollbarLayoutState,
-        search_matches: &[RangeInclusive<GridPoint>],
-        total_lines: usize,
-        viewport_lines: usize,
-        active_match_index: Option<usize>,
-    ) -> (Vec<Pixels>, Option<Pixels>) {
-        if scrollbar_visible && !search_matches.is_empty() && total_lines > 0 && viewport_lines > 0
-        {
-            let track = scrollbar.track_bounds;
-            let mut seen_y: HashSet<i32> = HashSet::new();
-            let mut ys: Vec<Pixels> = Vec::new();
-
-            for m in search_matches {
-                if let Some(y) = scrollbar_marker_y_for_line_coord(
-                    track,
-                    total_lines,
-                    viewport_lines,
-                    m.start().line,
-                ) {
-                    let key = ((y - track.origin.y) / px(1.0)).round() as i32;
-                    if seen_y.insert(key) {
-                        ys.push(y);
-                        if ys.len() >= 4096 {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            let active_y = active_match_index
-                .and_then(|idx| search_matches.get(idx))
-                .and_then(|range| {
-                    scrollbar_marker_y_for_line_coord(
-                        track,
-                        total_lines,
-                        viewport_lines,
-                        range.start().line,
-                    )
-                });
-
-            (ys, active_y)
-        } else {
-            (Vec::new(), None)
-        }
     }
 
     fn build_relative_highlighted_ranges(
@@ -2067,7 +1795,7 @@ impl Element for TerminalElement {
 
             self.register_mouse_listeners(layout.mode, &layout.hitbox, window);
             let mouse_pos = window.mouse_position();
-            let should_point = layout.scrollbar.bounds.contains(&mouse_pos)
+            let should_point = layout.scrollbar_bounds.contains(&mouse_pos)
                 || (window.modifiers().secondary()
                     && layout.dimensions.bounds.contains(&mouse_pos)
                     && terminal_view.read(cx).hover_word.is_some());
@@ -2313,16 +2041,7 @@ fn terminal_element_paint_overlays(
         element.paint(window, cx);
     }
 
-    // Scrollbar.
-    if layout.scrollbar_visible && layout.scrollbar.bounds.size.width > Pixels::ZERO {
-        paint_overlay_scrollbar(
-            &layout.scrollbar,
-            &layout.scrollbar_markers,
-            layout.scrollbar_active_marker,
-            window,
-            cx,
-        );
-    }
+    // Scrollbar thumb/track is rendered by gpui-component in TerminalView overlays.
 }
 
 fn terminal_element_log_paint_stats(

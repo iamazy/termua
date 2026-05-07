@@ -2,8 +2,8 @@ use std::{ops::Range, sync::Arc, time::Duration};
 
 use gpui::{
     Action, AnyElement, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyContext, KeyDownEvent, Keystroke, MouseButton,
-    ParentElement, Pixels, PromptLevel, ReadGlobal, Styled, Subscription, Window, div, px,
+    KeyContext, KeyDownEvent, Keystroke, Pixels, PromptLevel, ReadGlobal, Styled, Subscription,
+    Window, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -13,14 +13,13 @@ use gpui_component::{
 };
 use record::{RecordingMenuEntry, recording_context_menu_entry, recording_indicator_label};
 use schemars::JsonSchema;
-use scrolling::{SCROLLBAR_WIDTH, ScrollState, ScrollbarPreview};
+use scrolling::{ScrollState, TerminalScrollbarHandle};
 use serde::Deserialize;
 use smol::Timer;
 
 use crate::{
     Copy, DecreaseFontSize, HoveredWord, IncreaseFontSize, ResetFontSize, TerminalContent,
     TerminalMode,
-    element::ScrollbarPreviewTextElement,
     record::render_recording_indicator_label,
     settings::{CursorShape, TerminalBlink, TerminalSettings},
     snippet::{SnippetJump, SnippetJumpDir, SnippetSession},
@@ -36,6 +35,7 @@ mod input;
 pub(crate) mod line_number;
 pub(crate) mod record;
 mod render;
+mod scrollbar_overlay;
 pub(crate) mod scrolling;
 pub(crate) mod search;
 mod suggestions;
@@ -219,6 +219,7 @@ pub struct TerminalView {
     blink: BlinkingState,
     pub hover_word: Option<HoveredWord>,
     scroll: ScrollState,
+    terminal_scrollbar_handle: TerminalScrollbarHandle,
     pub ime_state: Option<ImeState>,
     search: SearchState,
     suggestions: SuggestionsState,
@@ -334,6 +335,7 @@ impl TerminalView {
             blink: BlinkingState::default(),
             hover_word: None,
             scroll: ScrollState::default(),
+            terminal_scrollbar_handle: TerminalScrollbarHandle::default(),
             ime_state: None,
             search: SearchState::default(),
             suggestions: SuggestionsState::new(cx),
@@ -659,11 +661,6 @@ impl TerminalView {
         &self.terminal
     }
 
-    pub fn clear_block_below_cursor(&mut self, cx: &mut Context<Self>) {
-        self.scroll.block_below_cursor = None;
-        cx.notify();
-    }
-
     fn next_blink_epoch(&mut self) -> usize {
         self.blink.epoch = self.blink.epoch.wrapping_add(1);
         self.blink.epoch
@@ -947,6 +944,12 @@ impl TerminalView {
         if let Some(search) = render_search(self, window, cx) {
             out.push(search);
         }
+        if let Some(scrollbar) = self.render_terminal_scrollbar_overlay(cx) {
+            out.push(scrollbar);
+        }
+        if let Some(markers) = self.render_scrollbar_marker_overlay(cx) {
+            out.push(markers);
+        }
         if let Some(preview) = self.render_scrollbar_preview_overlay(cx) {
             out.push(preview);
         }
@@ -954,110 +957,6 @@ impl TerminalView {
             out.push(rec);
         }
         out
-    }
-
-    fn render_scrollbar_preview_overlay(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let preview = self.scrollbar_preview().cloned()?;
-        let terminal_settings = TerminalSettings::global(cx);
-        if !terminal_settings.show_scrollbar {
-            return None;
-        }
-
-        let ScrollbarPreview {
-            anchor,
-            start_line_from_top,
-            cols,
-            rows,
-            cells,
-            match_range,
-            ..
-        } = preview;
-
-        let theme = cx.theme();
-        let ScrollbarPreviewLayoutState {
-            view_bounds,
-            line_height,
-            cell_width,
-            total_lines,
-        } = self.scrollbar_preview_layout_state(cx);
-
-        let content_h = line_height * (rows.max(1) as f32) + px(16.0);
-        // `preview.anchor` is stored in window coordinates; convert it to this view's
-        // local coordinate space so absolute positioning works correctly when the
-        // terminal view is embedded (i.e. not at window origin).
-        let anchor_y = anchor.y - view_bounds.origin.y;
-        let y = scrollbar_preview_overlay_top(anchor_y, view_bounds.size.height, content_h);
-
-        // Use the theme's popover color so the preview reads as an overlay panel,
-        // clearly distinct from the terminal background.
-        let panel_bg = theme.popover;
-        let panel_border = theme.border.opacity(0.9);
-        let line_no_fg = theme.foreground.opacity(0.40);
-        let line_no_digits = total_lines.max(1).to_string().len();
-
-        let mut body = div()
-            .id("terminal-scrollbar-preview")
-            .debug_selector(|| "terminal-scrollbar-preview".to_string())
-            .absolute()
-            .left_0()
-            .top(y)
-            // Match the terminal's horizontal span, excluding the scrollbar lane so we
-            // don't steal hover from the markers.
-            .right(SCROLLBAR_WIDTH)
-            .bg(panel_bg)
-            .border_1()
-            .border_color(panel_border)
-            .rounded_md()
-            .shadow_lg()
-            .py(px(8.0))
-            .px(px(10.0))
-            .font_family(terminal_settings.font_family.clone())
-            .text_size(terminal_settings.font_size)
-            .font_weight(terminal_settings.font_weight)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|_, _, _, cx| {
-                    cx.stop_propagation();
-                }),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|_, _, _, cx| {
-                    cx.stop_propagation();
-                }),
-            )
-            .flex_col();
-
-        let line_numbers = render_scrollbar_preview_line_numbers(
-            rows,
-            start_line_from_top,
-            line_height,
-            line_no_fg,
-            line_no_digits,
-        );
-
-        let text = div()
-            .h(line_height * (rows.max(1) as f32))
-            .flex_1()
-            .overflow_hidden()
-            .child(ScrollbarPreviewTextElement::new(
-                cells,
-                cell_width,
-                line_height,
-                cols,
-                Some(match_range),
-            ));
-
-        body = body.child(
-            div()
-                .flex()
-                .items_start()
-                .overflow_hidden()
-                .child(line_numbers)
-                .child(text),
-        );
-
-        Some(body.into_any_element())
     }
 
     fn render_recording_indicator_overlay(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -1186,45 +1085,6 @@ fn handle_terminal_event(
         }
         _ => {}
     }
-}
-
-fn scrollbar_preview_overlay_top(
-    anchor_y: Pixels,
-    view_height: Pixels,
-    content_h: Pixels,
-) -> Pixels {
-    let mut y = anchor_y - content_h / 2.0;
-    let top_pad = px(12.0);
-    // Keep extra breathing room at the bottom so the preview doesn't get
-    // obscured by footer bars/overlays (e.g. transfer UI).
-    let bottom_pad = px(56.0);
-    y = y.clamp(top_pad, (view_height - content_h - bottom_pad).max(top_pad));
-    y
-}
-
-fn render_scrollbar_preview_line_numbers(
-    rows: usize,
-    start_line_from_top: usize,
-    line_height: Pixels,
-    line_no_fg: gpui::Hsla,
-    line_no_digits: usize,
-) -> gpui::Div {
-    let mut line_numbers = div().flex_col().flex_shrink_0();
-    for i in 0..rows {
-        let line_no = start_line_from_top.saturating_add(i).saturating_add(1);
-        line_numbers = line_numbers.child(
-            div()
-                .h(line_height)
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_color(line_no_fg)
-                .child(format_scrollbar_preview_line_number(
-                    line_no,
-                    line_no_digits,
-                )),
-        );
-    }
-    line_numbers
 }
 
 #[cfg(test)]

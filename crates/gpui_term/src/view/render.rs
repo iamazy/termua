@@ -12,7 +12,9 @@ impl Render for TerminalView {
         let terminal_handle = self.terminal.clone();
         let terminal_view_handle = cx.entity();
 
+        self.apply_terminal_scrollbar_target(cx);
         self.sync_scroll_for_render(cx);
+        self.sync_terminal_scrollbar_handle(cx);
         let focused = self.focus_handle.is_focused(window);
 
         let mut root = self.terminal_view_root_base(cx);

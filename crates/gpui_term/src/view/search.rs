@@ -9,15 +9,7 @@ use gpui_component::ActiveTheme;
 use smol::Timer;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{
-    ImeState, SearchOverlayDelete, SearchOverlayKeyDown, SearchOverlayMove, TerminalView,
-    scrolling::{
-        SCROLLBAR_WIDTH, scroll_offset_for_line_coord_centered, scroll_offset_for_thumb_center_y,
-        scrollbar_bounds_for_terminal, scrollbar_track_bounds,
-        search_match_index_for_scrollbar_click, search_match_index_for_scrollbar_hover,
-        thumb_bounds_for_track,
-    },
-};
+use super::{ImeState, SearchOverlayDelete, SearchOverlayKeyDown, SearchOverlayMove, TerminalView};
 use crate::{
     settings::TerminalSettings,
     terminal::{Search, SearchClose, SearchNext, SearchPaste, SearchPrevious},
@@ -60,69 +52,11 @@ fn on_search_backdrop_left_mouse_down(
     cx: &mut Context<TerminalView>,
 ) {
     if TerminalSettings::global(cx).show_scrollbar {
-        let term_bounds = {
-            let terminal = this.terminal.read(cx);
-            terminal.last_content().terminal_bounds.bounds
-        };
-        let sb_bounds = scrollbar_bounds_for_terminal(term_bounds, SCROLLBAR_WIDTH);
-        if sb_bounds.contains(&e.position) {
+        let geometry = this.scrollbar_geometry(cx);
+        if geometry.bounds.contains(&e.position) {
             // Allow scrollbar interaction while searching; do not dismiss.
-            let track = scrollbar_track_bounds(sb_bounds);
-            let (total_lines, viewport_lines, current_offset) = {
-                let terminal = this.terminal.read(cx);
-                let content = terminal.last_content();
-                (
-                    terminal.total_lines(),
-                    terminal.viewport_lines(),
-                    content.display_offset,
-                )
-            };
-
             this.set_scrollbar_hovered(true, cx);
-            this.begin_scrollbar_drag(e.position.y, cx);
             this.set_mouse_left_down_in_terminal(false);
-
-            let thumb_bounds =
-                thumb_bounds_for_track(track, total_lines, viewport_lines, current_offset);
-
-            if !thumb_bounds.contains(&e.position) {
-                let marker_hit_radius = px(7.0);
-                let match_idx = {
-                    let terminal = this.terminal.read(cx);
-                    search_match_index_for_scrollbar_click(
-                        track,
-                        total_lines,
-                        viewport_lines,
-                        terminal.matches(),
-                        e.position.y,
-                        marker_hit_radius,
-                    )
-                };
-
-                let target_offset = if let Some(match_idx) = match_idx {
-                    let line = {
-                        let terminal = this.terminal.read(cx);
-                        terminal.matches()[match_idx].start().line
-                    };
-                    let target_offset =
-                        scroll_offset_for_line_coord_centered(total_lines, viewport_lines, line);
-                    this.terminal.update(cx, |term, _| {
-                        term.activate_match(match_idx);
-                    });
-                    target_offset
-                } else {
-                    scroll_offset_for_thumb_center_y(
-                        track,
-                        e.position.y,
-                        total_lines,
-                        viewport_lines,
-                    )
-                };
-
-                this.apply_scrollbar_target_offset(target_offset, cx);
-                this.set_scrollbar_drag_origin(e.position.y, target_offset);
-            }
-
             cx.stop_propagation();
             return;
         }
@@ -141,29 +75,9 @@ fn on_search_backdrop_mouse_move(
     let panel_dragging = this.search.search_panel_dragging;
     if !panel_dragging {
         if TerminalSettings::global(cx).show_scrollbar {
-            let term_bounds = {
-                let terminal = this.terminal.read(cx);
-                terminal.last_content().terminal_bounds.bounds
-            };
-            let sb_bounds = scrollbar_bounds_for_terminal(term_bounds, SCROLLBAR_WIDTH);
-            if sb_bounds.contains(&e.position) {
-                let track = scrollbar_track_bounds(sb_bounds);
-                let match_idx = {
-                    let terminal = this.terminal.read(cx);
-                    search_match_index_for_scrollbar_hover(
-                        track,
-                        terminal.total_lines(),
-                        terminal.viewport_lines(),
-                        terminal.matches(),
-                        e.position.y,
-                        px(7.0),
-                    )
-                };
-                if let Some(match_idx) = match_idx {
-                    this.set_scrollbar_preview_for_match(match_idx, e.position, cx);
-                } else {
-                    this.clear_scrollbar_preview(cx);
-                }
+            let geometry = this.scrollbar_geometry(cx);
+            if geometry.bounds.contains(&e.position) {
+                this.update_scrollbar_preview_at(geometry.track, e.position, cx);
             } else {
                 this.clear_scrollbar_preview(cx);
             }
@@ -224,7 +138,6 @@ fn on_search_backdrop_left_mouse_up(
     search.search_panel_dragging = false;
     search.search_panel_drag_start_mouse = None;
     search.search_panel_drag_start_pos = None;
-    this.end_scrollbar_drag();
     cx.stop_propagation();
 }
 
@@ -235,12 +148,8 @@ fn on_search_backdrop_right_mouse_down(
     cx: &mut Context<TerminalView>,
 ) {
     if TerminalSettings::global(cx).show_scrollbar {
-        let term_bounds = {
-            let terminal = this.terminal.read(cx);
-            terminal.last_content().terminal_bounds.bounds
-        };
-        let sb_bounds = scrollbar_bounds_for_terminal(term_bounds, SCROLLBAR_WIDTH);
-        if sb_bounds.contains(&e.position) {
+        let geometry = this.scrollbar_geometry(cx);
+        if geometry.bounds.contains(&e.position) {
             // Do not dismiss on scrollbar right-click either.
             cx.stop_propagation();
             return;
