@@ -1,10 +1,9 @@
-use std::{cmp, ops::RangeInclusive, rc::Rc, time::Duration};
+use std::{cell::Cell, cmp, collections::HashMap, ops::RangeInclusive, rc::Rc, time::Duration};
 
 use gpui::{
-    App, BorderStyle, Bounds, Context, Pixels, Point, ReadGlobal, ScrollWheelEvent, Window, fill,
-    outline, point, px, size,
+    App, Bounds, Context, Pixels, Point, ReadGlobal, ScrollWheelEvent, Window, point, px, size,
 };
-use gpui_component::ActiveTheme;
+use gpui_component::scroll::ScrollbarHandle;
 use smol::Timer;
 
 use super::{BlockProperties, TerminalScrollState, TerminalView};
@@ -19,9 +18,109 @@ use crate::{
 
 pub(crate) const SCROLLBAR_WIDTH: Pixels = px(14.0);
 pub(crate) const SCROLLBAR_PAD: Pixels = px(2.0);
-const MIN_THUMB_HEIGHT: Pixels = px(18.0);
-const MARKER_SIZE: Pixels = px(4.0);
-const ACTIVE_MARKER_SIZE: Pixels = px(6.0);
+pub(crate) const SCROLLBAR_MARKER_HIT_RADIUS: Pixels = px(7.0);
+pub(crate) const SCROLLBAR_MARKER_LIMIT: usize = 4096;
+pub(crate) const SCROLLBAR_MARKER_SIZE: Pixels = px(4.0);
+pub(crate) const SCROLLBAR_ACTIVE_MARKER_SIZE: Pixels = px(6.0);
+
+#[derive(Debug, Clone, Copy)]
+struct ScrollbarHandleState {
+    line_height: Pixels,
+    total_lines: usize,
+    viewport_lines: usize,
+    display_offset: usize,
+}
+
+impl Default for ScrollbarHandleState {
+    fn default() -> Self {
+        Self {
+            line_height: px(1.0),
+            total_lines: 0,
+            viewport_lines: 0,
+            display_offset: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TerminalScrollbarHandle {
+    state: Rc<Cell<ScrollbarHandleState>>,
+    target_display_offset: Rc<Cell<Option<usize>>>,
+    dragging: Rc<Cell<bool>>,
+}
+
+impl TerminalScrollbarHandle {
+    pub(crate) fn update(
+        &self,
+        line_height: Pixels,
+        total_lines: usize,
+        viewport_lines: usize,
+        display_offset: usize,
+    ) {
+        self.state.set(ScrollbarHandleState {
+            line_height: line_height.max(px(1.0)),
+            total_lines,
+            viewport_lines,
+            display_offset,
+        });
+    }
+
+    pub(crate) fn take_target_display_offset(&self) -> Option<usize> {
+        self.target_display_offset.take()
+    }
+
+    pub(crate) fn is_dragging(&self) -> bool {
+        self.dragging.get()
+    }
+}
+
+impl ScrollbarHandle for TerminalScrollbarHandle {
+    fn offset(&self) -> Point<Pixels> {
+        let state = self.state.get();
+        let max_offset = state.total_lines.saturating_sub(state.viewport_lines);
+        let display_offset = state.display_offset.min(max_offset);
+        let scroll_offset_from_top = max_offset.saturating_sub(display_offset);
+
+        point(
+            Pixels::ZERO,
+            -(scroll_offset_from_top as f32 * state.line_height),
+        )
+    }
+
+    fn set_offset(&self, offset: Point<Pixels>) {
+        let mut state = self.state.get();
+        let max_offset = state.total_lines.saturating_sub(state.viewport_lines);
+        if max_offset == 0 {
+            state.display_offset = 0;
+            self.state.set(state);
+            self.target_display_offset.set(Some(0));
+            return;
+        }
+
+        let offset_delta = (offset.y / state.line_height).round() as i32;
+        let display_offset = (max_offset as i32 + offset_delta).clamp(0, max_offset as i32);
+        state.display_offset = display_offset as usize;
+        self.state.set(state);
+        self.target_display_offset
+            .set(Some(display_offset as usize));
+    }
+
+    fn content_size(&self) -> gpui::Size<Pixels> {
+        let state = self.state.get();
+        size(
+            Pixels::ZERO,
+            state.total_lines.max(state.viewport_lines) as f32 * state.line_height,
+        )
+    }
+
+    fn start_drag(&self) {
+        self.dragging.set(true);
+    }
+
+    fn end_drag(&self) {
+        self.dragging.set(false);
+    }
+}
 
 pub(crate) struct ScrollState {
     pub(crate) block_below_cursor: Option<Rc<BlockProperties>>,
@@ -29,8 +128,6 @@ pub(crate) struct ScrollState {
     /// True while the primary mouse button is held down after a press inside this terminal view.
     /// Used to keep selection dragging alive even when the cursor leaves the terminal hitbox.
     pub(crate) mouse_left_down_in_terminal: bool,
-    /// True while the primary mouse button is dragging the scrollbar/minimap.
-    pub(crate) scrollbar_dragging: bool,
     /// Whether the pointer is currently within the scrollbar lane.
     ///
     /// We keep this in the view so the element can render an overlay scrollbar that
@@ -39,20 +136,6 @@ pub(crate) struct ScrollState {
     /// Whether the scrollbar is temporarily revealed due to scroll-wheel/scroll actions.
     pub(crate) scrollbar_revealed: bool,
     pub(crate) scrollbar_reveal_epoch: usize,
-    /// Last scroll target requested by the scrollbar during an active drag/press.
-    /// Prevents repeated scroll ops when the platform emits multiple move events at the same
-    /// position (common cause of thumb flicker/jitter).
-    pub(crate) scrollbar_last_target_offset: Option<usize>,
-    /// View-local scroll position while dragging the scrollbar.
-    ///
-    /// `TerminalContent.display_offset` updates only after the backend processes queued scroll
-    /// ops; keeping a virtual offset makes the scrollbar thumb feel responsive during drags.
-    pub(crate) scrollbar_virtual_offset: Option<usize>,
-    /// Initial pointer position and scroll offset for a scrollbar drag.
-    ///
-    /// We keep the drag mapping delta-based so a press doesn't "jump" the thumb to the pointer.
-    pub(crate) scrollbar_drag_start_y: Option<Pixels>,
-    pub(crate) scrollbar_drag_start_offset: Option<usize>,
     /// Whether to auto-follow the live view as output arrives.
     /// This tracks the "block below cursor" extra scroll space; terminal scrollback is handled
     /// separately via `TerminalContent.display_offset`.
@@ -68,14 +151,9 @@ impl Default for ScrollState {
             block_below_cursor: None,
             scroll_top: Pixels::ZERO,
             mouse_left_down_in_terminal: false,
-            scrollbar_dragging: false,
             scrollbar_hovered: false,
             scrollbar_revealed: false,
             scrollbar_reveal_epoch: 0,
-            scrollbar_last_target_offset: None,
-            scrollbar_virtual_offset: None,
-            scrollbar_drag_start_y: None,
-            scrollbar_drag_start_offset: None,
             stick_to_bottom: true,
             scrollbar_preview: None,
         }
@@ -95,11 +173,10 @@ pub(crate) struct ScrollbarPreview {
     pub(crate) match_range: RangeInclusive<GridPoint>,
 }
 
-#[derive(Clone)]
-pub(crate) struct ScrollbarLayoutState {
+#[derive(Clone, Copy)]
+pub(crate) struct ScrollbarGeometry {
     pub(crate) bounds: Bounds<Pixels>,
-    pub(crate) track_bounds: Bounds<Pixels>,
-    pub(crate) thumb_bounds: Bounds<Pixels>,
+    pub(crate) track: Bounds<Pixels>,
 }
 
 pub(crate) fn scrollbar_track_bounds(sb: Bounds<Pixels>) -> Bounds<Pixels> {
@@ -131,57 +208,14 @@ pub(crate) fn scrollbar_bounds_for_terminal(
     }
 }
 
-pub(crate) fn overlay_scrollbar_layout_state(
+pub(crate) fn scrollbar_geometry_for_terminal(
     terminal_bounds: Bounds<Pixels>,
     scrollbar_width: Pixels,
-    total_lines: usize,
-    viewport_lines: usize,
-    display_offset_for_thumb: usize,
-) -> ScrollbarLayoutState {
+) -> ScrollbarGeometry {
     let bounds = scrollbar_bounds_for_terminal(terminal_bounds, scrollbar_width);
-    let track_bounds = scrollbar_track_bounds(bounds);
-    let thumb_bounds = thumb_bounds_for_track(
-        track_bounds,
-        total_lines,
-        viewport_lines,
-        display_offset_for_thumb,
-    );
-    ScrollbarLayoutState {
+    ScrollbarGeometry {
         bounds,
-        track_bounds,
-        thumb_bounds,
-    }
-}
-
-pub(crate) fn thumb_bounds_for_track(
-    track_bounds: Bounds<Pixels>,
-    total_lines: usize,
-    viewport_lines: usize,
-    display_offset_for_thumb: usize,
-) -> Bounds<Pixels> {
-    let max_offset = total_lines.saturating_sub(viewport_lines);
-
-    let track_h = track_bounds.size.height.max(Pixels::ZERO);
-    if total_lines == 0 || max_offset == 0 || track_h <= Pixels::ZERO {
-        return Bounds {
-            origin: track_bounds.origin,
-            size: size(track_bounds.size.width, track_h),
-        };
-    }
-
-    let ratio = (viewport_lines as f32 / total_lines.max(1) as f32).min(1.0);
-    let thumb_h = (track_h * ratio).max(MIN_THUMB_HEIGHT).min(track_h);
-    let y_range = (track_h - thumb_h).max(Pixels::ZERO);
-
-    let t = if max_offset == 0 {
-        0.0
-    } else {
-        (display_offset_for_thumb as f32 / max_offset as f32).clamp(0.0, 1.0)
-    };
-    let thumb_y = track_bounds.origin.y + (1.0 - t) * y_range;
-    Bounds {
-        origin: point(track_bounds.origin.x, thumb_y),
-        size: size(track_bounds.size.width, thumb_h),
+        track: scrollbar_track_bounds(bounds),
     }
 }
 
@@ -209,6 +243,62 @@ pub(crate) fn scrollbar_marker_y_for_line_coord(
     let denom = total_lines.max(1) as f32;
     let t = (idx as f32 + 0.5) / denom;
     Some(track_bounds.origin.y + track_bounds.size.height * t.clamp(0.0, 1.0))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScrollbarMarkerSpec {
+    pub(crate) match_index: usize,
+    pub(crate) y: Pixels,
+    pub(crate) active: bool,
+}
+
+pub(crate) fn scrollbar_marker_specs(
+    track_bounds: Bounds<Pixels>,
+    total_lines: usize,
+    viewport_lines: usize,
+    matches: &[RangeInclusive<GridPoint>],
+    active_match_index: Option<usize>,
+    limit: usize,
+) -> Vec<ScrollbarMarkerSpec> {
+    if matches.is_empty() || total_lines == 0 || viewport_lines == 0 || limit == 0 {
+        return Vec::new();
+    }
+
+    let mut spec_indexes_by_y: HashMap<i32, usize> = HashMap::new();
+    let mut specs: Vec<ScrollbarMarkerSpec> = Vec::new();
+    for (match_index, search_match) in matches.iter().enumerate() {
+        let Some(y) = scrollbar_marker_y_for_line_coord(
+            track_bounds,
+            total_lines,
+            viewport_lines,
+            search_match.start().line,
+        ) else {
+            continue;
+        };
+        let key = ((y - track_bounds.origin.y) / px(1.0)).round() as i32;
+        let active = active_match_index == Some(match_index);
+
+        if let Some(&spec_index) = spec_indexes_by_y.get(&key) {
+            let spec = &mut specs[spec_index];
+            if active {
+                spec.match_index = match_index;
+                spec.active = true;
+            }
+            continue;
+        }
+
+        spec_indexes_by_y.insert(key, specs.len());
+        specs.push(ScrollbarMarkerSpec {
+            match_index,
+            y,
+            active,
+        });
+        if specs.len() >= limit {
+            break;
+        }
+    }
+
+    specs
 }
 
 pub(crate) fn buffer_index_for_line_coord(
@@ -270,6 +360,14 @@ pub(crate) fn search_match_index_for_scrollbar_hover(
     if h <= Pixels::ZERO {
         return None;
     }
+
+    debug_assert!(
+        matches
+            .windows(2)
+            .all(|pair| pair[0].start().line <= pair[1].start().line),
+        "scrollbar hover lookup expects search matches sorted by start line"
+    );
+
     let mut t = (hover_y - track_bounds.origin.y) / h;
     t = t.clamp(0.0, 1.0);
     let idx = ((t * total_lines.max(1) as f32).floor() as i64)
@@ -329,181 +427,6 @@ pub(crate) fn search_match_index_for_scrollbar_hover(
     }
 
     best.map(|(idx, _)| idx)
-}
-
-pub(crate) fn search_match_index_for_scrollbar_click(
-    track_bounds: Bounds<Pixels>,
-    total_lines: usize,
-    viewport_lines: usize,
-    matches: &[RangeInclusive<GridPoint>],
-    click_y: Pixels,
-    hit_radius: Pixels,
-) -> Option<usize> {
-    if matches.is_empty() || hit_radius <= Pixels::ZERO {
-        return None;
-    }
-
-    let mut best: Option<(usize, Pixels)> = None;
-    for (idx, m) in matches.iter().enumerate() {
-        let line = m.start().line;
-        let Some(y) =
-            scrollbar_marker_y_for_line_coord(track_bounds, total_lines, viewport_lines, line)
-        else {
-            continue;
-        };
-        let dy = (y - click_y).abs();
-        if dy <= hit_radius && best.map(|(_, best_dy)| dy < best_dy).unwrap_or(true) {
-            best = Some((idx, dy));
-            if dy <= px(0.5) {
-                break;
-            }
-        }
-    }
-
-    best.map(|(idx, _)| idx)
-}
-
-pub(crate) fn scroll_offset_for_drag_delta(
-    track: Bounds<Pixels>,
-    drag_start_y: Pixels,
-    current_y: Pixels,
-    drag_start_offset: usize,
-    total_lines: usize,
-    viewport_lines: usize,
-) -> usize {
-    let max_offset = total_lines.saturating_sub(viewport_lines);
-    if max_offset == 0 || track.size.height <= Pixels::ZERO {
-        return 0;
-    }
-
-    // Match the thumb sizing math used during rendering so dragging feels 1:1 with the thumb.
-    let track_h = track.size.height.max(Pixels::ZERO);
-    let thumb_h = if total_lines == 0 || track_h <= Pixels::ZERO {
-        track_h
-    } else {
-        let ratio = (viewport_lines as f32 / total_lines.max(1) as f32).min(1.0);
-        (track_h * ratio).max(MIN_THUMB_HEIGHT).min(track_h)
-    };
-    let y_range = (track_h - thumb_h).max(Pixels::ZERO);
-    if y_range <= Pixels::ZERO {
-        return drag_start_offset.min(max_offset);
-    }
-
-    // Delta-based mapping prevents "jumping" the thumb to the pointer on press.
-    let dy = current_y - drag_start_y;
-    let delta_offset = (-(dy / y_range) * max_offset as f32).round();
-    let target = (drag_start_offset as f32 + delta_offset).clamp(0.0, max_offset as f32);
-    (target.round() as usize).min(max_offset)
-}
-
-pub(crate) fn scroll_offset_for_thumb_center_y(
-    track: Bounds<Pixels>,
-    y: Pixels,
-    total_lines: usize,
-    viewport_lines: usize,
-) -> usize {
-    let max_offset = total_lines.saturating_sub(viewport_lines);
-    if max_offset == 0 || track.size.height <= Pixels::ZERO {
-        return 0;
-    }
-
-    let track_h = track.size.height.max(Pixels::ZERO);
-    let thumb_h = if total_lines == 0 || track_h <= Pixels::ZERO {
-        track_h
-    } else {
-        let ratio = (viewport_lines as f32 / total_lines.max(1) as f32).min(1.0);
-        (track_h * ratio).max(MIN_THUMB_HEIGHT).min(track_h)
-    };
-    let y_range = (track_h - thumb_h).max(Pixels::ZERO);
-    if y_range <= Pixels::ZERO {
-        return 0;
-    }
-
-    // Center the thumb at the click point (clamped to track).
-    let thumb_y = (y - track.origin.y - thumb_h / 2.0).clamp(Pixels::ZERO, y_range);
-    let t_pos = (thumb_y / y_range).clamp(0.0, 1.0);
-    (((1.0 - t_pos) * max_offset as f32).round() as usize).min(max_offset)
-}
-
-pub(crate) fn paint_overlay_scrollbar(
-    sb: &ScrollbarLayoutState,
-    markers: &[Pixels],
-    active_marker: Option<Pixels>,
-    window: &mut Window,
-    cx: &mut gpui::App,
-) {
-    // Keep the scrollbar lane visually crisp: a subtle track + a clearer thumb.
-    window.paint_quad(outline(
-        sb.bounds,
-        cx.theme().foreground.opacity(0.10),
-        BorderStyle::Solid,
-    ));
-    window.paint_quad(fill(sb.track_bounds, cx.theme().foreground.opacity(0.03)));
-
-    // Thumb: indicates the current viewport.
-    window.paint_quad(fill(sb.thumb_bounds, cx.theme().selection.opacity(0.8)));
-    window.paint_quad(outline(
-        sb.thumb_bounds,
-        cx.theme().selection.opacity(0.60),
-        BorderStyle::Solid,
-    ));
-
-    if markers.is_empty() && active_marker.is_none() {
-        return;
-    }
-
-    let track = sb.track_bounds;
-    let min_y = track.origin.y;
-    let marker_color = cx.theme().foreground.opacity(0.30);
-
-    for &y in markers {
-        let w = MARKER_SIZE.min(track.size.width);
-        let h = MARKER_SIZE.min(track.size.height);
-        if w <= Pixels::ZERO || h <= Pixels::ZERO {
-            break;
-        }
-
-        let x = track.origin.x + (track.size.width - w) / 2.0;
-        let mut y0 = y - h / 2.0;
-        let max_y = track.origin.y + (track.size.height - h).max(Pixels::ZERO);
-        if y0 < min_y {
-            y0 = min_y;
-        } else if y0 > max_y {
-            y0 = max_y;
-        }
-
-        window.paint_quad(fill(
-            Bounds {
-                origin: point(x, y0),
-                size: size(w, h),
-            },
-            marker_color,
-        ));
-    }
-
-    if let Some(y) = active_marker {
-        let w = ACTIVE_MARKER_SIZE.min(track.size.width);
-        let h = ACTIVE_MARKER_SIZE.min(track.size.height);
-        if w > Pixels::ZERO && h > Pixels::ZERO {
-            let x = track.origin.x + (track.size.width - w) / 2.0;
-            let min_y = track.origin.y;
-            let max_y = track.origin.y + (track.size.height - h).max(Pixels::ZERO);
-            let mut y0 = y - h / 2.0;
-            if y0 < min_y {
-                y0 = min_y;
-            } else if y0 > max_y {
-                y0 = max_y;
-            }
-
-            window.paint_quad(fill(
-                Bounds {
-                    origin: point(x, y0),
-                    size: size(w, h),
-                },
-                cx.theme().foreground.opacity(0.70),
-            ));
-        }
-    }
 }
 
 impl TerminalView {
@@ -615,7 +538,7 @@ impl TerminalView {
     }
 
     pub(crate) fn scrollbar_dragging(&self) -> bool {
-        self.scroll.scrollbar_dragging
+        self.terminal_scrollbar_handle.is_dragging()
     }
 
     pub(crate) fn scrollbar_hovered(&self) -> bool {
@@ -624,6 +547,36 @@ impl TerminalView {
 
     pub(crate) fn scrollbar_revealed(&self) -> bool {
         self.scroll.scrollbar_revealed
+    }
+
+    pub(crate) fn scrollbar_geometry(&self, cx: &App) -> ScrollbarGeometry {
+        let terminal = self.terminal.read(cx);
+        let width = if TerminalSettings::global(cx).show_scrollbar {
+            SCROLLBAR_WIDTH
+        } else {
+            Pixels::ZERO
+        };
+        scrollbar_geometry_for_terminal(terminal.last_content().terminal_bounds.bounds, width)
+    }
+
+    pub(crate) fn sync_terminal_scrollbar_handle(&self, cx: &App) {
+        let terminal = self.terminal.read(cx);
+        let content = terminal.last_content();
+        self.terminal_scrollbar_handle.update(
+            content.terminal_bounds.line_height,
+            terminal.total_lines(),
+            terminal.viewport_lines(),
+            content.display_offset,
+        );
+    }
+
+    pub(crate) fn apply_terminal_scrollbar_target(&mut self, cx: &mut Context<Self>) {
+        let Some(target_offset) = self.terminal_scrollbar_handle.take_target_display_offset()
+        else {
+            return;
+        };
+
+        self.apply_scrollbar_target_offset(target_offset, cx);
     }
 
     pub(crate) fn set_scrollbar_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
@@ -661,41 +614,6 @@ impl TerminalView {
 
     pub(crate) fn scroll_top(&self) -> Pixels {
         self.scroll.scroll_top
-    }
-
-    pub(crate) fn scrollbar_virtual_offset(&self) -> Option<usize> {
-        self.scroll.scrollbar_virtual_offset
-    }
-
-    pub(crate) fn scrollbar_drag_origin(&self) -> Option<(Pixels, usize)> {
-        Some((
-            self.scroll.scrollbar_drag_start_y?,
-            self.scroll.scrollbar_drag_start_offset?,
-        ))
-    }
-
-    pub(crate) fn set_scrollbar_drag_origin(&mut self, mouse_y: Pixels, offset: usize) {
-        self.scroll.scrollbar_drag_start_y = Some(mouse_y);
-        self.scroll.scrollbar_drag_start_offset = Some(offset);
-    }
-
-    pub(crate) fn begin_scrollbar_drag(&mut self, mouse_y: Pixels, cx: &mut Context<Self>) {
-        self.scroll.scrollbar_dragging = true;
-        let current = {
-            let terminal = self.terminal.read(cx);
-            terminal.last_content().display_offset
-        };
-        self.scroll.scrollbar_virtual_offset = Some(current);
-        self.scroll.scrollbar_last_target_offset = Some(current);
-        self.set_scrollbar_drag_origin(mouse_y, current);
-    }
-
-    pub(crate) fn end_scrollbar_drag(&mut self) {
-        self.scroll.scrollbar_dragging = false;
-        self.scroll.scrollbar_last_target_offset = None;
-        self.scroll.scrollbar_virtual_offset = None;
-        self.scroll.scrollbar_drag_start_y = None;
-        self.scroll.scrollbar_drag_start_offset = None;
     }
 
     pub(crate) fn scrollbar_preview(&self) -> Option<&ScrollbarPreview> {
@@ -777,21 +695,41 @@ impl TerminalView {
         cx.notify();
     }
 
+    pub(crate) fn update_scrollbar_preview_at(
+        &mut self,
+        track: Bounds<Pixels>,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let match_idx = {
+            let terminal = self.terminal.read(cx);
+            search_match_index_for_scrollbar_hover(
+                track,
+                terminal.total_lines(),
+                terminal.viewport_lines(),
+                terminal.matches(),
+                position.y,
+                SCROLLBAR_MARKER_HIT_RADIUS,
+            )
+        };
+
+        if let Some(match_idx) = match_idx {
+            self.set_scrollbar_preview_for_match(match_idx, position, cx);
+        } else {
+            self.clear_scrollbar_preview(cx);
+        }
+    }
+
     pub(crate) fn apply_scrollbar_target_offset(
         &mut self,
         target_offset: usize,
         cx: &mut Context<Self>,
     ) {
-        if self.scroll.scrollbar_last_target_offset == Some(target_offset) {
-            return;
-        }
-        self.scroll.scrollbar_last_target_offset = Some(target_offset);
-        let current = self.scroll.scrollbar_virtual_offset.unwrap_or_else(|| {
+        let current = {
             let terminal = self.terminal.read(cx);
             terminal.last_content().display_offset
-        });
+        };
         self.scroll_to_display_offset_from_current(current, target_offset, cx);
-        self.scroll.scrollbar_virtual_offset = Some(target_offset);
     }
 
     fn scroll_to_display_offset_from_current(
@@ -1036,14 +974,73 @@ impl TerminalView {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Bounds, point, px, size};
+    use gpui::{Bounds, Pixels, point, px, size};
+    use gpui_component::scroll::ScrollbarHandle as _;
 
     use super::{
-        buffer_index_for_line_coord, scroll_offset_for_line_coord_centered,
-        scrollbar_marker_y_for_line_coord, search_match_index_for_scrollbar_click,
+        SCROLLBAR_MARKER_LIMIT, TerminalScrollbarHandle, buffer_index_for_line_coord,
+        scroll_offset_for_line_coord_centered, scrollbar_geometry_for_terminal,
+        scrollbar_marker_specs, scrollbar_marker_y_for_line_coord,
         search_match_index_for_scrollbar_hover,
     };
     use crate::GridPoint;
+
+    #[test]
+    fn terminal_scrollbar_handle_maps_display_offset_to_component_offset() {
+        let handle = TerminalScrollbarHandle::default();
+        handle.update(px(10.0), 100, 10, 0);
+
+        assert_eq!(handle.content_size().height, px(1000.0));
+        assert_eq!(handle.offset().y, px(-900.0));
+
+        handle.update(px(10.0), 100, 10, 90);
+        assert_eq!(handle.offset().y, px(0.0));
+    }
+
+    #[test]
+    fn terminal_scrollbar_handle_maps_component_offset_to_display_offset() {
+        let handle = TerminalScrollbarHandle::default();
+        handle.update(px(10.0), 100, 10, 0);
+
+        handle.set_offset(point(Pixels::ZERO, px(-450.0)));
+        assert_eq!(handle.take_target_display_offset(), Some(45));
+        assert_eq!(handle.offset().y, px(-450.0));
+
+        handle.set_offset(point(Pixels::ZERO, px(100.0)));
+        assert_eq!(handle.take_target_display_offset(), Some(90));
+        assert_eq!(handle.offset().y, Pixels::ZERO);
+
+        handle.set_offset(point(Pixels::ZERO, px(-10_000.0)));
+        assert_eq!(handle.take_target_display_offset(), Some(0));
+        assert_eq!(handle.offset().y, px(-900.0));
+    }
+
+    #[test]
+    fn terminal_scrollbar_handle_handles_unscrollable_content_and_zero_line_height() {
+        let handle = TerminalScrollbarHandle::default();
+        handle.update(Pixels::ZERO, 5, 10, 99);
+
+        assert_eq!(handle.content_size().height, px(10.0));
+        assert_eq!(handle.offset().y, Pixels::ZERO);
+
+        handle.set_offset(point(Pixels::ZERO, px(-100.0)));
+        assert_eq!(handle.take_target_display_offset(), Some(0));
+    }
+
+    #[test]
+    fn scrollbar_geometry_for_terminal_returns_bounds_and_padded_track() {
+        let terminal_bounds = Bounds {
+            origin: point(px(10.0), px(20.0)),
+            size: size(px(80.0), px(100.0)),
+        };
+
+        let geometry = scrollbar_geometry_for_terminal(terminal_bounds, px(14.0));
+
+        assert_eq!(geometry.bounds.origin, point(px(76.0), px(20.0)));
+        assert_eq!(geometry.bounds.size, size(px(14.0), px(100.0)));
+        assert_eq!(geometry.track.origin, point(px(78.0), px(22.0)));
+        assert_eq!(geometry.track.size, size(px(10.0), px(96.0)));
+    }
 
     #[test]
     fn scrollbar_marker_y_maps_entire_buffer_top_to_bottom() {
@@ -1106,27 +1103,6 @@ mod tests {
     }
 
     #[test]
-    fn search_match_index_for_scrollbar_click_picks_nearest_marker() {
-        let track = Bounds {
-            origin: point(px(0.0), px(0.0)),
-            size: size(px(10.0), px(100.0)),
-        };
-
-        // total_lines=3, viewport_lines=1 => coords: -2,-1,0 map to y at ~16.7,50,83.3.
-        let matches = vec![
-            GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
-            GridPoint::new(-1, 0)..=GridPoint::new(-1, 1),
-            GridPoint::new(0, 0)..=GridPoint::new(0, 1),
-        ];
-
-        let hit = search_match_index_for_scrollbar_click(track, 3, 1, &matches, px(51.0), px(4.0));
-        assert_eq!(hit, Some(1));
-
-        let miss = search_match_index_for_scrollbar_click(track, 3, 1, &matches, px(51.0), px(0.5));
-        assert_eq!(miss, None);
-    }
-
-    #[test]
     fn search_match_index_for_scrollbar_hover_picks_nearest_marker() {
         let track = Bounds {
             origin: point(px(0.0), px(0.0)),
@@ -1145,6 +1121,66 @@ mod tests {
 
         let miss = search_match_index_for_scrollbar_hover(track, 3, 1, &matches, px(84.0), px(0.5));
         assert_eq!(miss, None);
+    }
+
+    #[test]
+    fn scrollbar_marker_specs_marks_group_active_when_duplicate_y_contains_active_match() {
+        let track = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(10.0), px(100.0)),
+        };
+        let matches = vec![
+            GridPoint::new(-1, 0)..=GridPoint::new(-1, 1),
+            GridPoint::new(-1, 4)..=GridPoint::new(-1, 5),
+        ];
+
+        let specs = scrollbar_marker_specs(track, 3, 1, &matches, Some(1), SCROLLBAR_MARKER_LIMIT);
+
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].match_index, 1);
+        assert!(specs[0].active);
+    }
+
+    #[test]
+    fn scrollbar_marker_specs_preserves_first_seen_order_while_grouping_duplicates() {
+        let track = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(10.0), px(100.0)),
+        };
+        let matches = vec![
+            GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
+            GridPoint::new(-1, 0)..=GridPoint::new(-1, 1),
+            GridPoint::new(-1, 4)..=GridPoint::new(-1, 5),
+            GridPoint::new(0, 0)..=GridPoint::new(0, 1),
+        ];
+
+        let specs = scrollbar_marker_specs(track, 3, 1, &matches, Some(2), SCROLLBAR_MARKER_LIMIT);
+
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].match_index, 0);
+        assert_eq!(specs[1].match_index, 2);
+        assert_eq!(specs[2].match_index, 3);
+        assert!(specs[1].active);
+    }
+
+    #[test]
+    fn scrollbar_marker_specs_respects_limit() {
+        let track = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(10.0), px(100.0)),
+        };
+        let matches = vec![
+            GridPoint::new(-4, 0)..=GridPoint::new(-4, 1),
+            GridPoint::new(-3, 0)..=GridPoint::new(-3, 1),
+            GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
+        ];
+
+        let specs = scrollbar_marker_specs(track, 5, 1, &matches, Some(2), 2);
+
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].match_index, 0);
+        assert_eq!(specs[1].match_index, 1);
+        assert!(!specs.iter().any(|spec| spec.active));
     }
 
     #[test]
