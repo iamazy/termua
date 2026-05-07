@@ -70,7 +70,7 @@ secret-service = "5"
 ssh2 = { version = "0.9.5", features = ["openssl-on-win32"] }
 smallvec = "1"
 smol = "2"
-sysinfo = "0.38"
+sysinfo = "0.39"
 time = "0.3"
 thiserror = "2"
 unicode-width = "0.2"
