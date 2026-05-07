@@ -1,6 +1,9 @@
+use std::panic::Location;
+
 use gpui::{
-    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, ReadGlobal, Styled, div, px,
+    AnyElement, App, Bounds, Context, Element, ElementId, GlobalElementId, Hsla,
+    InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels,
+    ReadGlobal, Style, Styled, Window, div, fill, point, px, relative, size,
 };
 use gpui_component::{
     ActiveTheme,
@@ -13,8 +16,8 @@ use crate::{
     settings::TerminalSettings,
     view::scrolling::{
         SCROLLBAR_ACTIVE_MARKER_SIZE, SCROLLBAR_MARKER_LIMIT, SCROLLBAR_MARKER_SIZE,
-        SCROLLBAR_WIDTH, ScrollbarPreview, scroll_offset_for_line_coord_centered,
-        scrollbar_marker_specs,
+        SCROLLBAR_WIDTH, ScrollbarMarkerSpec, ScrollbarPreview,
+        scroll_offset_for_line_coord_centered, scrollbar_marker_specs,
     },
 };
 
@@ -29,6 +32,147 @@ struct ScrollbarPreviewLayoutState {
 fn format_scrollbar_preview_line_number(one_based: usize, digits: usize) -> String {
     let digits = digits.max(1);
     format!("{:>width$}\u{00A0}", one_based, width = digits)
+}
+
+#[derive(Clone)]
+struct ScrollbarMarkersElement {
+    marker_specs: Vec<ScrollbarMarkerSpec>,
+    lane_bounds: Bounds<Pixels>,
+    marker_color: Hsla,
+    active_marker_color: Hsla,
+}
+
+impl ScrollbarMarkersElement {
+    fn new(
+        marker_specs: Vec<ScrollbarMarkerSpec>,
+        lane_bounds: Bounds<Pixels>,
+        marker_color: Hsla,
+        active_marker_color: Hsla,
+    ) -> Self {
+        Self {
+            marker_specs,
+            lane_bounds,
+            marker_color,
+            active_marker_color,
+        }
+    }
+}
+
+impl Element for ScrollbarMarkersElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = relative(1.).into();
+        (window.request_layout(style, None, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        _: &mut App,
+    ) {
+        for spec in &self.marker_specs {
+            let local_bounds = scrollbar_marker_local_bounds(*spec, self.lane_bounds);
+            let marker_bounds = Bounds {
+                origin: bounds.origin + local_bounds.origin,
+                size: local_bounds.size,
+            };
+            let color = if spec.active {
+                self.active_marker_color
+            } else {
+                self.marker_color
+            };
+            window.paint_quad(fill(marker_bounds, color));
+        }
+    }
+}
+
+impl IntoElement for ScrollbarMarkersElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+fn scrollbar_marker_size(spec: ScrollbarMarkerSpec) -> Pixels {
+    if spec.active {
+        SCROLLBAR_ACTIVE_MARKER_SIZE
+    } else {
+        SCROLLBAR_MARKER_SIZE
+    }
+}
+
+fn scrollbar_marker_local_bounds(
+    spec: ScrollbarMarkerSpec,
+    lane_bounds: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    let marker_size = scrollbar_marker_size(spec);
+    let top = (spec.y - lane_bounds.origin.y - marker_size / 2.0).clamp(
+        Pixels::ZERO,
+        (lane_bounds.size.height - marker_size).max(Pixels::ZERO),
+    );
+    let left = (lane_bounds.size.width - marker_size) / 2.0;
+    Bounds {
+        origin: point(left, top),
+        size: size(marker_size, marker_size),
+    }
+}
+
+fn scrollbar_marker_window_bounds(
+    spec: ScrollbarMarkerSpec,
+    lane_bounds: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    let local_bounds = scrollbar_marker_local_bounds(spec, lane_bounds);
+    Bounds {
+        origin: lane_bounds.origin + local_bounds.origin,
+        size: local_bounds.size,
+    }
+}
+
+fn scrollbar_marker_match_index_at_position(
+    marker_specs: &[ScrollbarMarkerSpec],
+    lane_bounds: Bounds<Pixels>,
+    position: gpui::Point<Pixels>,
+) -> Option<usize> {
+    marker_specs.iter().find_map(|spec| {
+        scrollbar_marker_window_bounds(*spec, lane_bounds)
+            .contains(&position)
+            .then_some(spec.match_index)
+    })
 }
 
 impl TerminalView {
@@ -109,71 +253,55 @@ impl TerminalView {
 
         let marker_color = cx.theme().foreground.opacity(0.30);
         let active_marker_color = cx.theme().foreground.opacity(0.70);
+        let marker_specs_for_click = marker_specs.clone();
+        let lane_bounds = geometry.bounds;
 
-        let mut overlay = div()
+        let overlay = div()
             .id("terminal-scrollbar-markers")
             .debug_selector(|| "terminal-scrollbar-markers".to_string())
             .absolute()
             .top_0()
             .right_0()
             .bottom_0()
-            .w(SCROLLBAR_WIDTH);
+            .w(SCROLLBAR_WIDTH)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                    let Some(match_idx) = scrollbar_marker_match_index_at_position(
+                        &marker_specs_for_click,
+                        lane_bounds,
+                        e.position,
+                    ) else {
+                        return;
+                    };
 
-        for spec in marker_specs {
-            let marker_size = if spec.active {
-                SCROLLBAR_ACTIVE_MARKER_SIZE
-            } else {
-                SCROLLBAR_MARKER_SIZE
-            };
-            let marker_top = (spec.y - geometry.bounds.origin.y - marker_size / 2.0).clamp(
-                Pixels::ZERO,
-                (geometry.bounds.size.height - marker_size).max(Pixels::ZERO),
-            );
-            let marker_right = (SCROLLBAR_WIDTH - marker_size) / 2.0;
-            let marker_bg = if spec.active {
-                active_marker_color
-            } else {
-                marker_color
-            };
-            let match_idx = spec.match_index;
-
-            overlay = overlay.child(
-                div()
-                    .absolute()
-                    .top(marker_top)
-                    .right(marker_right)
-                    .w(marker_size)
-                    .h(marker_size)
-                    .bg(marker_bg)
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            let (total_lines, viewport_lines, line) = {
-                                let terminal = this.terminal.read(cx);
-                                let Some(search_match) = terminal.matches().get(match_idx) else {
-                                    cx.stop_propagation();
-                                    return;
-                                };
-                                (
-                                    terminal.total_lines(),
-                                    terminal.viewport_lines(),
-                                    search_match.start().line,
-                                )
-                            };
-                            let target_offset = scroll_offset_for_line_coord_centered(
-                                total_lines,
-                                viewport_lines,
-                                line,
-                            );
-                            this.terminal.update(cx, |term, _| {
-                                term.activate_match(match_idx);
-                            });
-                            this.apply_scrollbar_target_offset(target_offset, cx);
+                    let (total_lines, viewport_lines, line) = {
+                        let terminal = this.terminal.read(cx);
+                        let Some(search_match) = terminal.matches().get(match_idx) else {
                             cx.stop_propagation();
-                        }),
-                    ),
-            );
-        }
+                            return;
+                        };
+                        (
+                            terminal.total_lines(),
+                            terminal.viewport_lines(),
+                            search_match.start().line,
+                        )
+                    };
+                    let target_offset =
+                        scroll_offset_for_line_coord_centered(total_lines, viewport_lines, line);
+                    this.terminal.update(cx, |term, _| {
+                        term.activate_match(match_idx);
+                    });
+                    this.apply_scrollbar_target_offset(target_offset, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .child(ScrollbarMarkersElement::new(
+                marker_specs,
+                lane_bounds,
+                marker_color,
+                active_marker_color,
+            ));
 
         Some(overlay.into_any_element())
     }
@@ -327,7 +455,7 @@ pub(super) mod scrollbar_preview_tests {
     };
     use gpui_component::Root;
 
-    use super::format_scrollbar_preview_line_number;
+    use super::{format_scrollbar_preview_line_number, scrollbar_marker_match_index_at_position};
     use crate::{
         Cell, GridPoint, IndexedCell, TerminalBackend, TerminalContent, TerminalShutdownPolicy,
         TerminalType, settings::CursorShape, terminal::TerminalBounds, view::TerminalView,
@@ -603,6 +731,37 @@ pub(super) mod scrollbar_preview_tests {
             preview_bottom <= footer_bounds.origin.y,
             "expected preview bottom ({preview_bottom:?}) to be above footer bar top ({:?})",
             footer_bounds.origin.y
+        );
+    }
+
+    #[test]
+    fn scrollbar_marker_match_index_at_position_hits_marker_rect_only() {
+        use crate::view::scrolling::ScrollbarMarkerSpec;
+
+        let lane = Bounds {
+            origin: point(px(100.0), px(20.0)),
+            size: size(px(14.0), px(100.0)),
+        };
+        let specs = vec![
+            ScrollbarMarkerSpec {
+                match_index: 3,
+                y: px(40.0),
+                active: false,
+            },
+            ScrollbarMarkerSpec {
+                match_index: 7,
+                y: px(80.0),
+                active: true,
+            },
+        ];
+
+        assert_eq!(
+            scrollbar_marker_match_index_at_position(&specs, lane, point(px(107.0), px(80.0))),
+            Some(7)
+        );
+        assert_eq!(
+            scrollbar_marker_match_index_at_position(&specs, lane, point(px(107.0), px(60.0))),
+            None
         );
     }
 }
