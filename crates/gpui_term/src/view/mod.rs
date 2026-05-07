@@ -1,9 +1,8 @@
 use std::{ops::Range, sync::Arc, time::Duration};
 
 use gpui::{
-    Action, AnyElement, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    KeyContext, KeyDownEvent, Keystroke, Pixels, PromptLevel, ReadGlobal, Styled, Subscription,
-    Window, px,
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyContext,
+    KeyDownEvent, Keystroke, Pixels, PromptLevel, ReadGlobal, Styled, Subscription, Window, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -35,15 +34,10 @@ mod input;
 pub(crate) mod line_number;
 pub(crate) mod record;
 mod render;
-mod scrollbar_overlay;
+mod scrollbar;
 pub(crate) mod scrolling;
 pub(crate) mod search;
 mod suggestions;
-
-fn format_scrollbar_preview_line_number(one_based: usize, digits: usize) -> String {
-    let digits = digits.max(1);
-    format!("{:>width$}\u{00A0}", one_based, width = digits)
-}
 
 pub trait ContextMenuProvider: Send + Sync + 'static {
     fn context_menu(
@@ -201,14 +195,6 @@ struct TerminalModeState {
     has_selection: bool,
 }
 
-#[derive(Clone, Copy)]
-struct ScrollbarPreviewLayoutState {
-    view_bounds: Bounds<Pixels>,
-    line_height: Pixels,
-    cell_width: Pixels,
-    total_lines: usize,
-}
-
 /// A terminal view, maintains the PTY's file handles and communicates with the terminal
 pub struct TerminalView {
     pub terminal: Entity<Terminal>,
@@ -264,17 +250,6 @@ impl TerminalView {
             vi_mode_enabled: terminal.vi_mode_enabled(),
             mode: content.mode,
             has_selection: content.selection.is_some(),
-        }
-    }
-
-    fn scrollbar_preview_layout_state(&self, cx: &App) -> ScrollbarPreviewLayoutState {
-        let terminal = self.terminal.read(cx);
-        let terminal_bounds = &terminal.last_content().terminal_bounds;
-        ScrollbarPreviewLayoutState {
-            view_bounds: terminal_bounds.bounds,
-            line_height: terminal_bounds.line_height,
-            cell_width: terminal_bounds.cell_width,
-            total_lines: terminal.total_lines(),
         }
     }
 
@@ -1088,304 +1063,14 @@ fn handle_terminal_event(
 }
 
 #[cfg(test)]
-mod scrollbar_preview_tests {
-    use std::{borrow::Cow, ops::RangeInclusive, rc::Rc};
-
-    use gpui::{
-        AppContext, Bounds, Context as GpuiContext, Entity, InteractiveElement, Keystroke,
-        Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-        ScrollWheelEvent, Styled, Window, div, point, px, size,
-    };
-    use gpui_component::Root;
-
-    use super::{TerminalView, format_scrollbar_preview_line_number};
-    use crate::{
-        Cell, GridPoint, IndexedCell, TerminalBackend, TerminalContent, TerminalShutdownPolicy,
-        TerminalType, settings::CursorShape, terminal::TerminalBounds,
-    };
-
-    #[test]
-    fn format_scrollbar_preview_line_number_right_aligns() {
-        assert_eq!(format_scrollbar_preview_line_number(3, 1), "3\u{00A0}");
-        assert_eq!(format_scrollbar_preview_line_number(3, 4), "   3\u{00A0}");
-    }
-
-    #[test]
-    fn format_scrollbar_preview_line_number_uses_trailing_space() {
-        // The preview renderer now uses real terminal cells (with fixed-width positioning), so
-        // we no longer need to preserve spaces via NBSP substitution.
-        assert_eq!(format_scrollbar_preview_line_number(1, 1), "1\u{00A0}");
-    }
-
-    pub(super) struct PreviewBackend {
-        content: TerminalContent,
-        matches: Vec<RangeInclusive<GridPoint>>,
-        total_lines: usize,
-        viewport_lines: usize,
-        preview_cols: usize,
-        preview_rows: usize,
-        preview_cells: Vec<IndexedCell>,
-    }
-
-    impl PreviewBackend {
-        pub(super) fn new() -> Self {
-            // Give the renderer something to work with; actual bounds will be set via `set_size`.
-            let content = TerminalContent::default();
-
-            // Make a single match close to the bottom of the buffer.
-            // With total_lines=100 and viewport_lines=20, line_coord=19 maps to buffer index 99.
-            let matches = vec![RangeInclusive::new(
-                GridPoint::new(19, 0),
-                GridPoint::new(19, 1),
-            )];
-
-            let preview_cols = 24;
-            let preview_rows = 7;
-            let mut preview_cells = Vec::new();
-            for row in 0..preview_rows {
-                for col in 0..preview_cols {
-                    preview_cells.push(IndexedCell {
-                        point: GridPoint::new(row as i32, col),
-                        cell: Cell {
-                            c: if col == 0 { '>' } else { 'x' },
-                            ..Default::default()
-                        },
-                    });
-                }
-            }
-
-            Self {
-                content,
-                matches,
-                total_lines: 100,
-                viewport_lines: 20,
-                preview_cols,
-                preview_rows,
-                preview_cells,
-            }
-        }
-    }
-
-    impl TerminalBackend for PreviewBackend {
-        fn backend_name(&self) -> &'static str {
-            "preview-test"
-        }
-
-        fn sync(&mut self, _window: &mut Window, _cx: &mut GpuiContext<crate::Terminal>) {}
-
-        fn shutdown(
-            &mut self,
-            _policy: TerminalShutdownPolicy,
-            _cx: &mut GpuiContext<crate::Terminal>,
-        ) {
-        }
-
-        fn last_content(&self) -> &TerminalContent {
-            &self.content
-        }
-
-        fn matches(&self) -> &[RangeInclusive<GridPoint>] {
-            &self.matches
-        }
-
-        fn last_clicked_line(&self) -> Option<i32> {
-            None
-        }
-
-        fn vi_mode_enabled(&self) -> bool {
-            false
-        }
-
-        fn mouse_mode(&self, _shift: bool) -> bool {
-            false
-        }
-
-        fn selection_started(&self) -> bool {
-            false
-        }
-
-        fn set_cursor_shape(&mut self, _cursor_shape: CursorShape) {}
-
-        fn total_lines(&self) -> usize {
-            self.total_lines
-        }
-
-        fn viewport_lines(&self) -> usize {
-            self.viewport_lines
-        }
-
-        fn activate_match(&mut self, _index: usize) {}
-
-        fn select_matches(&mut self, _matches: &[RangeInclusive<GridPoint>]) {}
-
-        fn select_all(&mut self) {}
-
-        fn copy(&mut self, _keep_selection: Option<bool>, _cx: &mut GpuiContext<crate::Terminal>) {}
-
-        fn clear(&mut self) {}
-
-        fn scroll_line_up(&mut self) {}
-        fn scroll_up_by(&mut self, _lines: usize) {}
-        fn scroll_line_down(&mut self) {}
-        fn scroll_down_by(&mut self, _lines: usize) {}
-        fn scroll_page_up(&mut self) {}
-        fn scroll_page_down(&mut self) {}
-        fn scroll_to_top(&mut self) {}
-        fn scroll_to_bottom(&mut self) {}
-
-        fn scrolled_to_top(&self) -> bool {
-            true
-        }
-
-        fn scrolled_to_bottom(&self) -> bool {
-            true
-        }
-
-        fn set_size(&mut self, new_bounds: TerminalBounds) {
-            self.content.terminal_bounds = new_bounds;
-        }
-
-        fn input(&mut self, _input: Cow<'static, [u8]>) {}
-
-        fn paste(&mut self, _text: &str) {}
-
-        fn focus_in(&self) {}
-
-        fn focus_out(&mut self) {}
-
-        fn toggle_vi_mode(&mut self) {}
-
-        fn try_keystroke(&mut self, _keystroke: &Keystroke, _alt_is_meta: bool) -> bool {
-            false
-        }
-
-        fn try_modifiers_change(
-            &mut self,
-            _modifiers: &Modifiers,
-            _window: &Window,
-            _cx: &mut GpuiContext<crate::Terminal>,
-        ) {
-        }
-
-        fn mouse_move(&mut self, _e: &MouseMoveEvent, _cx: &mut GpuiContext<crate::Terminal>) {}
-
-        fn select_word_at_event_position(&mut self, _e: &MouseDownEvent) {}
-
-        fn mouse_drag(
-            &mut self,
-            _e: &MouseMoveEvent,
-            _region: Bounds<Pixels>,
-            _cx: &mut GpuiContext<crate::Terminal>,
-        ) {
-        }
-
-        fn mouse_down(&mut self, _e: &MouseDownEvent, _cx: &mut GpuiContext<crate::Terminal>) {}
-
-        fn mouse_up(&mut self, _e: &MouseUpEvent, _cx: &GpuiContext<crate::Terminal>) {}
-
-        fn scroll_wheel(&mut self, _e: &ScrollWheelEvent) {}
-
-        fn get_content(&self) -> String {
-            String::new()
-        }
-
-        fn last_n_non_empty_lines(&self, _n: usize) -> Vec<String> {
-            Vec::new()
-        }
-
-        fn preview_cells_from_top(
-            &self,
-            _start_line: usize,
-            _count: usize,
-        ) -> (usize, usize, Vec<IndexedCell>) {
-            (
-                self.preview_cols,
-                self.preview_rows,
-                self.preview_cells.clone(),
-            )
-        }
-    }
-
-    #[gpui::test]
-    fn scrollbar_preview_is_not_obscured_by_footer_bar(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| {
-            crate::init(app);
-        });
-
-        let view_slot: Rc<std::cell::RefCell<Option<Entity<TerminalView>>>> =
-            Rc::new(std::cell::RefCell::new(None));
-        let view_slot_for_window = view_slot.clone();
-
-        let (root, v) = cx.add_window_view(|window, cx| {
-            let terminal = cx.new(|_| {
-                crate::Terminal::new(TerminalType::WezTerm, Box::new(PreviewBackend::new()))
-            });
-            let terminal_view = cx.new(|cx| TerminalView::new(terminal, window, cx));
-            *view_slot_for_window.borrow_mut() = Some(terminal_view.clone());
-
-            terminal_view.update(cx, |this, cx| {
-                // Anchor the preview near the bottom of the window so the default clamp behavior
-                // would overlap a bottom footer bar overlay.
-                this.set_scrollbar_preview_for_match(0, point(px(0.0), px(690.0)), cx);
-            });
-
-            Root::new(terminal_view, window, cx)
-        });
-
-        v.draw(
-            point(px(0.0), px(0.0)),
-            size(
-                gpui::AvailableSpace::Definite(px(900.0)),
-                gpui::AvailableSpace::Definite(px(700.0)),
-            ),
-            move |_, _| {
-                div().size_full().relative().child(root).child(
-                    // Simulate a bottom "footer bar" overlay that can obscure the preview
-                    // tooltip when a search marker is near the bottom of the scrollbar.
-                    div()
-                        .debug_selector(|| "test-footerbar".to_string())
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(px(48.0)),
-                )
-            },
-        );
-
-        v.run_until_parked();
-
-        let view = view_slot
-            .borrow()
-            .clone()
-            .expect("expected terminal view to be captured");
-        let preview_set = v.read_entity(&view, |this, _app| this.scrollbar_preview().is_some());
-        assert!(preview_set, "expected scrollbar preview state to be set");
-
-        let preview_bounds = v
-            .debug_bounds("terminal-scrollbar-preview")
-            .expect("scrollbar preview should exist");
-        let footer_bounds = v
-            .debug_bounds("test-footerbar")
-            .expect("test footer bar should exist");
-
-        let preview_bottom = preview_bounds.origin.y + preview_bounds.size.height;
-        assert!(
-            preview_bottom <= footer_bounds.origin.y,
-            "expected preview bottom ({preview_bottom:?}) to be above footer bar top ({:?})",
-            footer_bounds.origin.y
-        );
-    }
-}
-
-#[cfg(test)]
 mod suggestion_selection_tests {
     use std::rc::Rc;
 
     use gpui::{AppContext, Entity};
 
     use super::{
-        SuggestionItem, SuggestionsState, TerminalView, scrollbar_preview_tests::PreviewBackend,
+        SuggestionItem, SuggestionsState, TerminalView,
+        scrollbar::scrollbar_preview_tests::PreviewBackend,
     };
     use crate::{GridPoint, TerminalContent};
 
@@ -1928,7 +1613,7 @@ mod prompt_context_tests {
     use gpui::AppContext;
     use gpui_component::Root;
 
-    use super::{scrollbar_preview_tests::PreviewBackend, *};
+    use super::{scrollbar::scrollbar_preview_tests::PreviewBackend, *};
 
     #[gpui::test]
     fn prompt_context_snapshots_content_and_cursor_line_id(cx: &mut gpui::TestAppContext) {
@@ -1975,7 +1660,7 @@ mod ime_state_tests {
     use gpui::AppContext;
     use gpui_component::Root;
 
-    use super::{scrollbar_preview_tests::PreviewBackend, *};
+    use super::{scrollbar::scrollbar_preview_tests::PreviewBackend, *};
 
     #[gpui::test]
     fn marked_text_range_defaults_to_utf16_length_when_platform_does_not_supply_range(
