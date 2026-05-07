@@ -24,14 +24,14 @@ pub(crate) const SCROLLBAR_MARKER_SIZE: Pixels = px(4.0);
 pub(crate) const SCROLLBAR_ACTIVE_MARKER_SIZE: Pixels = px(6.0);
 
 #[derive(Debug, Clone, Copy)]
-struct TerminalScrollbarHandleState {
+struct ScrollbarHandleState {
     line_height: Pixels,
     total_lines: usize,
     viewport_lines: usize,
     display_offset: usize,
 }
 
-impl Default for TerminalScrollbarHandleState {
+impl Default for ScrollbarHandleState {
     fn default() -> Self {
         Self {
             line_height: px(1.0),
@@ -44,7 +44,7 @@ impl Default for TerminalScrollbarHandleState {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TerminalScrollbarHandle {
-    state: Rc<Cell<TerminalScrollbarHandleState>>,
+    state: Rc<Cell<ScrollbarHandleState>>,
     target_display_offset: Rc<Cell<Option<usize>>>,
     dragging: Rc<Cell<bool>>,
 }
@@ -57,7 +57,7 @@ impl TerminalScrollbarHandle {
         viewport_lines: usize,
         display_offset: usize,
     ) {
-        self.state.set(TerminalScrollbarHandleState {
+        self.state.set(ScrollbarHandleState {
             line_height: line_height.max(px(1.0)),
             total_lines,
             viewport_lines,
