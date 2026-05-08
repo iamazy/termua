@@ -37,7 +37,7 @@ embed-resource = "3"
 env_logger = "0.11"
 filenamegen = "0.2.6"
 futures = "0.3"
-gethostname = "0.5"
+gethostname = "1.1"
 hex = { version = "0.4", features = ["std"] }
 home = "0.5"
 itertools = "0.14"
