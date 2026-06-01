@@ -6,7 +6,6 @@ mod backends;
 mod builder;
 pub mod cast;
 mod element;
-pub mod remote;
 mod serial;
 mod settings;
 pub mod shell;
@@ -19,7 +18,6 @@ mod view;
 
 pub use backends::{
     PtySource,
-    remote::{RemoteBackend, RemoteBackendEvent},
     ssh::{
         Authentication, SshBackend, SshHostVerificationPrompt, SshHostVerificationPromptGuard,
         SshJumpChain, SshJumpHop, SshOptions, SshProxyCommand, SshProxyMode,
