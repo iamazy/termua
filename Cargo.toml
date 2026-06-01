@@ -65,7 +65,7 @@ serde_json_lenient = "0.2"
 serial2 = "0.2.33"
 sha2 = "0.11"
 signal-hook = "0.4"
-socket2 = "0.5"
+socket2 = "0.6"
 secret-service = "5"
 ssh2 = { version = "0.9.5", features = ["openssl-on-win32"] }
 smallvec = "1"

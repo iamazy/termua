@@ -482,7 +482,7 @@ impl SessionInner {
                 if verbose {
                     log::info!("tcp_nodelay={enabled}");
                 }
-                sock.set_nodelay(enabled)
+                sock.set_tcp_nodelay(enabled)
                     .with_context(|| format!("set TCP_NODELAY={enabled}"))?;
             } else if verbose {
                 log::warn!("invalid wezterm_ssh_tcp_nodelay value: {value:?}");
