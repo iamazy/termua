@@ -6,7 +6,6 @@ use url::Url;
 use crate::{GridPoint, HoveredWord, SerialOptions, SshOptions};
 
 pub mod alacritty;
-pub mod remote;
 pub(crate) mod search;
 pub mod ssh;
 pub mod wezterm;
