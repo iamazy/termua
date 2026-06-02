@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 
-tokio = { version = "1.50", features = ["rt", "time", "io-util", "net", "sync", "fs"] }
+tokio = { version = "1.52", features = ["rt", "time", "io-util", "net", "sync", "fs"] }
 zeroclaw = { package = "zeroclawlabs", version = "0.5.7", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
