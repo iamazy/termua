@@ -45,4 +45,4 @@ windows-sys = { version = "0.59.0", features = [
 ]}
 
 [dev-dependencies]
-serde_json = "1.0.0"
+serde_json = "1.0.150"
