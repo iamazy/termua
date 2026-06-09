@@ -818,8 +818,8 @@ impl SftpTable {
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
-            multiple: false,
-            prompt: Some("Select file to upload".into()),
+            multiple: true,
+            prompt: Some("Select files to upload".into()),
         });
         let window_handle = _window.window_handle();
 
@@ -832,15 +832,15 @@ impl SftpTable {
                 window.refresh();
             });
 
-            let Ok(Ok(Some(mut paths))) = picked else {
+            let Ok(Ok(Some(paths))) = picked else {
                 return;
             };
-            let Some(local) = paths.pop() else {
+            if paths.is_empty() {
                 return;
-            };
+            }
             let _ = this.update(cx, |this, cx| {
                 this.delegate_mut()
-                    .upload_local_files_to_dir(remote_dir.clone(), vec![local], cx);
+                    .upload_local_files_to_dir(remote_dir.clone(), paths, cx);
             });
         })
         .detach();
