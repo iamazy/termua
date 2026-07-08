@@ -8,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::warn;
 use camino::Utf8PathBuf;
 use gpui::{
     App, AppContext, Bounds, Context, Div, Entity, EventEmitter, ExternalPaths, FocusHandle,
@@ -33,6 +32,7 @@ use gpui_transfer::{
     AUTO_DISMISS_AFTER, TransferCenterState, TransferKind, TransferProgress, TransferStatus,
     TransferTask,
 };
+use log::warn;
 use smol::{
     Timer,
     io::{AsyncReadExt, AsyncWriteExt},

@@ -44,21 +44,10 @@ impl DownloadTaskCtx {
 
 #[derive(Clone, Debug)]
 enum UploadMsg {
-    Progress {
-        epoch: usize,
-        sent: u64,
-        total: u64,
-    },
-    Finished {
-        epoch: usize,
-    },
-    Cancelled {
-        epoch: usize,
-    },
-    Failed {
-        epoch: usize,
-        error: String,
-    },
+    Progress { epoch: usize, sent: u64, total: u64 },
+    Finished { epoch: usize },
+    Cancelled { epoch: usize },
+    Failed { epoch: usize, error: String },
 }
 
 fn spawn_upload_worker(
@@ -76,13 +65,7 @@ async fn upload_send_progress(
     sent: u64,
     total: u64,
 ) {
-    let _ = tx
-        .send(UploadMsg::Progress {
-            epoch,
-            sent,
-            total,
-        })
-        .await;
+    let _ = tx.send(UploadMsg::Progress { epoch, sent, total }).await;
 }
 
 async fn upload_send_cancelled(tx: &smol::channel::Sender<UploadMsg>, epoch: usize) {
@@ -237,16 +220,7 @@ async fn run_upload_worker(
         }
     };
 
-    match upload_copy_loop(
-        &mut local_f,
-        &mut remote_f,
-        &cancel,
-        epoch,
-        total,
-        &tx,
-    )
-    .await
-    {
+    match upload_copy_loop(&mut local_f, &mut remote_f, &cancel, epoch, total, &tx).await {
         UploadOutcome::Finished => {
             upload_send_progress(&tx, epoch, total, total).await;
             let _ = tx.send(UploadMsg::Finished { epoch }).await;
@@ -408,10 +382,7 @@ async fn run_upload_workers(
 
         match msg {
             UploadMsg::Progress {
-                epoch,
-                sent,
-                total,
-                ..
+                epoch, sent, total, ..
             } => {
                 if let Some(ctx) = ctx_by_epoch.get(&epoch) {
                     publish_upload_progress_to_center(cx, ctx, sent, total);
@@ -540,9 +511,7 @@ fn build_upload_task(
     let detail = detail_override
         .filter(|d| !d.trim().is_empty())
         .map(SharedString::from)
-        .or_else(|| {
-            (!ctx.remote_path.as_ref().trim().is_empty()).then(|| ctx.remote_path.clone())
-        });
+        .or_else(|| (!ctx.remote_path.as_ref().trim().is_empty()).then(|| ctx.remote_path.clone()));
     if let Some(detail) = detail {
         task = task.with_detail(detail);
     }
@@ -601,7 +570,13 @@ fn publish_download_progress_to_center(cx: &gpui::AsyncApp, ctx: &DownloadTaskCt
         }
         _ => TransferProgress::Indeterminate,
     };
-    let task = build_download_task(ctx, TransferStatus::InProgress, progress, Some(received), None);
+    let task = build_download_task(
+        ctx,
+        TransferStatus::InProgress,
+        progress,
+        Some(received),
+        None,
+    );
     cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
 }
 
