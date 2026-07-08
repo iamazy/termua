@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use log::warn;
 use camino::Utf8PathBuf;
 use gpui::{
     App, AppContext, Bounds, Context, Div, Entity, EventEmitter, ExternalPaths, FocusHandle,
@@ -37,7 +38,10 @@ use smol::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use time::OffsetDateTime;
-use wezterm_ssh::{FilePermissions, FileType, Metadata, OpenFileType, OpenOptions, WriteMode};
+use wezterm_ssh::{
+    FilePermissions, FileType, Metadata, OpenFileType, OpenOptions, SftpChannelError, SftpError,
+    WriteMode,
+};
 
 use super::{
     Delete, Download, Entry, EntryKind, NewFolder, Refresh, Rename, SortColumn, SortDirection,
@@ -58,32 +62,6 @@ mod table;
 use format::{default_download_dir, entry_from_meta, format_modified, format_size};
 use path::{apply_hidden_filter, join_remote, parent_dir};
 use preview::{PreviewContent, PreviewPane, PreviewTarget};
-
-#[derive(Clone, Debug)]
-enum Transfer {
-    Upload {
-        name: String,
-        sent: u64,
-        total: u64,
-    },
-    Download {
-        name: String,
-        received: u64,
-        total: Option<u64>,
-    },
-    Finished {
-        title: String,
-    },
-}
-
-#[derive(Clone, Debug)]
-struct TransferEntry {
-    transfer: Transfer,
-    cancel: Option<Arc<AtomicBool>>,
-    detail: Option<SharedString>,
-    group_id: Option<String>,
-    group_total: Option<usize>,
-}
 
 #[derive(Clone, Debug)]
 struct PendingToast {
@@ -249,8 +227,6 @@ struct SftpTable {
     context_row: Option<usize>,
     pending_toast: Option<PendingToast>,
     pending_toast_epoch: usize,
-
-    transfers: HashMap<usize, TransferEntry>,
 
     op: Option<SftpOp>,
 }
