@@ -57,6 +57,35 @@ impl ResizableState {
         &self.sizes
     }
 
+    /// Programmatically resize the panel at `ix` to `size`, redistributing space among siblings
+    /// using the same logic as a drag.
+    ///
+    /// Sizes are clamped to the panel's `size_range` and to the container. Emits
+    /// `ResizablePanelEvent::Resized` so subscribers see the change just as if the user had
+    /// dragged a handle.
+    ///
+    /// Out-of-range indices are a no-op. For the last panel, space is taken from the previous
+    /// sibling because the last panel has no handle of its own.
+    pub fn resize_panel(
+        &mut self,
+        ix: usize,
+        size: Pixels,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if ix >= self.sizes.len() {
+            return;
+        }
+        if ix + 1 < self.sizes.len() {
+            self.resize_panel_at_handle(ix, size, window, cx);
+        } else if ix > 0 {
+            let delta = self.sizes[ix] - size;
+            let prev = self.sizes[ix - 1];
+            self.resize_panel_at_handle(ix - 1, prev + delta, window, cx);
+        }
+        self.done_resizing(cx);
+    }
+
     pub(crate) fn insert_panel(
         &mut self,
         size: Option<Pixels>,
@@ -194,9 +223,14 @@ impl ResizableState {
         }
     }
 
-    /// The `ix`` is the index of the panel to resize,
-    /// and the `size` is the new size for the panel.
-    fn resize_panel(&mut self, ix: usize, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
+    /// Resize the panel at `ix` by treating `ix` as the drag-handle position.
+    fn resize_panel_at_handle(
+        &mut self,
+        ix: usize,
+        size: Pixels,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let old_sizes = self.sizes.clone();
 
         let mut resizing_ix = ix;
@@ -292,4 +326,43 @@ pub(crate) struct ResizablePanelState {
     pub size: Option<Pixels>,
     pub size_range: Range<Pixels>,
     bounds: Bounds<Pixels>,
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AppContext, Bounds, point, px, size};
+
+    use super::*;
+
+    #[gpui::test]
+    fn resize_panel_can_programmatically_resize_last_panel(cx: &mut gpui::TestAppContext) {
+        let window_cx = cx.add_empty_window();
+        let state = window_cx.update(|_, cx| {
+            cx.new(|_| {
+                let mut state = ResizableState::default();
+                state.bounds = Bounds::new(point(px(0.), px(0.)), size(px(600.), px(300.)));
+                state.panels = vec![
+                    ResizablePanelState {
+                        size: Some(px(300.)),
+                        size_range: PANEL_MIN_SIZE..Pixels::MAX,
+                        bounds: Bounds::new(point(px(0.), px(0.)), size(px(300.), px(300.))),
+                    },
+                    ResizablePanelState {
+                        size: Some(px(300.)),
+                        size_range: PANEL_MIN_SIZE..Pixels::MAX,
+                        bounds: Bounds::new(point(px(300.), px(0.)), size(px(300.), px(300.))),
+                    },
+                ];
+                state.sizes = vec![px(300.), px(300.)];
+                state
+            })
+        });
+
+        window_cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.resize_panel(1, px(240.), window, cx);
+                assert_eq!(state.sizes(), &vec![px(360.), px(240.)]);
+            });
+        });
+    }
 }

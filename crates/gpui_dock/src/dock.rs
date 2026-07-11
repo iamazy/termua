@@ -315,9 +315,18 @@ impl Dock {
                 cx.new(|_| info.deref().clone())
             })
     }
-    fn resize(&mut self, mouse_position: Point<Pixels>, _: &mut Window, cx: &mut Context<Self>) {
+    fn resize(
+        &mut self,
+        mouse_position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.resizing {
             return;
+        }
+
+        if !self.open {
+            self.set_open(true, window, cx);
         }
 
         let dock_area = self
@@ -358,15 +367,17 @@ impl Dock {
         let min_size = self.min_size;
         match self.placement {
             DockPlacement::Left => {
-                let max_size = area_bounds.size.width - PANEL_MIN_SIZE - right_dock_size;
+                let max_size =
+                    (area_bounds.size.width - PANEL_MIN_SIZE - right_dock_size).max(min_size);
                 self.size = size.clamp(min_size, max_size);
             }
             DockPlacement::Right => {
-                let max_size = area_bounds.size.width - PANEL_MIN_SIZE - left_dock_size;
+                let max_size =
+                    (area_bounds.size.width - PANEL_MIN_SIZE - left_dock_size).max(min_size);
                 self.size = size.clamp(min_size, max_size);
             }
             DockPlacement::Bottom => {
-                let max_size = area_bounds.size.height - PANEL_MIN_SIZE;
+                let max_size = (area_bounds.size.height - PANEL_MIN_SIZE).max(min_size);
                 self.size = size.clamp(min_size, max_size);
             }
             DockPlacement::Center => unreachable!(),
@@ -511,5 +522,82 @@ impl Element for DockElement {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AvailableSpace, Bounds, point, px, size};
+
+    use super::*;
+
+    fn init(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            crate::init(app);
+        });
+    }
+
+    #[gpui::test]
+    fn resizing_collapsed_bottom_dock_reopens_it(cx: &mut gpui::TestAppContext) {
+        init(cx);
+
+        let window_cx = cx.add_empty_window();
+        window_cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(800.)),
+                AvailableSpace::Definite(px(600.)),
+            ),
+            |window, cx| {
+                let dock_area = cx.new(|cx| DockArea::new("dock", None, window, cx));
+                dock_area.update(cx, |dock_area, _| {
+                    dock_area.bounds = Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.)));
+                });
+
+                let dock = cx.new(|cx| Dock::bottom(dock_area.downgrade(), window, cx));
+                dock.update(cx, |dock, cx| {
+                    dock.set_open(false, window, cx);
+                    dock.resizing = true;
+                    dock.resize(point(px(0.), px(420.)), window, cx);
+                    assert!(dock.is_open());
+                    assert_eq!(dock.size(), px(180.));
+                });
+
+                div()
+            },
+        );
+    }
+
+    #[gpui::test]
+    fn resizing_with_custom_min_size_does_not_panic_when_area_is_too_small(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        init(cx);
+
+        let window_cx = cx.add_empty_window();
+        window_cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(150.)),
+                AvailableSpace::Definite(px(400.)),
+            ),
+            |window, cx| {
+                let dock_area = cx.new(|cx| DockArea::new("dock", None, window, cx));
+                dock_area.update(cx, |dock_area, _| {
+                    dock_area.bounds = Bounds::new(point(px(0.), px(0.)), size(px(150.), px(400.)));
+                });
+
+                let dock = cx.new(|cx| Dock::left(dock_area.downgrade(), window, cx));
+                dock.update(cx, |dock, cx| {
+                    dock.set_min_size(px(220.), window, cx);
+                    dock.resizing = true;
+                    dock.resize(point(px(80.), px(0.)), window, cx);
+                    assert_eq!(dock.size(), px(220.));
+                });
+
+                div()
+            },
+        );
     }
 }

@@ -6,9 +6,10 @@ use std::{
 use gpui::{
     Along, AnyElement, App, AppContext, Axis, Bounds, Context, Element, ElementId, Empty, Entity,
     EventEmitter, InteractiveElement, IntoElement, IsZero, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, RenderOnce, Style, Styled, Window, div, prelude::FluentBuilder,
+    ParentElement, Pixels, Render, RenderOnce, Style, StyleRefinement, Styled, Window, div,
+    prelude::FluentBuilder,
 };
-use gpui_component::{AxisExt, ElementExt, h_flex, v_flex};
+use gpui_component::{AxisExt, ElementExt, StyledExt, h_flex, v_flex};
 
 use super::{PANEL_MIN_SIZE, ResizableState, resizable_panel, resize_handle};
 
@@ -187,6 +188,7 @@ pub struct ResizablePanel {
     size_range: Range<Pixels>,
     children: Vec<AnyElement>,
     visible: bool,
+    style: StyleRefinement,
 }
 
 impl ResizablePanel {
@@ -200,6 +202,7 @@ impl ResizablePanel {
             axis: Axis::Horizontal,
             children: vec![],
             visible: true,
+            style: StyleRefinement::default(),
         }
     }
 
@@ -221,6 +224,12 @@ impl ResizablePanel {
     pub fn size_range(mut self, range: impl Into<Range<Pixels>>) -> Self {
         self.size_range = range.into();
         self
+    }
+}
+
+impl Styled for ResizablePanel {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
     }
 }
 
@@ -252,6 +261,7 @@ impl RenderOnce for ResizablePanel {
             .flex_grow()
             .size_full()
             .relative()
+            .refine_style(&self.style)
             .when(self.axis.is_vertical(), |this| {
                 this.min_h(size_range.start).max_h(size_range.end)
             })
@@ -374,12 +384,18 @@ impl Element for ResizePanelGroupElement {
                     let panel = state.panels.get(ix).expect("BUG: invalid panel index");
 
                     match axis {
-                        Axis::Horizontal => {
-                            state.resize_panel(ix, e.position.x - panel.bounds.left(), window, cx)
-                        }
-                        Axis::Vertical => {
-                            state.resize_panel(ix, e.position.y - panel.bounds.top(), window, cx);
-                        }
+                        Axis::Horizontal => state.resize_panel_at_handle(
+                            ix,
+                            e.position.x - panel.bounds.left(),
+                            window,
+                            cx,
+                        ),
+                        Axis::Vertical => state.resize_panel_at_handle(
+                            ix,
+                            e.position.y - panel.bounds.top(),
+                            window,
+                            cx,
+                        ),
                     }
                     cx.notify();
                 })
