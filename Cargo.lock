@@ -3155,6 +3155,7 @@ dependencies = [
  "gpui_common",
  "gpui_transfer",
  "home",
+ "log",
  "smol",
  "time",
  "wezterm-ssh",

@@ -17,6 +17,7 @@ gpui-component.workspace = true
 gpui_common.workspace = true
 gpui_transfer = { path = "../gpui_transfer" }
 home.workspace = true
+log.workspace = true
 smol.workspace = true
 time.workspace = true
 

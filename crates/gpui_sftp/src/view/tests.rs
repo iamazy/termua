@@ -19,7 +19,6 @@ fn delegate_with_tree(tree: TreeState) -> SftpTable {
         context_row: None,
         pending_toast: None,
         pending_toast_epoch: 0,
-        transfers: std::collections::HashMap::new(),
         op: None,
     }
 }

@@ -3,7 +3,6 @@ use super::*;
 mod actions;
 mod delegate;
 mod navigation;
-mod transfers;
 
 impl SftpTable {
     fn show_toast(

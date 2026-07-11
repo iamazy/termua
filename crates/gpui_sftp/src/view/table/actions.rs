@@ -8,29 +8,46 @@ struct PlannedUpload {
     total: u64,
     epoch: usize,
     cancel: Arc<AtomicBool>,
+    group_id: Option<String>,
+    group_total: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct UploadTaskCtx {
+    epoch: usize,
+    file_name: String,
+    remote_path: SharedString,
+    cancel: Arc<AtomicBool>,
+    group_id: Option<String>,
+    group_total: Option<usize>,
+}
+impl UploadTaskCtx {
+    fn task_id(&self) -> String {
+        format!("sftp-transfer-{}", self.epoch)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DownloadTaskCtx {
+    epoch: usize,
+    file_name: String,
+    dst: SharedString,
+    total: Option<u64>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl DownloadTaskCtx {
+    fn task_id(&self) -> String {
+        format!("sftp-transfer-{}", self.epoch)
+    }
 }
 
 #[derive(Clone, Debug)]
 enum UploadMsg {
-    Progress {
-        epoch: usize,
-        file_name: String,
-        sent: u64,
-        total: u64,
-    },
-    Finished {
-        epoch: usize,
-        file_name: String,
-    },
-    Cancelled {
-        epoch: usize,
-        file_name: String,
-    },
-    Failed {
-        epoch: usize,
-        file_name: String,
-        error: String,
-    },
+    Progress { epoch: usize, sent: u64, total: u64 },
+    Finished { epoch: usize },
+    Cancelled { epoch: usize },
+    Failed { epoch: usize, error: String },
 }
 
 fn spawn_upload_worker(
@@ -45,41 +62,18 @@ fn spawn_upload_worker(
 async fn upload_send_progress(
     tx: &smol::channel::Sender<UploadMsg>,
     epoch: usize,
-    file_name: String,
     sent: u64,
     total: u64,
 ) {
-    let _ = tx
-        .send(UploadMsg::Progress {
-            epoch,
-            file_name,
-            sent,
-            total,
-        })
-        .await;
+    let _ = tx.send(UploadMsg::Progress { epoch, sent, total }).await;
 }
 
-async fn upload_send_cancelled(
-    tx: &smol::channel::Sender<UploadMsg>,
-    epoch: usize,
-    file_name: String,
-) {
-    let _ = tx.send(UploadMsg::Cancelled { epoch, file_name }).await;
+async fn upload_send_cancelled(tx: &smol::channel::Sender<UploadMsg>, epoch: usize) {
+    let _ = tx.send(UploadMsg::Cancelled { epoch }).await;
 }
 
-async fn upload_send_failed(
-    tx: &smol::channel::Sender<UploadMsg>,
-    epoch: usize,
-    file_name: String,
-    error: String,
-) {
-    let _ = tx
-        .send(UploadMsg::Failed {
-            epoch,
-            file_name,
-            error,
-        })
-        .await;
+async fn upload_send_failed(tx: &smol::channel::Sender<UploadMsg>, epoch: usize, error: String) {
+    let _ = tx.send(UploadMsg::Failed { epoch, error }).await;
 }
 
 enum UploadOutcome {
@@ -93,7 +87,6 @@ async fn upload_copy_loop(
     remote_f: &mut (impl smol::io::AsyncWrite + Unpin),
     cancel: &Arc<AtomicBool>,
     epoch: usize,
-    file_name: &str,
     total: u64,
     tx: &smol::channel::Sender<UploadMsg>,
 ) -> UploadOutcome {
@@ -106,7 +99,7 @@ async fn upload_copy_loop(
             if total != 0 && sent >= total {
                 break;
             }
-            upload_send_cancelled(tx, epoch, file_name.to_string()).await;
+            upload_send_cancelled(tx, epoch).await;
             return UploadOutcome::Cancelled;
         }
 
@@ -114,30 +107,18 @@ async fn upload_copy_loop(
             Ok(0) => break,
             Ok(n) => n,
             Err(err) => {
-                upload_send_failed(
-                    tx,
-                    epoch,
-                    file_name.to_string(),
-                    format!("Read local file failed: {err}"),
-                )
-                .await;
+                upload_send_failed(tx, epoch, format!("Read local file failed: {err}")).await;
                 return UploadOutcome::Failed;
             }
         };
 
         if cancel.load(Ordering::Relaxed) {
-            upload_send_cancelled(tx, epoch, file_name.to_string()).await;
+            upload_send_cancelled(tx, epoch).await;
             return UploadOutcome::Cancelled;
         }
 
         if let Err(err) = remote_f.write_all(&buf[..n]).await {
-            upload_send_failed(
-                tx,
-                epoch,
-                file_name.to_string(),
-                format!("Write remote file failed: {err}"),
-            )
-            .await;
+            upload_send_failed(tx, epoch, format!("Write remote file failed: {err}")).await;
             return UploadOutcome::Failed;
         }
 
@@ -146,12 +127,20 @@ async fn upload_copy_loop(
         let now = Instant::now();
         if now.duration_since(last_emit_at) >= Duration::from_millis(200) {
             last_emit_at = now;
-            upload_send_progress(tx, epoch, file_name.to_string(), sent, total).await;
+            upload_send_progress(tx, epoch, sent, total).await;
         }
     }
 
     let _ = remote_f.flush().await;
     UploadOutcome::Finished
+}
+
+fn is_remote_no_such_file(err: &SftpChannelError) -> bool {
+    match err {
+        SftpChannelError::Sftp(SftpError::NoSuchFile) => true,
+        SftpChannelError::LibSsh(_) => err.to_string().contains("Sftp error code 2"),
+        _ => false,
+    }
 }
 
 async fn run_upload_worker(
@@ -162,11 +151,11 @@ async fn run_upload_worker(
 ) {
     let PlannedUpload {
         local,
-        file_name,
         remote_path,
         total,
         epoch,
         cancel,
+        ..
     } = file;
 
     let _permit = pool.acquire().await;
@@ -174,13 +163,7 @@ async fn run_upload_worker(
     let mut local_f = match smol::fs::File::open(&local).await {
         Ok(f) => f,
         Err(err) => {
-            upload_send_failed(
-                &tx,
-                epoch,
-                file_name,
-                format!("Open local file failed: {err}"),
-            )
-            .await;
+            upload_send_failed(&tx, epoch, format!("Open local file failed: {err}")).await;
             return;
         }
     };
@@ -212,15 +195,13 @@ async fn run_upload_worker(
     let mut remote_f = match open_write().await {
         Ok(f) => f,
         Err(err) => {
-            let err_str = err.to_string();
-            if err_str.contains("Sftp error code 2") {
+            if is_remote_no_such_file(&err) {
                 match open_create().await {
                     Ok(f) => f,
                     Err(err2) => {
                         upload_send_failed(
                             &tx,
                             epoch,
-                            file_name,
                             format!("Open remote file failed: {remote_path}: {err2}"),
                         )
                         .await;
@@ -231,7 +212,6 @@ async fn run_upload_worker(
                 upload_send_failed(
                     &tx,
                     epoch,
-                    file_name,
                     format!("Open remote file failed: {remote_path}: {err}"),
                 )
                 .await;
@@ -240,20 +220,10 @@ async fn run_upload_worker(
         }
     };
 
-    match upload_copy_loop(
-        &mut local_f,
-        &mut remote_f,
-        &cancel,
-        epoch,
-        &file_name,
-        total,
-        &tx,
-    )
-    .await
-    {
+    match upload_copy_loop(&mut local_f, &mut remote_f, &cancel, epoch, total, &tx).await {
         UploadOutcome::Finished => {
-            upload_send_progress(&tx, epoch, file_name.clone(), total, total).await;
-            let _ = tx.send(UploadMsg::Finished { epoch, file_name }).await;
+            upload_send_progress(&tx, epoch, total, total).await;
+            let _ = tx.send(UploadMsg::Finished { epoch }).await;
         }
         UploadOutcome::Cancelled | UploadOutcome::Failed => {}
     }
@@ -267,7 +237,7 @@ async fn upload_local_files_to_dir_task(
     remote_dir: String,
     locals: Vec<PathBuf>,
 ) {
-    let planned = plan_uploads(&this, cx, &remote_dir, locals).await;
+    let mut planned = plan_uploads(&this, cx, &remote_dir, locals).await;
     if planned.is_empty() {
         show_upload_nothing_to_upload(&this, cx);
         return;
@@ -277,8 +247,13 @@ async fn upload_local_files_to_dir_task(
     let batch_id = next_transfer_epoch();
     let group_id = format!("sftp-upload-batch-{batch_id}");
 
-    begin_upload_transfers(&this, cx, &planned, &group_id, total_files);
-    let uploaded = run_upload_workers(&this, cx, &sftp, &pool, planned, total_files).await;
+    for f in &mut planned {
+        f.group_id = Some(group_id.clone());
+        f.group_total = Some(total_files);
+    }
+
+    begin_upload_transfers(cx, &planned, &group_id, total_files);
+    let uploaded = run_upload_workers(cx, &sftp, &pool, planned, total_files).await;
     finish_upload_batch(&this, cx, remote_dir, total_files, uploaded);
 }
 
@@ -316,6 +291,8 @@ async fn plan_uploads(
             total,
             epoch: next_transfer_epoch(),
             cancel: Arc::new(AtomicBool::new(false)),
+            group_id: None,
+            group_total: None,
         });
     }
     planned
@@ -336,34 +313,38 @@ fn show_upload_nothing_to_upload(
 }
 
 fn begin_upload_transfers(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
     cx: &mut gpui::AsyncApp,
     planned: &[PlannedUpload],
     group_id: &str,
     total_files: usize,
 ) {
-    let group_id = group_id.to_string();
-    let _ = this.update(cx, |this, cx| {
+    if !cx.has_global::<TransferCenterState>() {
+        warn!("TransferCenterState global not installed; sftp transfer UI update skipped");
+        return;
+    }
+    cx.update_global::<TransferCenterState, _>(|state, _cx| {
         for f in planned {
-            this.delegate_mut().begin_transfer(
-                f.epoch,
-                Transfer::Upload {
-                    name: f.file_name.clone(),
-                    sent: 0,
-                    total: f.total,
+            let task = build_upload_task(
+                &UploadTaskCtx {
+                    epoch: f.epoch,
+                    file_name: f.file_name.clone(),
+                    remote_path: f.remote_path.clone().into(),
+                    cancel: Arc::clone(&f.cancel),
+                    group_id: Some(group_id.to_string()),
+                    group_total: Some(total_files),
                 },
-                Arc::clone(&f.cancel),
-                Some(f.remote_path.clone().into()),
-                Some(group_id.clone()),
-                Some(total_files),
-                cx,
+                TransferStatus::InProgress,
+                TransferProgress::Indeterminate,
+                Some(0),
+                (f.total > 0).then_some(f.total),
+                None,
             );
+            state.upsert(task);
         }
     });
 }
 
 async fn run_upload_workers(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
     cx: &mut gpui::AsyncApp,
     sftp: &wezterm_ssh::Sftp,
     pool: &gpui_common::PermitPool,
@@ -373,6 +354,21 @@ async fn run_upload_workers(
     let (tx, rx) = smol::channel::unbounded::<UploadMsg>();
     let mut completed: usize = 0;
     let mut uploaded: usize = 0;
+
+    let ctx_by_epoch: HashMap<usize, UploadTaskCtx> = planned
+        .iter()
+        .map(|f| {
+            let ctx = UploadTaskCtx {
+                epoch: f.epoch,
+                file_name: f.file_name.clone(),
+                remote_path: f.remote_path.clone().into(),
+                cancel: Arc::clone(&f.cancel),
+                group_id: f.group_id.clone(),
+                group_total: f.group_total,
+            };
+            (f.epoch, ctx)
+        })
+        .collect();
 
     for f in planned {
         spawn_upload_worker(sftp.clone(), pool.clone(), f, tx.clone());
@@ -386,63 +382,143 @@ async fn run_upload_workers(
 
         match msg {
             UploadMsg::Progress {
-                epoch,
-                file_name,
-                sent,
-                total,
+                epoch, sent, total, ..
             } => {
-                let _ = this.update(cx, |this, cx| {
-                    this.delegate_mut().set_transfer_progress(
-                        epoch,
-                        Transfer::Upload {
-                            name: file_name,
-                            sent,
-                            total,
-                        },
-                        cx,
-                    );
-                });
+                if let Some(ctx) = ctx_by_epoch.get(&epoch) {
+                    publish_upload_progress_to_center(cx, ctx, sent, total);
+                }
             }
-            UploadMsg::Finished { epoch, file_name } => {
+            UploadMsg::Finished { epoch, .. } => {
                 completed = completed.saturating_add(1);
                 uploaded = uploaded.saturating_add(1);
-                let _ = this.update(cx, |this, cx| {
-                    this.delegate_mut()
-                        .finish_transfer_with_auto_hide(epoch, file_name, cx);
-                });
+                if let Some(ctx) = ctx_by_epoch.get(&epoch) {
+                    finish_upload_task_in_center(cx, ctx);
+                }
             }
-            UploadMsg::Cancelled { epoch, file_name } => {
+            UploadMsg::Cancelled { epoch, .. } => {
                 completed = completed.saturating_add(1);
-                let _ = this.update(cx, |this, cx| {
-                    this.delegate_mut().finish_transfer(epoch, cx);
-                    this.delegate_mut().show_toast(
-                        PromptLevel::Info,
-                        format!("Upload canceled: {file_name}"),
-                        None,
-                        cx,
-                    );
-                });
+                if let Some(ctx) = ctx_by_epoch.get(&epoch) {
+                    cancel_upload_task_in_center(cx, ctx);
+                }
             }
-            UploadMsg::Failed {
-                epoch,
-                file_name,
-                error,
-            } => {
+            UploadMsg::Failed { epoch, error } => {
                 completed = completed.saturating_add(1);
-                let _ = this.update(cx, |this, cx| {
-                    this.delegate_mut().finish_transfer(epoch, cx);
-                    this.delegate_mut().show_toast(
-                        PromptLevel::Warning,
-                        format!("Upload failed: {file_name}"),
-                        Some(error),
-                        cx,
-                    );
-                });
+                if let Some(ctx) = ctx_by_epoch.get(&epoch) {
+                    fail_upload_task_in_center(cx, ctx, error);
+                }
             }
         }
     }
 
     uploaded
+}
+
+fn publish_upload_progress_to_center(
+    cx: &gpui::AsyncApp,
+    ctx: &UploadTaskCtx,
+    sent: u64,
+    total: u64,
+) {
+    if !cx.has_global::<TransferCenterState>() {
+        warn!("TransferCenterState global not installed; sftp transfer UI update skipped");
+        return;
+    }
+    let progress = if total > 0 {
+        TransferProgress::Determinate((sent as f32 / total as f32).clamp(0.0, 1.0))
+    } else {
+        TransferProgress::Indeterminate
+    };
+    let task = build_upload_task(
+        ctx,
+        TransferStatus::InProgress,
+        progress,
+        Some(sent),
+        Some(total),
+        None,
+    );
+    cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
+}
+
+fn finish_upload_task_in_center(cx: &gpui::AsyncApp, ctx: &UploadTaskCtx) {
+    set_upload_terminal_in_center(cx, ctx, TransferStatus::Finished, None);
+}
+
+fn cancel_upload_task_in_center(cx: &gpui::AsyncApp, ctx: &UploadTaskCtx) {
+    set_upload_terminal_in_center(cx, ctx, TransferStatus::Cancelled, None);
+}
+
+fn fail_upload_task_in_center(cx: &gpui::AsyncApp, ctx: &UploadTaskCtx, error: String) {
+    set_upload_terminal_in_center(cx, ctx, TransferStatus::Failed, Some(error));
+}
+
+fn set_upload_terminal_in_center(
+    cx: &gpui::AsyncApp,
+    ctx: &UploadTaskCtx,
+    status: TransferStatus,
+    detail_override: Option<String>,
+) {
+    if !cx.has_global::<TransferCenterState>() {
+        warn!("TransferCenterState global not installed; sftp transfer UI update skipped");
+        return;
+    }
+    let task = build_upload_task(
+        ctx,
+        status,
+        TransferProgress::Determinate(1.0),
+        None,
+        None,
+        detail_override,
+    );
+    cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
+
+    let task_id = ctx.task_id();
+    cx.spawn(async move |cx| {
+        Timer::after(AUTO_DISMISS_AFTER).await;
+        if !cx.has_global::<TransferCenterState>() {
+            return;
+        }
+        let should_remove = cx
+            .try_read_global::<TransferCenterState, bool>(|state, _app| {
+                state
+                    .tasks_sorted()
+                    .iter()
+                    .find(|t| t.id == task_id)
+                    .is_some_and(|t| t.status != TransferStatus::InProgress)
+            })
+            .unwrap_or(false);
+        if !should_remove {
+            return;
+        }
+        cx.update_global::<TransferCenterState, _>(|state, _cx| state.remove(&task_id));
+    })
+    .detach();
+}
+
+fn build_upload_task(
+    ctx: &UploadTaskCtx,
+    status: TransferStatus,
+    progress: TransferProgress,
+    bytes_done: Option<u64>,
+    bytes_total: Option<u64>,
+    detail_override: Option<String>,
+) -> TransferTask {
+    let mut task = TransferTask::new(ctx.task_id(), ctx.file_name.clone())
+        .with_kind(TransferKind::Upload)
+        .with_status(status)
+        .with_progress(progress)
+        .with_cancel_token(Arc::clone(&ctx.cancel))
+        .with_bytes(bytes_done, bytes_total);
+    let detail = detail_override
+        .filter(|d| !d.trim().is_empty())
+        .map(SharedString::from)
+        .or_else(|| (!ctx.remote_path.as_ref().trim().is_empty()).then(|| ctx.remote_path.clone()));
+    if let Some(detail) = detail {
+        task = task.with_detail(detail);
+    }
+    if let Some(group_id) = ctx.group_id.as_deref() {
+        task = task.with_group(group_id.to_string(), ctx.group_total);
+    }
+    task
 }
 
 fn finish_upload_batch(
@@ -466,79 +542,136 @@ fn finish_upload_batch(
     });
 }
 
-fn begin_download_transfer(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
+fn begin_download_task(
     cx: &mut gpui::AsyncApp,
     file_name: String,
     total: Option<u64>,
     dst: &PathBuf,
-) -> (usize, Arc<AtomicBool>) {
-    let cancel = Arc::new(AtomicBool::new(false));
-    let epoch = next_transfer_epoch();
-    let dst_label = dst.display().to_string();
-    let _ = this.update(cx, |this, cx| {
-        this.delegate_mut().begin_transfer(
-            epoch,
-            Transfer::Download {
-                name: file_name,
-                received: 0,
-                total,
-            },
-            cancel.clone(),
-            Some(dst_label.into()),
-            None,
-            None,
-            cx,
-        );
-    });
-    (epoch, cancel)
+) -> DownloadTaskCtx {
+    let ctx = DownloadTaskCtx {
+        epoch: next_transfer_epoch(),
+        file_name,
+        dst: dst.display().to_string().into(),
+        total,
+        cancel: Arc::new(AtomicBool::new(false)),
+    };
+    publish_download_progress_to_center(cx, &ctx, 0);
+    ctx
 }
 
-fn finish_download_cancelled(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
-    cx: &mut gpui::AsyncApp,
-    epoch: usize,
-) {
-    let _ = this.update(cx, |this, cx| {
-        this.delegate_mut().finish_transfer(epoch, cx);
-        this.delegate_mut()
-            .show_toast(PromptLevel::Info, "Download canceled", None, cx);
-    });
+fn publish_download_progress_to_center(cx: &gpui::AsyncApp, ctx: &DownloadTaskCtx, received: u64) {
+    if !cx.has_global::<TransferCenterState>() {
+        warn!("TransferCenterState global not installed; sftp transfer UI update skipped");
+        return;
+    }
+    let progress = match ctx.total {
+        Some(total) if total > 0 => {
+            TransferProgress::Determinate((received as f32 / total as f32).clamp(0.0, 1.0))
+        }
+        _ => TransferProgress::Indeterminate,
+    };
+    let task = build_download_task(
+        ctx,
+        TransferStatus::InProgress,
+        progress,
+        Some(received),
+        None,
+    );
+    cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
 }
 
-fn finish_download_failed(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
-    cx: &mut gpui::AsyncApp,
-    epoch: usize,
-    title: &'static str,
-    detail: String,
+fn finish_download_task_in_center(cx: &gpui::AsyncApp, ctx: &DownloadTaskCtx) {
+    set_download_terminal_in_center(cx, ctx, TransferStatus::Finished, None);
+}
+
+fn cancel_download_task_in_center(cx: &gpui::AsyncApp, ctx: &DownloadTaskCtx) {
+    set_download_terminal_in_center(cx, ctx, TransferStatus::Cancelled, None);
+}
+
+fn fail_download_task_in_center(cx: &gpui::AsyncApp, ctx: &DownloadTaskCtx, error: String) {
+    set_download_terminal_in_center(cx, ctx, TransferStatus::Failed, Some(error));
+}
+
+fn set_download_terminal_in_center(
+    cx: &gpui::AsyncApp,
+    ctx: &DownloadTaskCtx,
+    status: TransferStatus,
+    detail_override: Option<String>,
 ) {
-    let _ = this.update(cx, |this, cx| {
-        this.delegate_mut()
-            .show_toast(PromptLevel::Warning, title, Some(detail), cx);
-        this.delegate_mut().finish_transfer(epoch, cx);
-    });
+    if !cx.has_global::<TransferCenterState>() {
+        warn!("TransferCenterState global not installed; sftp transfer UI update skipped");
+        return;
+    }
+    let task = build_download_task(
+        ctx,
+        status,
+        TransferProgress::Determinate(1.0),
+        None,
+        detail_override,
+    );
+    cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
+
+    let task_id = ctx.task_id();
+    cx.spawn(async move |cx| {
+        Timer::after(AUTO_DISMISS_AFTER).await;
+        if !cx.has_global::<TransferCenterState>() {
+            return;
+        }
+        let should_remove = cx
+            .try_read_global::<TransferCenterState, bool>(|state, _app| {
+                state
+                    .tasks_sorted()
+                    .iter()
+                    .find(|t| t.id == task_id)
+                    .is_some_and(|t| t.status != TransferStatus::InProgress)
+            })
+            .unwrap_or(false);
+        if !should_remove {
+            return;
+        }
+        cx.update_global::<TransferCenterState, _>(|state, _cx| state.remove(&task_id));
+    })
+    .detach();
+}
+
+fn build_download_task(
+    ctx: &DownloadTaskCtx,
+    status: TransferStatus,
+    progress: TransferProgress,
+    bytes_done: Option<u64>,
+    detail_override: Option<String>,
+) -> TransferTask {
+    let mut task = TransferTask::new(ctx.task_id(), ctx.file_name.clone())
+        .with_kind(TransferKind::Download)
+        .with_status(status)
+        .with_progress(progress)
+        .with_cancel_token(Arc::clone(&ctx.cancel))
+        .with_bytes(bytes_done, ctx.total.filter(|t| *t > 0));
+    let detail = detail_override
+        .filter(|d| !d.trim().is_empty())
+        .map(SharedString::from)
+        .or_else(|| (!ctx.dst.as_ref().trim().is_empty()).then(|| ctx.dst.clone()));
+    if let Some(detail) = detail {
+        task = task.with_detail(detail);
+    }
+    task
 }
 
 async fn download_copy_loop(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
     cx: &mut gpui::AsyncApp,
     remote_f: &mut (impl smol::io::AsyncRead + Unpin),
     local_f: &mut (impl smol::io::AsyncWrite + Unpin),
-    epoch: usize,
-    file_name: &str,
-    total: Option<u64>,
-    cancel: &Arc<AtomicBool>,
+    ctx: &DownloadTaskCtx,
 ) -> Option<u64> {
     let mut received: u64 = 0;
     let mut buf = vec![0u8; 64 * 1024];
 
     loop {
-        if cancel.load(Ordering::Relaxed) {
-            if total.is_some_and(|t| t != 0 && received >= t) {
+        if ctx.cancel.load(Ordering::Relaxed) {
+            if ctx.total.is_some_and(|t| t != 0 && received >= t) {
                 break;
             }
-            finish_download_cancelled(this, cx, epoch);
+            cancel_download_task_in_center(cx, ctx);
             return None;
         }
 
@@ -546,77 +679,40 @@ async fn download_copy_loop(
             Ok(0) => break,
             Ok(n) => n,
             Err(err) => {
-                finish_download_failed(this, cx, epoch, "Read remote file failed", err.to_string());
+                fail_download_task_in_center(cx, ctx, format!("Read remote file failed: {err}"));
                 return None;
             }
         };
 
-        if cancel.load(Ordering::Relaxed) {
-            finish_download_cancelled(this, cx, epoch);
+        if ctx.cancel.load(Ordering::Relaxed) {
+            cancel_download_task_in_center(cx, ctx);
             return None;
         }
 
         if let Err(err) = local_f.write_all(&buf[..n]).await {
-            finish_download_failed(this, cx, epoch, "Write local file failed", err.to_string());
+            fail_download_task_in_center(cx, ctx, format!("Write local file failed: {err}"));
             return None;
         }
 
         received = received.saturating_add(n as u64);
-        if cancel.load(Ordering::Relaxed) {
-            finish_download_cancelled(this, cx, epoch);
+        if ctx.cancel.load(Ordering::Relaxed) {
+            cancel_download_task_in_center(cx, ctx);
             return None;
         }
 
-        let file_name = file_name.to_string();
-        let _ = this.update(cx, |this, cx| {
-            this.delegate_mut().set_transfer_progress(
-                epoch,
-                Transfer::Download {
-                    name: file_name,
-                    received,
-                    total,
-                },
-                cx,
-            );
-        });
+        publish_download_progress_to_center(cx, ctx, received);
     }
 
     Some(received)
 }
 
-async fn finish_download_success(
-    this: &gpui::WeakEntity<TableState<SftpTable>>,
-    cx: &mut gpui::AsyncApp,
-    epoch: usize,
-    file_name: String,
-    received: u64,
-    total: Option<u64>,
-) {
-    // Ensure the last chunk has a chance to render as 100%.
-    let received = total.unwrap_or(received);
-    let _ = this.update(cx, |this, cx| {
-        this.delegate_mut().set_transfer_progress(
-            epoch,
-            Transfer::Download {
-                name: file_name.clone(),
-                received,
-                total,
-            },
-            cx,
-        );
-    });
+async fn finish_download_success(cx: &mut gpui::AsyncApp, ctx: &DownloadTaskCtx, received: u64) {
+    publish_download_progress_to_center(cx, ctx, ctx.total.unwrap_or(received));
     Timer::after(Duration::from_millis(150)).await;
-
-    let _ = this.update(cx, |this, cx| {
-        this.delegate_mut()
-            .finish_transfer_with_auto_hide(epoch, file_name, cx);
-        this.delegate_mut()
-            .show_toast(PromptLevel::Info, "Download finished", None, cx);
-    });
+    finish_download_task_in_center(cx, ctx);
 }
 
 async fn download_to_path(
-    this: gpui::WeakEntity<TableState<SftpTable>>,
     cx: &mut gpui::AsyncApp,
     sftp: wezterm_ssh::Sftp,
     id: String,
@@ -624,17 +720,12 @@ async fn download_to_path(
     dst: PathBuf,
 ) {
     let total = sftp.metadata(&id).await.ok().and_then(|m| m.size);
+    let ctx = begin_download_task(cx, file_name, total, &dst);
+
     let mut remote_f = match sftp.open(&id).await {
         Ok(f) => f,
         Err(err) => {
-            let _ = this.update(cx, |this, cx| {
-                this.delegate_mut().show_toast(
-                    PromptLevel::Warning,
-                    "Open remote file failed",
-                    Some(err.to_string()),
-                    cx,
-                );
-            });
+            fail_download_task_in_center(cx, &ctx, format!("Open remote file failed: {err}"));
             return;
         }
     };
@@ -642,35 +733,16 @@ async fn download_to_path(
     let mut local_f = match smol::fs::File::create(&dst).await {
         Ok(f) => f,
         Err(err) => {
-            let _ = this.update(cx, |this, cx| {
-                this.delegate_mut().show_toast(
-                    PromptLevel::Warning,
-                    "Create local file failed",
-                    Some(err.to_string()),
-                    cx,
-                );
-            });
+            fail_download_task_in_center(cx, &ctx, format!("Create local file failed: {err}"));
             return;
         }
     };
 
-    let (epoch, cancel) = begin_download_transfer(&this, cx, file_name.clone(), total, &dst);
-    let Some(received) = download_copy_loop(
-        &this,
-        cx,
-        &mut remote_f,
-        &mut local_f,
-        epoch,
-        &file_name,
-        total,
-        &cancel,
-    )
-    .await
-    else {
+    let Some(received) = download_copy_loop(cx, &mut remote_f, &mut local_f, &ctx).await else {
         return;
     };
 
-    finish_download_success(&this, cx, epoch, file_name, received, total).await;
+    finish_download_success(cx, &ctx, received).await;
 }
 
 impl SftpTable {
@@ -904,7 +976,7 @@ impl SftpTable {
         let picker = cx.prompt_for_new_path(&dir, Some(file_name.as_str()));
         let window_handle = _window.window_handle();
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn(async move |_this, cx| {
             let picked = picker.await;
             // Native dialogs can temporarily deactivate the app. Explicitly re-activate and
             // refresh once the dialog resolves (even if the user cancels).
@@ -917,7 +989,7 @@ impl SftpTable {
                 return;
             };
 
-            download_to_path(this, cx, sftp, id, file_name, dst).await;
+            download_to_path(cx, sftp, id, file_name, dst).await;
         })
         .detach();
     }

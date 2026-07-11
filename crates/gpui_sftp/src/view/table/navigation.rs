@@ -21,7 +21,6 @@ impl SftpTable {
             context_row: None,
             pending_toast: None,
             pending_toast_epoch: 0,
-            transfers: std::collections::HashMap::new(),
             op: None,
         }
     }
@@ -178,7 +177,6 @@ impl SftpTable {
     pub(in crate::view) fn disconnect(&mut self, cx: &mut Context<TableState<Self>>) {
         self.sftp = None;
         self.loading.clear();
-        self.finish_transfer_force(cx);
         self.op = None;
         self.show_toast(
             PromptLevel::Warning,
