@@ -111,11 +111,7 @@ pub(crate) fn url_from_line_chars(
 
     if chars[col].is_none() {
         // If the pointer landed on a spacer cell, prefer the nearest preceding real cell.
-        if let Some(prev) = (0..=col).rev().find(|&c| chars[c].is_some()) {
-            col = prev;
-        } else {
-            return None;
-        }
+        col = (0..=col).rev().find(|&c| chars[c].is_some())?;
     }
 
     let is_sep = |c: Option<char>| matches!(c, Some(ch) if ch.is_whitespace());
