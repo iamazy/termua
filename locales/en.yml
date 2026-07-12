@@ -281,6 +281,15 @@ Assistant:
     RunInTerminalOk: "Run"
     RunInTerminalCancel: "Cancel"
 
+Terminal:
+  ContextMenu:
+    Recording: "Record"
+    RecordingActive: "Recording"
+    Copy: "Copy"
+    Paste: "Paste"
+    SelectAll: "Select All"
+    Clear: "Clear"
+
 MainWindow:
   QuitConfirm:
     Title: "Quit Termua?"
@@ -390,7 +399,7 @@ Settings:
     Dark: "Dark"
   Language:
     English: "English"
-    ZhCn: "Simplified Chinese"
+    ZhCn: "简体中文"
   KeyBindingsUi:
     PressKeys: "Press keys..."
     DefaultLabel: "Default: %{label}"

@@ -63,6 +63,11 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
         let record_icon = Icon::default()
             .path(TermuaIcon::Record)
             .text_color(record_icon_color);
+        let recording_label_key = if recording_active {
+            "Terminal.ContextMenu.RecordingActive"
+        } else {
+            "Terminal.ContextMenu.Recording"
+        };
 
         let has_sftp = terminal.read(cx).sftp().is_some();
 
@@ -78,7 +83,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
 
         menu = menu
             .item(
-                gpui_component::menu::PopupMenuItem::new("Recording")
+                gpui_component::menu::PopupMenuItem::new(t!(recording_label_key).to_string())
                     .icon(record_icon)
                     .checked(recording_active)
                     .action(Box::new(ToggleCastRecording)),
@@ -86,12 +91,25 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             .separator();
 
         menu = menu
-            .menu_with_icon("Copy", IconName::Copy, Box::new(CopyAction))
-            .menu("Paste", Box::new(Paste))
+            .menu_with_icon(
+                t!("Terminal.ContextMenu.Copy").to_string(),
+                IconName::Copy,
+                Box::new(CopyAction),
+            )
+            .menu(
+                t!("Terminal.ContextMenu.Paste").to_string(),
+                Box::new(Paste),
+            )
             .separator()
-            .menu("SelectAll", Box::new(SelectAll))
+            .menu(
+                t!("Terminal.ContextMenu.SelectAll").to_string(),
+                Box::new(SelectAll),
+            )
             .separator()
-            .menu("Clear", Box::new(Clear));
+            .menu(
+                t!("Terminal.ContextMenu.Clear").to_string(),
+                Box::new(Clear),
+            );
 
         menu
     }

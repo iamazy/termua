@@ -11,6 +11,7 @@ use gpui_component::{
     notification::Notification,
 };
 use record::{RecordingMenuEntry, recording_context_menu_entry, recording_indicator_label};
+use rust_i18n::t;
 use schemars::JsonSchema;
 use scrolling::{ScrollState, TerminalScrollbarHandle};
 use serde::Deserialize;
@@ -973,9 +974,14 @@ impl TerminalView {
                 let icon = Icon::default()
                     .path(TermuaIcon::Record)
                     .text_color(icon_color);
+                let label_key = if checked {
+                    "Terminal.ContextMenu.RecordingActive"
+                } else {
+                    "Terminal.ContextMenu.Recording"
+                };
 
                 menu.item(
-                    PopupMenuItem::new("Recording")
+                    PopupMenuItem::new(t!(label_key).to_string())
                         .icon(icon)
                         .checked(checked)
                         .action(Box::new(ToggleCastRecording)),
@@ -984,12 +990,25 @@ impl TerminalView {
             }
         };
 
-        menu.menu_with_icon("Copy", IconName::Copy, Box::new(Copy))
-            .menu("Paste", Box::new(Paste))
-            .separator()
-            .menu("SelectAll", Box::new(SelectAll))
-            .separator()
-            .menu("Clear", Box::new(Clear))
+        menu.menu_with_icon(
+            t!("Terminal.ContextMenu.Copy").to_string(),
+            IconName::Copy,
+            Box::new(Copy),
+        )
+        .menu(
+            t!("Terminal.ContextMenu.Paste").to_string(),
+            Box::new(Paste),
+        )
+        .separator()
+        .menu(
+            t!("Terminal.ContextMenu.SelectAll").to_string(),
+            Box::new(SelectAll),
+        )
+        .separator()
+        .menu(
+            t!("Terminal.ContextMenu.Clear").to_string(),
+            Box::new(Clear),
+        )
     }
 }
 

@@ -2,6 +2,8 @@ use std::ops::RangeInclusive;
 
 use bitflags::bitflags;
 
+rust_i18n::i18n!("../../locales");
+
 mod backends;
 mod builder;
 pub mod cast;

@@ -280,6 +280,15 @@ Assistant:
     RunInTerminalOk: "运行"
     RunInTerminalCancel: "取消"
 
+Terminal:
+  ContextMenu:
+    Recording: "录制"
+    RecordingActive: "录制中"
+    Copy: "复制"
+    Paste: "粘贴"
+    SelectAll: "全选"
+    Clear: "清空"
+
 MainWindow:
   QuitConfirm:
     Title: "退出 Termua？"
