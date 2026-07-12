@@ -17,7 +17,6 @@ use crate::{
 };
 
 impl TermuaWindow {
-
     fn sftp_upload_group_id(panel_id: usize, transfer_id: u64) -> String {
         format!("sftp-upload-{panel_id}-{transfer_id}")
     }
