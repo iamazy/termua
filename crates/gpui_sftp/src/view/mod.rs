@@ -33,6 +33,7 @@ use gpui_transfer::{
     TransferTask,
 };
 use log::warn;
+use rust_i18n::t;
 use smol::{
     Timer,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -113,8 +114,10 @@ enum ContextMenuTarget {
 
 fn delete_selected_item_title(name: Option<&str>) -> String {
     match name {
-        Some(name) if !name.trim().is_empty() => format!("Delete \"{name}\"?"),
-        _ => "Delete selected item?".to_string(),
+        Some(name) if !name.trim().is_empty() => {
+            t!("Sftp.Dialog.DeleteNamedItem", name = name).to_string()
+        }
+        _ => t!("Sftp.Dialog.DeleteSelectedItem").to_string(),
     }
 }
 
@@ -158,15 +161,17 @@ fn sftp_context_menu(target: ContextMenuTarget) -> Vec<ContextMenu> {
 fn sftp_table_columns() -> Vec<Column> {
     // Keys are stable identifiers used by Table; keep them short and ASCII.
     vec![
-        Column::new("name", "Name").width(px(360.0)).resizable(true),
-        Column::new("size", "Size")
+        Column::new("name", t!("Sftp.Table.Name").to_string())
+            .width(px(360.0))
+            .resizable(true),
+        Column::new("size", t!("Sftp.Table.Size").to_string())
             .width(px(120.0))
             .text_right()
             .resizable(true),
-        Column::new("modified", "Modified")
+        Column::new("modified", t!("Sftp.Table.Modified").to_string())
             .width(px(180.0))
             .resizable(true),
-        Column::new("perms", "Perms")
+        Column::new("perms", t!("Sftp.Table.Perms").to_string())
             .width(px(120.0))
             .resizable(true),
     ]
@@ -284,7 +289,7 @@ impl SftpView {
                 .col_selectable(false)
                 .col_movable(false)
         });
-        let path_input = new_input(window, cx, "Path");
+        let path_input = new_input(window, cx, t!("Sftp.Placeholder.Path").to_string());
 
         // Bootstrap the root listing.
         table.update(cx, |state, cx| {
@@ -537,16 +542,16 @@ impl SftpView {
             let title = if targets_count <= 1 {
                 delete_selected_item_title(selected_name)
             } else {
-                format!("Delete {targets_count} items?")
+                t!("Sftp.Dialog.DeleteItems", count = targets_count).to_string()
             };
             dialog
                 .title(title)
                 .confirm()
                 .button_props(
                     DialogButtonProps::default()
-                        .ok_text("Delete")
+                        .ok_text(t!("Sftp.Dialog.DeleteOk").to_string())
                         .ok_variant(ButtonVariant::Danger)
-                        .cancel_text("Cancel")
+                        .cancel_text(t!("Sftp.Dialog.Cancel").to_string())
                         .show_cancel(true),
                 )
                 .on_ok(move |_e, window, cx| {

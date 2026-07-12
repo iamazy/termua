@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use gpui_common::TermuaIcon;
+use rust_i18n::t;
 
 use super::*;
 
@@ -73,6 +74,21 @@ fn sftp_table_has_expected_columns() {
     let cols = sftp_table_columns();
     let keys = cols.iter().map(|c| c.key.as_ref()).collect::<Vec<_>>();
     assert_eq!(keys, ["name", "size", "modified", "perms"]);
+}
+
+#[test]
+fn sftp_locale_keys_are_available() {
+    assert_eq!(t!("Sftp.Table.Name", locale = "en"), "Name");
+    assert_eq!(t!("Sftp.Table.Name", locale = "zh-CN"), "名称");
+    assert_eq!(t!("Sftp.Context.Upload", locale = "zh-CN"), "上传");
+    assert_eq!(
+        t!("Sftp.Preview.SelectFile", locale = "zh-CN"),
+        "选择文件以预览"
+    );
+    assert_eq!(
+        t!("Sftp.Dialog.DeleteSelectedItem", locale = "zh-CN"),
+        "删除选中的项目？"
+    );
 }
 
 #[test]

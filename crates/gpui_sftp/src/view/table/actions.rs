@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 #[derive(Clone, Debug)]
 struct PlannedUpload {
@@ -107,7 +108,12 @@ async fn upload_copy_loop(
             Ok(0) => break,
             Ok(n) => n,
             Err(err) => {
-                upload_send_failed(tx, epoch, format!("Read local file failed: {err}")).await;
+                upload_send_failed(
+                    tx,
+                    epoch,
+                    t!("Sftp.Transfer.ReadLocalFileFailed", err = err.to_string()).to_string(),
+                )
+                .await;
                 return UploadOutcome::Failed;
             }
         };
@@ -118,7 +124,12 @@ async fn upload_copy_loop(
         }
 
         if let Err(err) = remote_f.write_all(&buf[..n]).await {
-            upload_send_failed(tx, epoch, format!("Write remote file failed: {err}")).await;
+            upload_send_failed(
+                tx,
+                epoch,
+                t!("Sftp.Transfer.WriteRemoteFileFailed", err = err.to_string()).to_string(),
+            )
+            .await;
             return UploadOutcome::Failed;
         }
 
@@ -163,7 +174,12 @@ async fn run_upload_worker(
     let mut local_f = match smol::fs::File::open(&local).await {
         Ok(f) => f,
         Err(err) => {
-            upload_send_failed(&tx, epoch, format!("Open local file failed: {err}")).await;
+            upload_send_failed(
+                &tx,
+                epoch,
+                t!("Sftp.Transfer.OpenLocalFileFailed", err = err.to_string()).to_string(),
+            )
+            .await;
             return;
         }
     };
@@ -202,7 +218,12 @@ async fn run_upload_worker(
                         upload_send_failed(
                             &tx,
                             epoch,
-                            format!("Open remote file failed: {remote_path}: {err2}"),
+                            t!(
+                                "Sftp.Transfer.OpenRemotePathFailed",
+                                path = remote_path.clone(),
+                                err = err2.to_string()
+                            )
+                            .to_string(),
                         )
                         .await;
                         return;
@@ -212,7 +233,12 @@ async fn run_upload_worker(
                 upload_send_failed(
                     &tx,
                     epoch,
-                    format!("Open remote file failed: {remote_path}: {err}"),
+                    t!(
+                        "Sftp.Transfer.OpenRemotePathFailed",
+                        path = remote_path.clone(),
+                        err = err.to_string()
+                    )
+                    .to_string(),
                 )
                 .await;
                 return;
@@ -271,8 +297,12 @@ async fn plan_uploads(
             .map(|s| s.to_string())
         else {
             let _ = this.update(cx, |this, cx| {
-                this.delegate_mut()
-                    .show_toast(PromptLevel::Warning, "Invalid filename", None, cx);
+                this.delegate_mut().show_toast(
+                    PromptLevel::Warning,
+                    t!("Sftp.Toast.InvalidFilename").to_string(),
+                    None,
+                    cx,
+                );
             });
             continue;
         };
@@ -305,8 +335,8 @@ fn show_upload_nothing_to_upload(
     let _ = this.update(cx, |this, cx| {
         this.delegate_mut().show_toast(
             PromptLevel::Info,
-            "Nothing to upload",
-            Some("No valid files were selected.".to_string()),
+            t!("Sftp.Toast.NothingToUpload").to_string(),
+            Some(t!("Sftp.Toast.NoValidFilesSelected").to_string()),
             cx,
         );
     });
@@ -530,11 +560,16 @@ fn finish_upload_batch(
 ) {
     let _ = this.update(cx, |this, cx| {
         let title = if total_files == 1 {
-            "Upload finished".to_string()
+            t!("Sftp.Toast.UploadFinished").to_string()
         } else if uploaded == total_files {
-            format!("Upload finished ({uploaded} files)")
+            t!("Sftp.Toast.UploadFinishedFiles", count = uploaded).to_string()
         } else {
-            format!("Upload finished ({uploaded}/{total_files} files)")
+            t!(
+                "Sftp.Toast.UploadFinishedPartial",
+                uploaded = uploaded,
+                total = total_files
+            )
+            .to_string()
         };
         this.delegate_mut()
             .show_toast(PromptLevel::Info, title, None, cx);
@@ -679,7 +714,11 @@ async fn download_copy_loop(
             Ok(0) => break,
             Ok(n) => n,
             Err(err) => {
-                fail_download_task_in_center(cx, ctx, format!("Read remote file failed: {err}"));
+                fail_download_task_in_center(
+                    cx,
+                    ctx,
+                    t!("Sftp.Transfer.ReadRemoteFileFailed", err = err.to_string()).to_string(),
+                );
                 return None;
             }
         };
@@ -690,7 +729,11 @@ async fn download_copy_loop(
         }
 
         if let Err(err) = local_f.write_all(&buf[..n]).await {
-            fail_download_task_in_center(cx, ctx, format!("Write local file failed: {err}"));
+            fail_download_task_in_center(
+                cx,
+                ctx,
+                t!("Sftp.Transfer.WriteLocalFileFailed", err = err.to_string()).to_string(),
+            );
             return None;
         }
 
@@ -725,7 +768,11 @@ async fn download_to_path(
     let mut remote_f = match sftp.open(&id).await {
         Ok(f) => f,
         Err(err) => {
-            fail_download_task_in_center(cx, &ctx, format!("Open remote file failed: {err}"));
+            fail_download_task_in_center(
+                cx,
+                &ctx,
+                t!("Sftp.Transfer.OpenRemoteFileFailed", err = err.to_string()).to_string(),
+            );
             return;
         }
     };
@@ -733,7 +780,11 @@ async fn download_to_path(
     let mut local_f = match smol::fs::File::create(&dst).await {
         Ok(f) => f,
         Err(err) => {
-            fail_download_task_in_center(cx, &ctx, format!("Create local file failed: {err}"));
+            fail_download_task_in_center(
+                cx,
+                &ctx,
+                t!("Sftp.Transfer.CreateLocalFileFailed", err = err.to_string()).to_string(),
+            );
             return;
         }
     };
@@ -755,7 +806,7 @@ impl SftpTable {
         let Some(parent) = self.selected_dir_for_new_entries(target_row) else {
             return;
         };
-        let input = new_input(window, cx, "Folder name");
+        let input = new_input(window, cx, t!("Sftp.Placeholder.FolderName").to_string());
         self.op = Some(SftpOp {
             kind: SftpOpKind::NewFolder { parent },
             input: input.clone(),
@@ -780,9 +831,12 @@ impl SftpTable {
             return;
         };
 
-        let input = new_configured_input(window, cx, "New name", |input| {
-            input.default_value(row.name.clone())
-        });
+        let input = new_configured_input(
+            window,
+            cx,
+            t!("Sftp.Placeholder.NewName").to_string(),
+            |input| input.default_value(row.name.clone()),
+        );
 
         self.op = Some(SftpOp {
             kind: SftpOpKind::Rename {
@@ -809,14 +863,24 @@ impl SftpTable {
             return;
         };
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
 
         let name = op.input.read(cx).value().to_string();
         let name = name.trim().to_string();
         if name.is_empty() {
-            self.show_toast(PromptLevel::Info, "Name is required", None, cx);
+            self.show_toast(
+                PromptLevel::Info,
+                t!("Sftp.Toast.NameRequired").to_string(),
+                None,
+                cx,
+            );
             return;
         }
 
@@ -832,7 +896,7 @@ impl SftpTable {
                         Ok(()) => {
                             this.delegate_mut().show_toast(
                                 PromptLevel::Info,
-                                "Folder created",
+                                t!("Sftp.Toast.FolderCreated").to_string(),
                                 None,
                                 cx,
                             );
@@ -840,7 +904,7 @@ impl SftpTable {
                         }
                         Err(err) => this.delegate_mut().show_toast(
                             PromptLevel::Warning,
-                            "Create folder failed",
+                            t!("Sftp.Toast.CreateFolderFailed").to_string(),
                             Some(err.to_string()),
                             cx,
                         ),
@@ -856,13 +920,17 @@ impl SftpTable {
                         .await;
                     let _ = this.update(cx, |this, cx| match res {
                         Ok(()) => {
-                            this.delegate_mut()
-                                .show_toast(PromptLevel::Info, "Renamed", None, cx);
+                            this.delegate_mut().show_toast(
+                                PromptLevel::Info,
+                                t!("Sftp.Toast.Renamed").to_string(),
+                                None,
+                                cx,
+                            );
                             this.delegate_mut().refresh_dir(parent.clone(), cx);
                         }
                         Err(err) => this.delegate_mut().show_toast(
                             PromptLevel::Warning,
-                            "Rename failed",
+                            t!("Sftp.Toast.RenameFailed").to_string(),
                             Some(err.to_string()),
                             cx,
                         ),
@@ -880,7 +948,12 @@ impl SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         if self.sftp.is_none() {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         let Some(remote_dir) = self.selected_dir_for_new_entries(target_row) else {
@@ -891,7 +964,7 @@ impl SftpTable {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Select files to upload".into()),
+            prompt: Some(t!("Sftp.Dialog.SelectFilesToUpload").to_string().into()),
         });
         let window_handle = _window.window_handle();
 
@@ -925,14 +998,19 @@ impl SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         if !accept_external_file_drop_paths(&locals) {
             self.show_toast(
                 PromptLevel::Info,
-                "Only files are supported",
-                Some("Dragging folders is not supported.".to_string()),
+                t!("Sftp.Toast.OnlyFilesSupported").to_string(),
+                Some(t!("Sftp.Toast.DraggingFoldersUnsupported").to_string()),
                 cx,
             );
             return;
@@ -957,7 +1035,12 @@ impl SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         let Some(row_ix) = target_row else {
@@ -1001,7 +1084,12 @@ impl SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         let Some(tree) = self.tree.as_ref() else {
@@ -1053,14 +1141,19 @@ impl SftpTable {
 
                 if failed == 0 {
                     let title = if deleted == 1 {
-                        "Deleted".to_string()
+                        t!("Sftp.Toast.Deleted").to_string()
                     } else {
-                        format!("Deleted {deleted} items")
+                        t!("Sftp.Toast.DeletedItems", count = deleted).to_string()
                     };
                     this.delegate_mut()
                         .show_toast(PromptLevel::Info, title, None, cx);
                 } else {
-                    let title = format!("Deleted {deleted}/{total} items");
+                    let title = t!(
+                        "Sftp.Toast.DeletedPartial",
+                        deleted = deleted,
+                        total = total
+                    )
+                    .to_string();
                     this.delegate_mut()
                         .show_toast(PromptLevel::Warning, title, last_error, cx);
                 }

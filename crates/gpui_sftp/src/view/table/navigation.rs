@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 impl SftpTable {
     pub(in crate::view) fn new(sftp: wezterm_ssh::Sftp) -> Self {
@@ -180,8 +181,8 @@ impl SftpTable {
         self.op = None;
         self.show_toast(
             PromptLevel::Warning,
-            "SSH terminal closed",
-            Some("SFTP session disconnected.".to_string()),
+            t!("Sftp.Toast.SshTerminalClosed").to_string(),
+            Some(t!("Sftp.Toast.SessionDisconnected").to_string()),
             cx,
         );
     }
@@ -263,7 +264,12 @@ impl SftpTable {
 
     pub(super) fn refresh_dir(&mut self, dir: String, cx: &mut Context<TableState<Self>>) {
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         let Some(tree) = self.tree.as_mut() else {
@@ -304,7 +310,7 @@ impl SftpTable {
                     Err(err) => {
                         this.delegate_mut().show_toast(
                             PromptLevel::Warning,
-                            "Failed to read directory",
+                            t!("Sftp.Toast.FailedReadDirectory").to_string(),
                             Some(err.to_string()),
                             cx,
                         );
@@ -319,7 +325,12 @@ impl SftpTable {
 
     pub(in crate::view) fn cd(&mut self, dir: String, cx: &mut Context<TableState<Self>>) {
         if self.sftp.is_none() {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         }
 

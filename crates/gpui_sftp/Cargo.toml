@@ -18,6 +18,7 @@ gpui_common.workspace = true
 gpui_transfer = { path = "../gpui_transfer" }
 home.workspace = true
 log.workspace = true
+rust-i18n.workspace = true
 smol.workspace = true
 time.workspace = true
 

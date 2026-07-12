@@ -1,5 +1,6 @@
 use gpui::{AnyElement, Hsla, Pixels};
 use gpui_common::TermuaIcon;
+use rust_i18n::t;
 
 use super::{format::human_bytes, *};
 
@@ -235,9 +236,15 @@ impl SftpView {
                     // Render our own icon in the label so it can be bigger.
                     PopupMenuItem::element(move |_window, _cx| {
                         let (label, icon) = if show_hidden {
-                            ("Hide Hidden Files", IconName::EyeOff)
+                            (
+                                t!("Sftp.Context.HideHiddenFiles").to_string(),
+                                IconName::EyeOff,
+                            )
                         } else {
-                            ("Show Hidden Files", IconName::Eye)
+                            (
+                                t!("Sftp.Context.ShowHiddenFiles").to_string(),
+                                IconName::Eye,
+                            )
                         };
 
                         div()
@@ -344,32 +351,32 @@ impl SftpView {
                 ContextMenu::Separator => menu.separator(),
                 ContextMenu::Action(action) => match action {
                     ContextMenuAction::Refresh => menu.menu_with_icon(
-                        "Refresh",
+                        t!("Sftp.Context.Refresh").to_string(),
                         Icon::default().path(TermuaIcon::Refresh),
                         Box::new(Refresh),
                     ),
                     ContextMenuAction::Upload => menu.menu_with_icon(
-                        "Upload",
+                        t!("Sftp.Context.Upload").to_string(),
                         Icon::default().path(TermuaIcon::Upload),
                         Box::new(Upload),
                     ),
                     ContextMenuAction::Download => menu.menu_with_icon(
-                        "Download",
+                        t!("Sftp.Context.Download").to_string(),
                         Icon::default().path(TermuaIcon::Download),
                         Box::new(Download),
                     ),
                     ContextMenuAction::NewFolder => menu.menu_with_icon(
-                        "New Folder",
+                        t!("Sftp.Context.NewFolder").to_string(),
                         Icon::default().path(TermuaIcon::FolderPlus),
                         Box::new(NewFolder),
                     ),
                     ContextMenuAction::Rename => menu.menu_with_icon(
-                        "Rename",
+                        t!("Sftp.Context.Rename").to_string(),
                         Icon::default().path(TermuaIcon::SquarePen),
                         Box::new(Rename),
                     ),
                     ContextMenuAction::Delete => menu.menu_with_icon(
-                        "Delete",
+                        t!("Sftp.Context.Delete").to_string(),
                         Icon::default().path(TermuaIcon::Trash),
                         Box::new(Delete),
                     ),
@@ -398,7 +405,7 @@ impl SftpView {
             .target
             .as_ref()
             .map(|t| (SharedString::from(t.name.clone()), t.size))
-            .unwrap_or_else(|| ("Preview".into(), None));
+            .unwrap_or_else(|| (t!("Sftp.Preview.Title").to_string().into(), None));
 
         let preview_body = self.render_preview_body(preview_w, window, cx);
         let muted_fg = cx.theme().muted_foreground.opacity(0.85);
@@ -482,7 +489,7 @@ impl SftpView {
                 .gap(px(8.0))
                 .text_color(muted_fg)
                 .child(Icon::new(IconName::Search).size_6())
-                .child("Select a file to preview")
+                .child(t!("Sftp.Preview.SelectFile").to_string())
                 .into_any_element(),
             PreviewContent::Loading => div()
                 .size_full()
@@ -493,7 +500,7 @@ impl SftpView {
                 .gap(px(8.0))
                 .text_color(muted_fg)
                 .child(Icon::new(IconName::LoaderCircle).size_6())
-                .child("Loading preview...")
+                .child(t!("Sftp.Preview.Loading").to_string())
                 .into_any_element(),
             PreviewContent::Binary => div()
                 .size_full()
@@ -504,7 +511,7 @@ impl SftpView {
                 .gap(px(8.0))
                 .text_color(muted_fg)
                 .child(Icon::new(IconName::TriangleAlert).size_6())
-                .child("Binary file (preview unsupported)")
+                .child(t!("Sftp.Preview.BinaryUnsupported").to_string())
                 .into_any_element(),
             PreviewContent::Error { message } => div()
                 .size_full()
@@ -599,8 +606,8 @@ impl SftpView {
         let y = px(140.0);
 
         let title = match op.kind {
-            SftpOpKind::NewFolder { .. } => "New Folder",
-            SftpOpKind::Rename { .. } => "Rename",
+            SftpOpKind::NewFolder { .. } => t!("Sftp.Dialog.NewFolder").to_string(),
+            SftpOpKind::Rename { .. } => t!("Sftp.Dialog.Rename").to_string(),
         };
 
         div()
@@ -649,7 +656,9 @@ impl SftpView {
                                             cx.stop_propagation();
                                         }),
                                     )
-                                    .child(div().text_xs().child("Cancel")),
+                                    .child(
+                                        div().text_xs().child(t!("Sftp.Dialog.Cancel").to_string()),
+                                    ),
                             )
                             .child(
                                 div()
@@ -665,7 +674,7 @@ impl SftpView {
                                             cx.stop_propagation();
                                         }),
                                     )
-                                    .child(div().text_xs().child("OK")),
+                                    .child(div().text_xs().child(t!("Sftp.Dialog.OK").to_string())),
                             ),
                     ),
             )

@@ -3156,6 +3156,7 @@ dependencies = [
  "gpui_transfer",
  "home",
  "log",
+ "rust-i18n",
  "smol",
  "time",
  "wezterm-ssh",

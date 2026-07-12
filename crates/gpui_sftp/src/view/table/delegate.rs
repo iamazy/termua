@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 impl TableDelegate for SftpTable {
     fn columns_count(&self, _cx: &App) -> usize {
@@ -20,11 +21,11 @@ impl TableDelegate for SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let (label, sort_col) = match col_ix {
-            0 => ("Name", SortColumn::Name),
-            1 => ("Size", SortColumn::Size),
-            2 => ("Modified", SortColumn::Modified),
-            3 => ("Perms", SortColumn::Perms),
-            _ => ("", SortColumn::Name),
+            0 => (t!("Sftp.Table.Name").to_string(), SortColumn::Name),
+            1 => (t!("Sftp.Table.Size").to_string(), SortColumn::Size),
+            2 => (t!("Sftp.Table.Modified").to_string(), SortColumn::Modified),
+            3 => (t!("Sftp.Table.Perms").to_string(), SortColumn::Perms),
+            _ => (String::new(), SortColumn::Name),
         };
 
         let active = self.sort.column == sort_col;
@@ -141,7 +142,7 @@ impl TableDelegate for SftpTable {
             .gap(px(8.0))
             .text_color(muted)
             .child(Icon::new(IconName::Inbox).size_6())
-            .child("Empty directory")
+            .child(t!("Sftp.Table.Empty").to_string())
     }
 
     fn render_td(

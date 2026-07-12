@@ -1,5 +1,7 @@
 use gpui::actions;
 
+rust_i18n::i18n!("../../locales");
+
 mod preview;
 mod state;
 mod view;
