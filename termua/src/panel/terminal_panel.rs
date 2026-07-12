@@ -220,16 +220,6 @@ impl TerminalPanel {
             return;
         }
 
-        if terminal.sftp_upload_is_active() {
-            self.notify(
-                MessageKind::Warning,
-                "Transfer in progress",
-                Some("Wait for the current upload to finish before starting another."),
-                window,
-                cx,
-            );
-            return;
-        }
         let _ = terminal;
 
         self.pending_sftp_upload = Some(PendingSftpUpload {
@@ -264,17 +254,6 @@ impl TerminalPanel {
 
         self.terminal_view.update(cx, |terminal_view, cx| {
             terminal_view.terminal.update(cx, |terminal, cx| {
-                if terminal.sftp_upload_is_active() {
-                    cx.emit(gpui_term::Event::Toast {
-                        level: gpui::PromptLevel::Warning,
-                        title: "Transfer in progress".to_string(),
-                        detail: Some(
-                            "Wait for the current upload to finish before starting another."
-                                .to_string(),
-                        ),
-                    });
-                    return;
-                }
                 terminal.start_sftp_upload(dialog.paths, cx);
             });
         });
