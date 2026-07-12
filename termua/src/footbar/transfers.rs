@@ -37,21 +37,18 @@ impl FootbarView {
             return div().into_any_element();
         };
 
-        let transfers_done = transfers
-            .iter()
-            .filter(|t| t.status == TransferStatus::Finished)
-            .count();
-
         let stripe_a = cx.theme().progress_bar.alpha(0.22);
         let stripe_b = cx.theme().progress_bar.alpha(0.10);
-        let progress_el = render_transfers_summary_progress(task, stripe_a, stripe_b, cx.theme());
+        let summary = cx.global::<TransferCenterState>().summary();
+        let progress_el = render_transfers_summary_progress(
+            task,
+            summary.progress(),
+            stripe_a,
+            stripe_b,
+            cx.theme(),
+        );
 
-        let (done, total) = task
-            .group_id
-            .as_deref()
-            .and_then(|gid| cx.global::<TransferCenterState>().group_counts(gid))
-            .unwrap_or((transfers_done, transfers.len()));
-        let transfers_done_label = format!("{done}/{total}");
+        let transfers_done_label = format!("{}/{}", summary.done, summary.total);
         let transfers_for_panel = Arc::new(transfers.to_vec());
         let view = cx.entity();
 
@@ -106,6 +103,7 @@ impl FootbarView {
 
 fn render_transfers_summary_progress(
     task: &TransferTask,
+    progress: TransferProgress,
     stripe_a: Hsla,
     stripe_b: Hsla,
     theme: &gpui_component::Theme,
@@ -113,7 +111,7 @@ fn render_transfers_summary_progress(
     const SUMMARY_PROGRESS_W: gpui::Pixels = px(220.0);
     const SUMMARY_PROGRESS_H: gpui::Pixels = px(6.0);
 
-    match task.progress {
+    match progress {
         TransferProgress::Determinate(pct) => {
             let value = (pct.clamp(0.0, 1.0) * 100.0).clamp(0.0, 100.0);
             let progress = Progress::new(format!(
