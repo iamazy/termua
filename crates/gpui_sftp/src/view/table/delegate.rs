@@ -1,5 +1,6 @@
-use super::*;
 use rust_i18n::t;
+
+use super::*;
 
 impl TableDelegate for SftpTable {
     fn columns_count(&self, _cx: &App) -> usize {

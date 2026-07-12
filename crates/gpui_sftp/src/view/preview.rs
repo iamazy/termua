@@ -1,6 +1,7 @@
+use rust_i18n::t;
+
 use super::{format::fenced_text_as_markdown, *};
 use crate::preview::{PreviewGate, PreviewKind, gate_preview, read_bytes_with_limit};
-use rust_i18n::t;
 
 #[derive(Clone, Debug)]
 pub(super) struct PreviewTarget {

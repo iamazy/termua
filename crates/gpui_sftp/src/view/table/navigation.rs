@@ -1,5 +1,6 @@
-use super::*;
 use rust_i18n::t;
+
+use super::*;
 
 impl SftpTable {
     pub(in crate::view) fn new(sftp: wezterm_ssh::Sftp) -> Self {
