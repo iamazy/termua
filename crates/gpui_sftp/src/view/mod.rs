@@ -546,7 +546,8 @@ impl SftpView {
                     DialogButtonProps::default()
                         .ok_text("Delete")
                         .ok_variant(ButtonVariant::Danger)
-                        .cancel_text("Cancel"),
+                        .cancel_text("Cancel")
+                        .show_cancel(true),
                 )
                 .on_ok(move |_e, window, cx| {
                     table.update(cx, |state, cx| {
