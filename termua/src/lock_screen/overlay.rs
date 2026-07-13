@@ -6,6 +6,7 @@ use super::LockState;
 
 pub struct LockOverlayState {
     pub password_input: Entity<InputState>,
+    pub password_reveal_pressed: Entity<bool>,
     pub error: Option<SharedString>,
 }
 
@@ -31,9 +32,9 @@ impl LockOverlayState {
                 .placeholder(t!("LockScreen.Placeholder.Password").to_string())
                 .masked(true)
         });
-
         Self {
             password_input,
+            password_reveal_pressed: cx.new(|_| false),
             error: None,
         }
     }
@@ -50,12 +51,17 @@ impl LockOverlayState {
         Some(crate::lock_screen::view::render_lock_overlay(
             self.error.clone(),
             self.password_input.clone(),
+            self.password_reveal_pressed.clone(),
             unlock,
             cx,
         ))
     }
 
     fn clear_password_input<T>(&mut self, window: &mut Window, cx: &mut Context<T>) {
+        self.password_reveal_pressed.update(cx, |reveal, cx| {
+            *reveal = false;
+            cx.notify();
+        });
         self.password_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.set_masked(true, window, cx);
