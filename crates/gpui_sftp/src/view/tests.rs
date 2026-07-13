@@ -14,6 +14,7 @@ fn delegate_with_tree(tree: TreeState) -> SftpTable {
         show_hidden: false,
         selected_ids: std::collections::HashSet::new(),
         selection_anchor_id: None,
+        drag_selecting: false,
         columns: sftp_table_columns(),
         sort,
         visible: Vec::new(),
@@ -336,6 +337,122 @@ fn selection_shift_click_selects_range() {
     assert_eq!(
         d.selected_ids_sorted(),
         vec!["/b".to_string(), "/c".to_string(), "/d".to_string()]
+    );
+}
+
+#[test]
+fn selection_dragging_over_rows_adds_to_selection() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/a", "a", EntryKind::File),
+            Entry::new("/b", "b", EntryKind::File),
+            Entry::new("/c", "c", EntryKind::Dir),
+            Entry::new("/d", "d", EntryKind::File),
+        ],
+    );
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    d.begin_drag_select(0, gpui::Modifiers::none());
+    d.drag_select_row(1);
+    d.drag_select_row(2);
+    assert_eq!(
+        d.selected_ids_sorted(),
+        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
+    );
+
+    d.end_drag_select();
+    d.drag_select_row(3);
+    assert_eq!(
+        d.selected_ids_sorted(),
+        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
+    );
+}
+
+#[test]
+fn selection_dragging_from_blank_area_selects_rows_moved_over() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/a", "a", EntryKind::File),
+            Entry::new("/b", "b", EntryKind::File),
+            Entry::new("/c", "c", EntryKind::File),
+        ],
+    );
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    d.begin_blank_drag_select();
+    d.drag_select_row(1);
+    d.drag_select_row(2);
+
+    assert_eq!(
+        d.selected_ids_sorted(),
+        vec!["/b".to_string(), "/c".to_string()]
+    );
+}
+
+#[test]
+fn clear_selection_removes_selected_rows_and_anchor() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/a", "a", EntryKind::File),
+            Entry::new("/b", "b", EntryKind::File),
+        ],
+    );
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    d.click_row_local(0, gpui::Modifiers::none());
+    assert_eq!(d.selected_ids_sorted(), vec!["/a".to_string()]);
+    assert_eq!(d.selection_anchor_id.as_deref(), Some("/a"));
+
+    d.clear_selection();
+
+    assert!(d.selected_ids_sorted().is_empty());
+    assert_eq!(d.selection_anchor_id, None);
+}
+
+#[gpui::test]
+fn begin_blank_table_drag_select_clears_selection_and_starts_drag(cx: &mut gpui::TestAppContext) {
+    gpui_component::init(&mut cx.app.borrow_mut());
+
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children("/", vec![Entry::new("/a", "a", EntryKind::File)]);
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let (table, cx) = cx.add_window_view(|window, cx| TableState::new(d, window, cx));
+    table.update(cx, |state, cx| {
+        state
+            .delegate_mut()
+            .click_row_local(0, gpui::Modifiers::none());
+        state.set_selected_row(0, cx);
+
+        begin_blank_table_drag_select(state, cx);
+
+        assert!(state.delegate().selected_ids_sorted().is_empty());
+        assert_eq!(state.delegate().selection_anchor_id, None);
+        assert!(state.delegate().drag_selecting);
+        assert_eq!(state.selected_row(), None);
+    });
+}
+
+#[test]
+fn select_row_event_does_not_activate_directory() {
+    assert_eq!(table_event_activation_row(&TableEvent::SelectRow(2)), None);
+    assert_eq!(
+        table_event_activation_row(&TableEvent::DoubleClickedRow(2)),
+        Some(2)
+    );
+    assert_eq!(
+        table_event_activation_row(&TableEvent::DoubleClickedCell(2, 0)),
+        Some(2)
     );
 }
 

@@ -75,10 +75,26 @@ impl TableDelegate for SftpTable {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |table, ev: &MouseDownEvent, _window, cx| {
-                    table.delegate_mut().click_row_local(row_ix, ev.modifiers);
+                    table.delegate_mut().begin_drag_select(row_ix, ev.modifiers);
                     // Keep Table's internal focus row in sync for keyboard navigation / preview.
                     table.set_selected_row(row_ix, cx);
                     cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |table, ev: &MouseMoveEvent, _window, cx| {
+                if ev.pressed_button != Some(MouseButton::Left) {
+                    table.delegate_mut().end_drag_select();
+                    return;
+                }
+
+                table.delegate_mut().drag_select_row(row_ix);
+                table.set_selected_row(row_ix, cx);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |table, _ev: &MouseUpEvent, _window, _cx| {
+                    table.delegate_mut().end_drag_select();
                 }),
             );
 

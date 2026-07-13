@@ -5,15 +5,15 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
 };
 
 use camino::Utf8PathBuf;
 use gpui::{
     App, AppContext, Bounds, Context, Div, Entity, EventEmitter, ExternalPaths, FocusHandle,
     Focusable, Image, ImageSource, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, PathPromptOptions, PromptLevel, Render, SharedString, Stateful, Styled,
-    StyledImage, Subscription, Window, canvas, div, img, prelude::FluentBuilder, px,
+    MouseMoveEvent, MouseUpEvent, ParentElement, PathPromptOptions, PromptLevel, Render,
+    SharedString, Stateful, Styled, StyledImage, Subscription, Window, canvas, div, img,
+    prelude::FluentBuilder, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -224,6 +224,7 @@ struct SftpTable {
 
     selected_ids: HashSet<String>,
     selection_anchor_id: Option<String>,
+    drag_selecting: bool,
 
     columns: Vec<Column>,
     sort: SortSpec,
@@ -241,7 +242,6 @@ pub struct SftpView {
     path_input: Entity<InputState>,
     path_editing: bool,
     table_bounds: Bounds<gpui::Pixels>,
-    last_row_activate: Option<(usize, Instant)>,
     preview: PreviewPane,
     preview_epoch: usize,
     show_preview: bool,
@@ -280,6 +280,24 @@ where
     cx.new(|cx| configure(InputState::new(window, cx).placeholder(placeholder)))
 }
 
+fn table_event_activation_row(ev: &TableEvent) -> Option<usize> {
+    match ev {
+        TableEvent::DoubleClickedRow(row_ix) | TableEvent::DoubleClickedCell(row_ix, _) => {
+            Some(*row_ix)
+        }
+        _ => None,
+    }
+}
+
+fn begin_blank_table_drag_select(
+    state: &mut TableState<SftpTable>,
+    cx: &mut Context<TableState<SftpTable>>,
+) {
+    state.clear_selection(cx);
+    state.delegate_mut().begin_blank_drag_select();
+    cx.notify();
+}
+
 impl SftpView {
     pub fn new(sftp: wezterm_ssh::Sftp, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
@@ -304,7 +322,6 @@ impl SftpView {
             path_input,
             path_editing: false,
             table_bounds: Bounds::default(),
-            last_row_activate: None,
             preview: PreviewPane {
                 target: None,
                 content: PreviewContent::Empty,
@@ -385,16 +402,11 @@ impl SftpView {
         ev: &TableEvent,
         cx: &mut Context<Self>,
     ) {
-        // Prefer Table's native double-click events, but also provide a fallback path:
-        // on some platforms/backends, click_count can be unreliable, so we treat a fast
-        // repeated SelectRow on the same row as an "activate".
-        let mut activate_row: Option<usize> = None;
+        let activate_row = table_event_activation_row(ev);
 
         match ev {
-            TableEvent::DoubleClickedRow(row_ix) => activate_row = Some(*row_ix),
-            TableEvent::DoubleClickedCell(row_ix, _col_ix) => activate_row = Some(*row_ix),
             TableEvent::SelectRow(row_ix) => {
-                self.handle_table_row_selected(table, *row_ix, &mut activate_row, cx);
+                self.handle_table_row_selected(table, *row_ix, cx);
             }
             TableEvent::ClearSelection => self.close_preview(cx),
             _ => {}
@@ -418,7 +430,6 @@ impl SftpView {
         &mut self,
         table: &Entity<TableState<SftpTable>>,
         row_ix: usize,
-        activate_row: &mut Option<usize>,
         cx: &mut Context<Self>,
     ) {
         let target = table
@@ -443,18 +454,6 @@ impl SftpView {
                 self.request_preview(target, cx);
             }
             PreviewGate::Hidden | PreviewGate::TooLarge { .. } => self.close_preview(cx),
-        }
-
-        let now = Instant::now();
-        // Use a short threshold similar to typical OS double-click timing.
-        let threshold = Duration::from_millis(450);
-        let is_fast_repeat = self
-            .last_row_activate
-            .map(|(prev_ix, prev_at)| prev_ix == row_ix && now.duration_since(prev_at) <= threshold)
-            .unwrap_or(false);
-        self.last_row_activate = Some((row_ix, now));
-        if is_fast_repeat {
-            *activate_row = Some(row_ix);
         }
     }
 

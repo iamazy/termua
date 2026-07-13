@@ -17,6 +17,7 @@ impl SftpTable {
             show_hidden: false,
             selected_ids: HashSet::new(),
             selection_anchor_id: None,
+            drag_selecting: false,
             columns: sftp_table_columns(),
             sort,
             visible,
@@ -94,6 +95,37 @@ impl SftpTable {
         }
 
         self.selection_anchor_id = Some(target_id);
+    }
+
+    pub(in crate::view) fn begin_drag_select(&mut self, row_ix: usize, modifiers: gpui::Modifiers) {
+        self.click_row_local(row_ix, modifiers);
+        self.drag_selecting = true;
+    }
+
+    pub(in crate::view) fn begin_blank_drag_select(&mut self) {
+        self.clear_selection();
+        self.drag_selecting = true;
+    }
+
+    pub(in crate::view) fn drag_select_row(&mut self, row_ix: usize) {
+        if !self.drag_selecting {
+            return;
+        }
+        let Some(row) = self.row(row_ix) else {
+            return;
+        };
+        self.selected_ids.insert(row.id.clone());
+    }
+
+    pub(in crate::view) fn end_drag_select(&mut self) {
+        self.drag_selecting = false;
+    }
+
+    pub(in crate::view) fn clear_selection(&mut self) {
+        self.selected_ids.clear();
+        self.selection_anchor_id = None;
+        self.context_row = None;
+        self.drag_selecting = false;
     }
 
     pub(in crate::view) fn set_context_menu_target(&mut self, row_ix: Option<usize>) {

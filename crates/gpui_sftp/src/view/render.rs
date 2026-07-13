@@ -64,7 +64,7 @@ impl SftpView {
             .on_any_mouse_down({
                 let view_handle = view_handle.clone();
                 let table = table.clone();
-                move |_ev, window, cx| {
+                move |ev, window, cx| {
                     let bounds = view_handle.read(cx).table_bounds;
                     if bounds.size.width <= px(0.0) || bounds.size.height <= px(0.0) {
                         return;
@@ -90,7 +90,20 @@ impl SftpView {
                     let ix = table_row_ix_from_mouse_y(body_y, scroll_y, row_h);
                     if ix.is_some_and(|ix| table.read(cx).delegate().row(ix).is_some()) {
                         cx.stop_propagation();
+                    } else if ev.button == MouseButton::Left {
+                        table.update(cx, |state, cx| {
+                            begin_blank_table_drag_select(state, cx);
+                        });
                     }
+                }
+            })
+            .on_mouse_up(MouseButton::Left, {
+                let table = table.clone();
+                move |_ev, _window, cx| {
+                    table.update(cx, |state, cx| {
+                        state.delegate_mut().end_drag_select();
+                        cx.notify();
+                    });
                 }
             })
             .child(
