@@ -140,7 +140,7 @@ pub fn render_lock_overlay<T: 'static>(
                             .child(Input::new(&lock_password_input).suffix(
                                 render_lock_password_reveal_button(
                                     lock_password_input.clone(),
-                                    lock_password_reveal_pressed.clone(),
+                                    lock_password_reveal_pressed,
                                     cx,
                                 ),
                             )),
