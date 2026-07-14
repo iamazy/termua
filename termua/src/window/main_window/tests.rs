@@ -19,6 +19,7 @@ use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, SshOptions, Terminal, TerminalBackend,
     TerminalBounds, TerminalType, TerminalView, UserInput as TerminalUserInput,
 };
+use rust_i18n::t;
 
 use super::*;
 use crate::{
@@ -27,6 +28,19 @@ use crate::{
     notification,
     ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn},
 };
+
+#[test]
+fn terminal_context_menu_labels_follow_the_active_locale() {
+    let _guard = crate::locale::lock();
+    crate::locale::set_locale("zh-CN");
+
+    assert_eq!(t!("Terminal.ContextMenu.Recording"), "录制");
+    assert_eq!(t!("Terminal.ContextMenu.RecordingActive"), "录制中");
+    assert_eq!(t!("Terminal.ContextMenu.Copy"), "复制");
+    assert_eq!(t!("Terminal.ContextMenu.Paste"), "粘贴");
+    assert_eq!(t!("Terminal.ContextMenu.SelectAll"), "全选");
+    assert_eq!(t!("Terminal.ContextMenu.Clear"), "清空");
+}
 
 #[gpui::test]
 fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppContext) {

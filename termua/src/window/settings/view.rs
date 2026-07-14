@@ -8,6 +8,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Disableable, IconName, Sizable, StyledExt, TitleBar, WindowExt,
     button::{Button, ButtonVariants},
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
     input::Input,
     menu::{DropdownMenu, PopupMenuItem},
@@ -1294,10 +1295,8 @@ impl SettingsWindow {
                                             ),
                                         )
                                         .footer(
-                                            h_flex()
-                                                .justify_end()
-                                                .gap_2()
-                                                .child(
+                                            DialogFooter::new()
+                                                .child(DialogClose::new().child(
                                                     Button::new(
                                                         "termua-settings-assistant-disable-dialog-cancel",
                                                     )
@@ -1311,12 +1310,9 @@ impl SettingsWindow {
                                                     .debug_selector(|| {
                                                         "termua-settings-assistant-disable-dialog-cancel"
                                                             .to_string()
-                                                    })
-                                                    .on_click(|_, window, cx| {
-                                                        window.close_dialog(cx);
                                                     }),
-                                                )
-                                                .child(
+                                                ))
+                                                .child(DialogAction::new().child(
                                                     Button::new(
                                                         "termua-settings-assistant-disable-dialog-stop",
                                                     )
@@ -1331,18 +1327,18 @@ impl SettingsWindow {
                                                     .debug_selector(|| {
                                                         "termua-settings-assistant-disable-dialog-stop"
                                                             .to_string()
-                                                    })
-                                                    .on_click({
-                                                        let settings_entity = settings_entity.clone();
-                                                        move |_, window, cx| {
-                                                            settings_entity.update(cx, |this, cx| {
-                                                                this.shutdown_zeroclaw(window, cx);
-                                                            });
-                                                            window.close_dialog(cx);
-                                                        }
                                                     }),
-                                                ),
+                                                )),
                                         )
+                                        .on_ok({
+                                            let settings_entity = settings_entity.clone();
+                                            move |_, window, cx| {
+                                                settings_entity.update(cx, |this, cx| {
+                                                    this.shutdown_zeroclaw(window, cx);
+                                                });
+                                                true
+                                            }
+                                        })
                                 },
                                 window,
                                 cx,

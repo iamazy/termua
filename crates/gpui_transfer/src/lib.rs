@@ -118,13 +118,39 @@ pub struct TransferCenterState {
     group_tasks: HashMap<String, HashSet<String>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TransferCenterSummary {
+    pub done: usize,
+    pub total: usize,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+}
+
 #[derive(Default)]
 struct TransferGroupState {
     total: usize,
     completed: HashSet<String>,
+    bytes: HashMap<String, (u64, u64)>,
 }
 
 impl Global for TransferCenterState {}
+
+impl TransferGroupState {
+    fn summary(&self) -> TransferCenterSummary {
+        let mut summary = TransferCenterSummary {
+            done: self.completed.len().min(self.total),
+            total: self.total,
+            ..Default::default()
+        };
+
+        for (done, total) in self.bytes.values().copied() {
+            summary.bytes_done += done.min(total);
+            summary.bytes_total += total;
+        }
+
+        summary
+    }
+}
 
 impl TransferCenterState {
     pub fn upsert(&mut self, mut task: TransferTask) {
@@ -132,6 +158,13 @@ impl TransferCenterState {
         let task_id = task.id.clone();
 
         if let Some(existing) = self.tasks.get(task.id.as_str()).cloned() {
+            let preserve_transfer_bytes = existing.group_id == task.group_id;
+            if preserve_transfer_bytes && task.bytes_done.is_none() {
+                task.bytes_done = existing.bytes_done;
+            }
+            if preserve_transfer_bytes && task.bytes_total.is_none() {
+                task.bytes_total = existing.bytes_total;
+            }
             let preserve_group = existing.group_id == task.group_id;
             self.remove_task_from_group_state(&existing, true, preserve_group);
             task.created_at = existing.created_at;
@@ -156,7 +189,11 @@ impl TransferCenterState {
         if let Some(pos) = self.order.iter().position(|k| k == id) {
             self.order.remove(pos);
         }
-        self.remove_task_from_group_state(&task, false, false);
+        self.remove_task_from_group_state(&task, false, task.status != TransferStatus::InProgress);
+        if self.tasks.is_empty() {
+            self.group_tasks.clear();
+            self.groups.clear();
+        }
     }
 
     pub fn remove_group(&mut self, group_id: &str) {
@@ -169,15 +206,26 @@ impl TransferCenterState {
         for id in ids {
             self.remove(id.as_str());
         }
+        self.group_tasks.remove(group_id);
+        self.groups.remove(group_id);
     }
 
     pub fn remove_groups_with_prefix(&mut self, prefix: &str) {
-        let group_ids: Vec<String> = self
+        let mut group_ids: Vec<String> = self
             .group_tasks
             .keys()
             .filter(|group_id| group_id.starts_with(prefix))
             .cloned()
             .collect();
+        for group_id in self
+            .groups
+            .keys()
+            .filter(|group_id| group_id.starts_with(prefix))
+        {
+            if !group_ids.iter().any(|id| id == group_id) {
+                group_ids.push(group_id.clone());
+            }
+        }
 
         for group_id in group_ids {
             self.remove_group(group_id.as_str());
@@ -196,12 +244,27 @@ impl TransferCenterState {
         self.tasks.is_empty()
     }
 
-    pub fn group_counts(&self, group_id: &str) -> Option<(usize, usize)> {
-        let g = self.groups.get(group_id)?;
-        if g.total == 0 {
-            return None;
+    pub fn summary(&self) -> TransferCenterSummary {
+        let mut summary = TransferCenterSummary::default();
+
+        for group in self.groups.values() {
+            summary.add(group.summary());
         }
-        Some((g.completed.len(), g.total))
+
+        for task in self.tasks.values().filter(|task| task.group_id.is_none()) {
+            summary.total += 1;
+            if task.status == TransferStatus::Finished {
+                summary.done += 1;
+            }
+            if let (Some(done), Some(total)) = (task.bytes_done, task.bytes_total)
+                && total > 0
+            {
+                summary.bytes_done += done.min(total);
+                summary.bytes_total += total;
+            }
+        }
+
+        summary
     }
 
     fn apply_task_to_group_state(&mut self, task: &TransferTask) {
@@ -217,6 +280,22 @@ impl TransferCenterState {
         let g = self.groups.entry(group_id.to_string()).or_default();
         if let Some(total) = task.group_total {
             g.total = g.total.max(total);
+        }
+
+        if let Some(bytes_total) = task.bytes_total
+            && bytes_total > 0
+        {
+            let bytes_done = task
+                .bytes_done
+                .unwrap_or_else(|| {
+                    if task.status == TransferStatus::Finished {
+                        bytes_total
+                    } else {
+                        0
+                    }
+                })
+                .min(bytes_total);
+            g.bytes.insert(task.id.clone(), (bytes_done, bytes_total));
         }
 
         match task.status {
@@ -240,19 +319,41 @@ impl TransferCenterState {
         if let Some(group_tasks) = self.group_tasks.get_mut(group_id) {
             group_tasks.remove(task.id.as_str());
             if group_tasks.is_empty() {
-                if preserve_group_when_empty {
-                    group_tasks.clear();
-                } else {
-                    self.group_tasks.remove(group_id);
+                self.group_tasks.remove(group_id);
+                if !preserve_group_when_empty {
                     self.groups.remove(group_id);
                     return;
                 }
             }
         }
 
-        if remove_completion && let Some(group_state) = self.groups.get_mut(group_id) {
-            group_state.completed.remove(task.id.as_str());
+        if let Some(group_state) = self.groups.get_mut(group_id) {
+            if remove_completion {
+                group_state.completed.remove(task.id.as_str());
+            }
+            if remove_completion || task.status == TransferStatus::InProgress {
+                group_state.bytes.remove(task.id.as_str());
+            }
         }
+    }
+}
+
+impl TransferCenterSummary {
+    pub fn progress(self) -> TransferProgress {
+        if self.bytes_total > 0 {
+            TransferProgress::Determinate(
+                (self.bytes_done as f32 / self.bytes_total as f32).clamp(0.0, 1.0),
+            )
+        } else {
+            TransferProgress::Indeterminate
+        }
+    }
+
+    fn add(&mut self, other: Self) {
+        self.done += other.done;
+        self.total += other.total;
+        self.bytes_done += other.bytes_done;
+        self.bytes_total += other.bytes_total;
     }
 }
 
@@ -295,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn group_counts_keep_original_total_even_when_tasks_auto_dismiss() {
+    fn summary_keeps_original_total_even_when_tasks_auto_dismiss() {
         let mut s = TransferCenterState::default();
 
         s.upsert(
@@ -309,11 +410,11 @@ mod tests {
                 .with_status(TransferStatus::InProgress),
         );
 
-        assert_eq!(s.group_counts("g1"), Some((1, 3)));
+        assert_summary(&s, 1, 3, 0, 0);
 
         // Simulate auto-dismiss removing finished tasks: the group total should not change.
         s.remove("t1");
-        assert_eq!(s.group_counts("g1"), Some((1, 3)));
+        assert_summary(&s, 1, 3, 0, 0);
 
         // When the remaining task finishes, done count should advance.
         s.upsert(
@@ -321,7 +422,135 @@ mod tests {
                 .with_group("g1", Some(3))
                 .with_status(TransferStatus::Finished),
         );
-        assert_eq!(s.group_counts("g1"), Some((2, 3)));
+        assert_summary(&s, 2, 3, 0, 0);
+    }
+
+    #[test]
+    fn summary_progress_uses_bytes() {
+        assert_eq!(
+            TransferCenterSummary {
+                done: 1,
+                total: 2,
+                bytes_done: 25,
+                bytes_total: 100,
+            }
+            .progress(),
+            TransferProgress::Determinate(0.25)
+        );
+    }
+
+    #[test]
+    fn summary_keeps_finished_task_bytes_after_auto_dismiss() {
+        let mut s = TransferCenterState::default();
+
+        s.upsert(
+            TransferTask::new("t1", "one")
+                .with_group("g1", Some(2))
+                .with_status(TransferStatus::Finished)
+                .with_bytes(Some(10), Some(10)),
+        );
+        s.upsert(
+            TransferTask::new("t2", "two")
+                .with_group("g1", Some(2))
+                .with_status(TransferStatus::InProgress)
+                .with_bytes(Some(5), Some(20)),
+        );
+
+        assert_summary(&s, 1, 2, 15, 30);
+
+        s.remove("t1");
+        assert_summary(&s, 1, 2, 15, 30);
+    }
+
+    #[test]
+    fn summary_resets_after_all_tasks_auto_dismiss() {
+        let mut s = TransferCenterState::default();
+
+        s.upsert(
+            TransferTask::new("old-1", "old one")
+                .with_group("old", Some(2))
+                .with_status(TransferStatus::Finished)
+                .with_bytes(Some(10), Some(10)),
+        );
+        s.upsert(
+            TransferTask::new("old-2", "old two")
+                .with_group("old", Some(2))
+                .with_status(TransferStatus::Finished)
+                .with_bytes(Some(20), Some(20)),
+        );
+
+        s.remove("old-1");
+        s.remove("old-2");
+
+        assert_eq!(s.summary(), TransferCenterSummary::default());
+
+        s.upsert(
+            TransferTask::new("new-1", "new one")
+                .with_group("new", Some(2))
+                .with_status(TransferStatus::InProgress)
+                .with_bytes(Some(5), Some(50)),
+        );
+
+        assert_summary(&s, 0, 2, 5, 50);
+    }
+
+    #[test]
+    fn summary_keeps_finished_group_while_another_group_is_active() {
+        let mut s = TransferCenterState::default();
+
+        s.upsert(
+            TransferTask::new("old-1", "old one")
+                .with_group("old", Some(1))
+                .with_status(TransferStatus::Finished)
+                .with_bytes(Some(10), Some(10)),
+        );
+        s.upsert(
+            TransferTask::new("new-1", "new one")
+                .with_group("new", Some(2))
+                .with_status(TransferStatus::InProgress)
+                .with_bytes(Some(5), Some(50)),
+        );
+        s.remove("old-1");
+
+        assert_summary(&s, 1, 3, 15, 60);
+    }
+
+    #[test]
+    fn terminal_update_without_bytes_preserves_existing_group_bytes() {
+        let mut s = TransferCenterState::default();
+
+        s.upsert(
+            TransferTask::new("t1", "one")
+                .with_group("g1", Some(1))
+                .with_status(TransferStatus::InProgress)
+                .with_bytes(Some(4), Some(10)),
+        );
+        s.upsert(
+            TransferTask::new("t1", "one")
+                .with_group("g1", Some(1))
+                .with_status(TransferStatus::Cancelled),
+        );
+
+        assert_summary(&s, 1, 1, 4, 10);
+    }
+
+    #[test]
+    fn moving_task_to_another_group_does_not_reuse_previous_bytes() {
+        let mut s = TransferCenterState::default();
+
+        s.upsert(
+            TransferTask::new("t1", "one")
+                .with_group("g1", Some(1))
+                .with_status(TransferStatus::InProgress)
+                .with_bytes(Some(4), Some(10)),
+        );
+        s.upsert(
+            TransferTask::new("t1", "one")
+                .with_group("g2", Some(1))
+                .with_status(TransferStatus::InProgress),
+        );
+
+        assert_summary(&s, 0, 1, 0, 0);
     }
 
     #[test]
@@ -349,8 +578,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["t3"]
         );
-        assert_eq!(s.group_counts("g1"), None);
-        assert_eq!(s.group_counts("g2"), Some((0, 1)));
+        assert_summary(&s, 0, 1, 0, 0);
     }
 
     #[test]
@@ -362,7 +590,7 @@ mod tests {
                 .with_group("g1", Some(2))
                 .with_status(TransferStatus::Finished),
         );
-        assert_eq!(s.group_counts("g1"), Some((1, 2)));
+        assert_summary(&s, 1, 2, 0, 0);
 
         s.upsert(
             TransferTask::new("t1", "one")
@@ -370,8 +598,7 @@ mod tests {
                 .with_status(TransferStatus::InProgress),
         );
 
-        assert_eq!(s.group_counts("g1"), None);
-        assert_eq!(s.group_counts("g2"), Some((0, 1)));
+        assert_summary(&s, 0, 1, 0, 0);
     }
 
     #[test]
@@ -391,8 +618,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["t3"]
         );
-        assert_eq!(s.group_counts("sftp-1"), None);
-        assert_eq!(s.group_counts("sftp-2"), None);
-        assert_eq!(s.group_counts("http-1"), Some((0, 1)));
+        assert_summary(&s, 0, 1, 0, 0);
+    }
+
+    fn assert_summary(
+        state: &TransferCenterState,
+        done: usize,
+        total: usize,
+        bytes_done: u64,
+        bytes_total: u64,
+    ) {
+        assert_eq!(
+            state.summary(),
+            TransferCenterSummary {
+                done,
+                total,
+                bytes_done,
+                bytes_total,
+            }
+        );
     }
 }

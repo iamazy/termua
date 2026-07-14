@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl TableDelegate for SftpTable {
@@ -20,11 +22,11 @@ impl TableDelegate for SftpTable {
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let (label, sort_col) = match col_ix {
-            0 => ("Name", SortColumn::Name),
-            1 => ("Size", SortColumn::Size),
-            2 => ("Modified", SortColumn::Modified),
-            3 => ("Perms", SortColumn::Perms),
-            _ => ("", SortColumn::Name),
+            0 => (t!("Sftp.Table.Name").to_string(), SortColumn::Name),
+            1 => (t!("Sftp.Table.Size").to_string(), SortColumn::Size),
+            2 => (t!("Sftp.Table.Modified").to_string(), SortColumn::Modified),
+            3 => (t!("Sftp.Table.Perms").to_string(), SortColumn::Perms),
+            _ => (String::new(), SortColumn::Name),
         };
 
         let active = self.sort.column == sort_col;
@@ -73,10 +75,26 @@ impl TableDelegate for SftpTable {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |table, ev: &MouseDownEvent, _window, cx| {
-                    table.delegate_mut().click_row_local(row_ix, ev.modifiers);
+                    table.delegate_mut().begin_drag_select(row_ix, ev.modifiers);
                     // Keep Table's internal focus row in sync for keyboard navigation / preview.
                     table.set_selected_row(row_ix, cx);
                     cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |table, ev: &MouseMoveEvent, _window, cx| {
+                if ev.pressed_button != Some(MouseButton::Left) {
+                    table.delegate_mut().end_drag_select();
+                    return;
+                }
+
+                table.delegate_mut().drag_select_row(row_ix);
+                table.set_selected_row(row_ix, cx);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |table, _ev: &MouseUpEvent, _window, _cx| {
+                    table.delegate_mut().end_drag_select();
                 }),
             );
 
@@ -141,7 +159,7 @@ impl TableDelegate for SftpTable {
             .gap(px(8.0))
             .text_color(muted)
             .child(Icon::new(IconName::Inbox).size_6())
-            .child("Empty directory")
+            .child(t!("Sftp.Table.Empty").to_string())
     }
 
     fn render_td(

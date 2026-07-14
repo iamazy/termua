@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::{format::fenced_text_as_markdown, *};
 use crate::preview::{PreviewGate, PreviewKind, gate_preview, read_bytes_with_limit};
 
@@ -62,14 +64,22 @@ impl SftpView {
             let mut remote_f = match sftp.open(&target.id).await {
                 Ok(f) => f,
                 Err(err) => {
-                    return PreviewOutcome::Error(format!("Open failed: {err}").into());
+                    return PreviewOutcome::Error(
+                        t!("Sftp.Preview.OpenFailed", err = err.to_string())
+                            .to_string()
+                            .into(),
+                    );
                 }
             };
 
             let (bytes, truncated) = match read_bytes_with_limit(&mut remote_f, limit_bytes).await {
                 Ok(res) => res,
                 Err(err) => {
-                    return PreviewOutcome::Error(format!("Read failed: {err}").into());
+                    return PreviewOutcome::Error(
+                        t!("Sftp.Preview.ReadFailed", err = err.to_string())
+                            .to_string()
+                            .into(),
+                    );
                 }
             };
 
@@ -129,7 +139,7 @@ impl SftpView {
         cx.spawn(async move |this, cx| {
             let outcome = match sftp {
                 Some(sftp) => load_preview_outcome(sftp, &target, kind, limit_bytes).await,
-                None => PreviewOutcome::Error("Disconnected".into()),
+                None => PreviewOutcome::Error(t!("Sftp.Toast.Disconnected").to_string().into()),
             };
 
             let _ = this.update(cx, |this, cx| {

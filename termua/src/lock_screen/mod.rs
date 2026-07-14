@@ -300,6 +300,31 @@ mod tests {
     }
 
     #[test]
+    fn lock_password_reveal_is_press_and_hold() {
+        assert_eq!(
+            (
+                super::view::lock_password_masked_for_reveal(true),
+                super::view::lock_password_masked_for_reveal(false)
+            ),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn lock_password_reveal_icon_changes_while_pressed() {
+        use gpui_component::IconNamed;
+
+        assert_eq!(
+            super::view::lock_password_reveal_icon(false).path(),
+            gpui_component::IconName::Eye.path()
+        );
+        assert_eq!(
+            super::view::lock_password_reveal_icon(true).path(),
+            gpui_component::IconName::EyeOff.path()
+        );
+    }
+
+    #[test]
     fn lock_state_default_disables_lock_when_username_unavailable() {
         struct VarGuard {
             key: &'static str,

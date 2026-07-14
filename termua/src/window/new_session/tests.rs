@@ -1,4 +1,5 @@
 use gpui::{ParentElement, Render, Styled, div};
+use rust_i18n::t;
 
 use super::*;
 use crate::{env::build_terminal_env, store::SessionEnvVar};
@@ -29,7 +30,7 @@ fn test_session_env(
 
 #[test]
 fn new_session_colorterm_field_label_uses_camel_case_locale() {
-    assert_eq!(rust_i18n::t!("NewSession.Field.ColorTerm"), "ColorTerm:");
+    assert_eq!(t!("NewSession.Field.ColorTerm"), "ColorTerm:");
 }
 
 #[gpui::test]

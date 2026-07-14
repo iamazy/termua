@@ -120,10 +120,12 @@ pub enum Event {
         file: String,
         bytes: u64,
     },
-    /// SFTP upload cancelled/aborted.
+    /// SFTP upload group cancelled/aborted.
     ///
     /// Currently this is emitted on failures (e.g. remote permission issues).
-    SftpUploadCancelled,
+    SftpUploadCancelled {
+        transfer_id: u64,
+    },
     /// SFTP per-file upload cancelled.
     ///
     /// This is emitted when the embedding app toggles the `cancel` token in
@@ -443,7 +445,7 @@ pub enum TerminalType {
 pub struct Terminal {
     backend_type: TerminalType,
     inner: Box<dyn TerminalBackend>,
-    sftp_upload_active: bool,
+    sftp_upload_active_groups: usize,
     sftp_upload_transfer_id: u64,
 }
 
@@ -473,7 +475,7 @@ mod sftp_upload {
     use super::Event;
 
     pub(crate) struct StartParams {
-        pub(crate) paths: Vec<PathBuf>,
+        pub(crate) files: Vec<LocalUploadFile>,
         pub(crate) sftp: Sftp,
         pub(crate) upload_pool: PermitPool,
         pub(crate) max_concurrency: usize,
@@ -536,25 +538,25 @@ mod sftp_upload {
         },
     }
 
-    fn set_upload_active(this: &WeakEntity<super::Terminal>, cx: &mut AsyncApp, active: bool) {
-        let _ = this.update(cx, move |this, _cx| {
-            this.sftp_upload_active = active;
-        });
-    }
-
-    fn cancel_upload(this: &WeakEntity<super::Terminal>, cx: &mut AsyncApp, toast: Option<Event>) {
+    fn cancel_upload(
+        this: &WeakEntity<super::Terminal>,
+        cx: &mut AsyncApp,
+        transfer_id: u64,
+        toast: Option<Event>,
+    ) {
         let _ = this.update(cx, |this, cx| {
-            this.sftp_upload_active = false;
             if let Some(toast) = toast {
                 cx.emit(toast);
             }
-            cx.emit(Event::SftpUploadCancelled);
+            cx.emit(Event::SftpUploadCancelled { transfer_id });
+            this.finish_sftp_upload_batch();
         });
     }
 
     fn cancel_upload_with_toast(
         this: &WeakEntity<super::Terminal>,
         cx: &mut AsyncApp,
+        transfer_id: u64,
         level: gpui::PromptLevel,
         title: String,
         detail: Option<String>,
@@ -562,6 +564,7 @@ mod sftp_upload {
         cancel_upload(
             this,
             cx,
+            transfer_id,
             Some(Event::Toast {
                 level,
                 title,
@@ -613,7 +616,7 @@ mod sftp_upload {
         params: StartParams,
     ) {
         let StartParams {
-            paths,
+            files,
             sftp,
             upload_pool,
             max_concurrency,
@@ -621,14 +624,13 @@ mod sftp_upload {
             remote_dir_hint,
         } = params;
 
-        set_upload_active(&this, cx, true);
         let Some(mut state) = prepare_upload(
             &this,
             cx,
             &sftp,
             &upload_pool,
             PrepareUploadParams {
-                paths,
+                files,
                 transfer_id,
                 remote_dir_hint: remote_dir_hint.as_deref(),
                 max_concurrency,
@@ -651,8 +653,8 @@ mod sftp_upload {
         .await;
 
         let _ = this.update(cx, |this, cx| {
-            this.sftp_upload_active = false;
             cx.emit(Event::SftpUploadFinished { files, total_bytes });
+            this.finish_sftp_upload_batch();
         });
     }
 
@@ -679,7 +681,7 @@ mod sftp_upload {
     }
 
     struct PrepareUploadParams<'a> {
-        paths: Vec<PathBuf>,
+        files: Vec<LocalUploadFile>,
         transfer_id: u64,
         remote_dir_hint: Option<&'a str>,
         max_concurrency: usize,
@@ -693,17 +695,17 @@ mod sftp_upload {
         params: PrepareUploadParams<'_>,
     ) -> Option<UploadLoopState> {
         let PrepareUploadParams {
-            paths,
+            files,
             transfer_id,
             remote_dir_hint,
             max_concurrency,
         } = params;
 
-        let local_files = collect_local_files(paths);
-        if local_files.is_empty() {
+        if files.is_empty() {
             cancel_upload_with_toast(
                 this,
                 cx,
+                transfer_id,
                 gpui::PromptLevel::Warning,
                 "Nothing to upload".to_string(),
                 Some("No files were selected.".to_string()),
@@ -717,6 +719,7 @@ mod sftp_upload {
                 cancel_upload_with_toast(
                     this,
                     cx,
+                    transfer_id,
                     gpui::PromptLevel::Critical,
                     "Upload failed".to_string(),
                     Some(format!("SFTP: failed to resolve remote directory: {err}")),
@@ -727,12 +730,13 @@ mod sftp_upload {
 
         // Plan unique remote names up-front (best-effort), to avoid collisions across
         // concurrently executing upload tasks.
-        let planned = match plan_files(sftp, &remote_dir, local_files).await {
+        let planned = match plan_files(sftp, &remote_dir, files).await {
             Ok(planned) => planned,
             Err(PlanError::TooManyCollisions { remote_path }) => {
                 cancel_upload_with_toast(
                     this,
                     cx,
+                    transfer_id,
                     gpui::PromptLevel::Critical,
                     "Upload failed".to_string(),
                     Some(format!(
@@ -745,6 +749,7 @@ mod sftp_upload {
                 cancel_upload_with_toast(
                     this,
                     cx,
+                    transfer_id,
                     gpui::PromptLevel::Critical,
                     "Upload failed".to_string(),
                     Some(format!("SFTP metadata failed for {remote_path}: {err}")),
@@ -1374,7 +1379,7 @@ impl Terminal {
         Self {
             backend_type,
             inner,
-            sftp_upload_active: false,
+            sftp_upload_active_groups: 0,
             sftp_upload_transfer_id: 0,
         }
     }
@@ -1386,7 +1391,7 @@ impl Terminal {
     pub fn replace_backend(&mut self, backend_type: TerminalType, inner: Box<dyn TerminalBackend>) {
         self.backend_type = backend_type;
         self.inner = inner;
-        self.sftp_upload_active = false;
+        self.sftp_upload_active_groups = 0;
         self.sftp_upload_transfer_id = 0;
     }
 
@@ -1601,37 +1606,31 @@ impl Terminal {
     }
 
     pub fn sftp_upload_is_active(&self) -> bool {
-        self.sftp_upload_active
+        self.sftp_upload_active_groups > 0
     }
 
     /// Starts uploading local files to the remote current directory via SFTP.
     ///
     /// For non-SSH terminals, `self.sftp()` returns `None` and this is a no-op.
     pub fn start_sftp_upload(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        if self.sftp_upload_active {
-            cx.emit(Event::Toast {
-                level: gpui::PromptLevel::Warning,
-                title: "Transfer in progress".to_string(),
-                detail: Some("Wait for the current upload to finish.".to_string()),
-            });
-            return;
-        }
-
-        let max_concurrency = TerminalSettings::global(cx)
-            .sftp_upload_max_concurrency
-            .clamp(1, 15);
-
-        let upload_pool = gpui_common::set_sftp_upload_permit_pool_max(cx, max_concurrency);
-
         let Some(sftp) = self.sftp() else {
             return;
         };
 
         self.sftp_upload_transfer_id = self.sftp_upload_transfer_id.wrapping_add(1);
         let transfer_id = self.sftp_upload_transfer_id;
+        let files = sftp_upload::collect_local_files(paths);
+        self.emit_sftp_upload_file_placeholders(transfer_id, &files, cx);
+
+        self.sftp_upload_active_groups = self.sftp_upload_active_groups.saturating_add(1);
+
+        let max_concurrency = TerminalSettings::global(cx)
+            .sftp_upload_max_concurrency
+            .clamp(1, 15);
+        let upload_pool = gpui_common::set_sftp_upload_permit_pool_max(cx, max_concurrency);
 
         let params = sftp_upload::StartParams {
-            paths,
+            files,
             sftp,
             upload_pool,
             max_concurrency,
@@ -1639,9 +1638,30 @@ impl Terminal {
             remote_dir_hint: self.current_dir(),
         };
 
-        // Note: do *not* assume `paths` is non-empty or all are files.
         cx.spawn(async move |this, cx| sftp_upload::run_start(this, cx, params).await)
             .detach();
+    }
+
+    fn finish_sftp_upload_batch(&mut self) {
+        self.sftp_upload_active_groups = self.sftp_upload_active_groups.saturating_sub(1);
+    }
+
+    fn emit_sftp_upload_file_placeholders(
+        &self,
+        transfer_id: u64,
+        files: &[sftp_upload::LocalUploadFile],
+        cx: &mut Context<Self>,
+    ) {
+        for (file_index, file) in files.iter().enumerate() {
+            cx.emit(Event::SftpUploadFileProgress {
+                transfer_id,
+                file_index,
+                file: file.name.clone(),
+                sent: 0,
+                total: file.size,
+                cancel: Arc::clone(&file.cancel),
+            });
+        }
     }
 
     pub fn focus_in(&self) {
@@ -1829,6 +1849,33 @@ fn plain_text_for_keystroke(keystroke: &Keystroke) -> Option<String> {
 }
 
 #[cfg(test)]
+mod sftp_upload_activity_tests {
+    use std::sync::{Arc, atomic::AtomicUsize};
+
+    use super::*;
+
+    #[test]
+    fn multiple_upload_groups_can_be_active_together() {
+        let mut terminal = Terminal::new(
+            TerminalType::WezTerm,
+            Box::new(cast_recording_tests::FakeBackend {
+                active: false,
+                stop_calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+
+        terminal.sftp_upload_active_groups = 2;
+        assert!(terminal.sftp_upload_is_active());
+
+        terminal.finish_sftp_upload_batch();
+        assert!(terminal.sftp_upload_is_active());
+
+        terminal.finish_sftp_upload_batch();
+        assert!(!terminal.sftp_upload_is_active());
+    }
+}
+
+#[cfg(test)]
 mod cast_recording_tests {
     use std::sync::{
         Arc,
@@ -1837,9 +1884,9 @@ mod cast_recording_tests {
 
     use super::*;
 
-    struct FakeBackend {
-        active: bool,
-        stop_calls: Arc<AtomicUsize>,
+    pub(super) struct FakeBackend {
+        pub(super) active: bool,
+        pub(super) stop_calls: Arc<AtomicUsize>,
     }
 
     impl TerminalBackend for FakeBackend {

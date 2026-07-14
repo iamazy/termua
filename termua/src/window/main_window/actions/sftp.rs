@@ -17,10 +17,6 @@ use crate::{
 };
 
 impl TermuaWindow {
-    fn sftp_upload_panel_prefix(panel_id: usize) -> String {
-        format!("sftp-upload-{panel_id}-")
-    }
-
     fn sftp_upload_group_id(panel_id: usize, transfer_id: u64) -> String {
         format!("sftp-upload-{panel_id}-{transfer_id}")
     }
@@ -253,8 +249,8 @@ impl TermuaWindow {
                 );
                 true
             }
-            TerminalEvent::SftpUploadCancelled => {
-                Self::handle_sftp_upload_cancelled(panel_id, tab_label, window, cx);
+            TerminalEvent::SftpUploadCancelled { transfer_id } => {
+                Self::handle_sftp_upload_cancelled(panel_id, transfer_id, tab_label, window, cx);
                 true
             }
             TerminalEvent::SftpUploadFileCancelled {
@@ -341,6 +337,7 @@ impl TermuaWindow {
 
     fn handle_sftp_upload_cancelled(
         panel_id: usize,
+        transfer_id: &u64,
         tab_label: &SharedString,
         window: &mut Window,
         cx: &mut Context<TermuaWindow>,
@@ -354,7 +351,7 @@ impl TermuaWindow {
 
         if cx.try_global::<TransferCenterState>().is_some() {
             cx.global_mut::<TransferCenterState>()
-                .remove_groups_with_prefix(Self::sftp_upload_panel_prefix(panel_id).as_str());
+                .remove_group(Self::sftp_upload_group_id(panel_id, *transfer_id).as_str());
         }
     }
 
@@ -427,7 +424,6 @@ mod tests {
 
     #[test]
     fn sftp_transfer_keys_are_stable() {
-        assert_eq!(TermuaWindow::sftp_upload_panel_prefix(7), "sftp-upload-7-");
         assert_eq!(TermuaWindow::sftp_upload_group_id(7, 9), "sftp-upload-7-9");
         assert_eq!(
             TermuaWindow::sftp_upload_task_id(7, 9, 2),

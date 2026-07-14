@@ -6,6 +6,7 @@ use gpui_component::{
     input::{InputEvent, InputState},
     select::SearchableVec,
 };
+use rust_i18n::t;
 
 use super::{
     state::{build_nav_tree_items, sidebar_nav_specs},
@@ -2290,6 +2291,15 @@ fn sidebar_nav_order_matches_english_in_chinese_locale() {
 
     assert_eq!(chinese_group_order, english_group_order);
     assert_eq!(chinese_item_order, english_item_order);
+}
+
+#[test]
+fn simplified_chinese_language_option_uses_native_name_in_english_locale() {
+    let _guard = crate::locale::lock();
+
+    crate::locale::set_locale("en");
+
+    assert_eq!(t!("Settings.Language.ZhCn"), "简体中文");
 }
 
 #[test]

@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl SftpTable {
@@ -15,6 +17,7 @@ impl SftpTable {
             show_hidden: false,
             selected_ids: HashSet::new(),
             selection_anchor_id: None,
+            drag_selecting: false,
             columns: sftp_table_columns(),
             sort,
             visible,
@@ -92,6 +95,37 @@ impl SftpTable {
         }
 
         self.selection_anchor_id = Some(target_id);
+    }
+
+    pub(in crate::view) fn begin_drag_select(&mut self, row_ix: usize, modifiers: gpui::Modifiers) {
+        self.click_row_local(row_ix, modifiers);
+        self.drag_selecting = true;
+    }
+
+    pub(in crate::view) fn begin_blank_drag_select(&mut self) {
+        self.clear_selection();
+        self.drag_selecting = true;
+    }
+
+    pub(in crate::view) fn drag_select_row(&mut self, row_ix: usize) {
+        if !self.drag_selecting {
+            return;
+        }
+        let Some(row) = self.row(row_ix) else {
+            return;
+        };
+        self.selected_ids.insert(row.id.clone());
+    }
+
+    pub(in crate::view) fn end_drag_select(&mut self) {
+        self.drag_selecting = false;
+    }
+
+    pub(in crate::view) fn clear_selection(&mut self) {
+        self.selected_ids.clear();
+        self.selection_anchor_id = None;
+        self.context_row = None;
+        self.drag_selecting = false;
     }
 
     pub(in crate::view) fn set_context_menu_target(&mut self, row_ix: Option<usize>) {
@@ -180,8 +214,8 @@ impl SftpTable {
         self.op = None;
         self.show_toast(
             PromptLevel::Warning,
-            "SSH terminal closed",
-            Some("SFTP session disconnected.".to_string()),
+            t!("Sftp.Toast.SshTerminalClosed").to_string(),
+            Some(t!("Sftp.Toast.SessionDisconnected").to_string()),
             cx,
         );
     }
@@ -263,7 +297,12 @@ impl SftpTable {
 
     pub(super) fn refresh_dir(&mut self, dir: String, cx: &mut Context<TableState<Self>>) {
         let Some(sftp) = self.sftp.clone() else {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         };
         let Some(tree) = self.tree.as_mut() else {
@@ -304,7 +343,7 @@ impl SftpTable {
                     Err(err) => {
                         this.delegate_mut().show_toast(
                             PromptLevel::Warning,
-                            "Failed to read directory",
+                            t!("Sftp.Toast.FailedReadDirectory").to_string(),
                             Some(err.to_string()),
                             cx,
                         );
@@ -319,7 +358,12 @@ impl SftpTable {
 
     pub(in crate::view) fn cd(&mut self, dir: String, cx: &mut Context<TableState<Self>>) {
         if self.sftp.is_none() {
-            self.show_toast(PromptLevel::Warning, "Disconnected", None, cx);
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
             return;
         }
 
