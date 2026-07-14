@@ -56,18 +56,26 @@ impl UploadFailure {
 
     fn summary(&self) -> String {
         match self.kind {
-            UploadFailureKind::OpenLocalFile => {
-                t!("Sftp.Transfer.OpenLocalFileFailed", err = self.cause.clone()).to_string()
-            }
-            UploadFailureKind::ReadLocalFile => {
-                t!("Sftp.Transfer.ReadLocalFileFailed", err = self.cause.clone()).to_string()
-            }
-            UploadFailureKind::OpenRemoteFile => {
-                t!("Sftp.Transfer.OpenRemoteFileFailed", err = self.cause.clone()).to_string()
-            }
-            UploadFailureKind::WriteRemoteFile => {
-                t!("Sftp.Transfer.WriteRemoteFileFailed", err = self.cause.clone()).to_string()
-            }
+            UploadFailureKind::OpenLocalFile => t!(
+                "Sftp.Transfer.OpenLocalFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::ReadLocalFile => t!(
+                "Sftp.Transfer.ReadLocalFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::OpenRemoteFile => t!(
+                "Sftp.Transfer.OpenRemoteFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::WriteRemoteFile => t!(
+                "Sftp.Transfer.WriteRemoteFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
         }
     }
 
@@ -169,9 +177,17 @@ impl DownloadTaskCtx {
 
 #[derive(Clone, Debug)]
 enum UploadMsg {
-    Progress { epoch: usize, sent: u64, total: u64 },
-    Finished { epoch: usize },
-    Cancelled { epoch: usize },
+    Progress {
+        epoch: usize,
+        sent: u64,
+        total: u64,
+    },
+    Finished {
+        epoch: usize,
+    },
+    Cancelled {
+        epoch: usize,
+    },
     Failed {
         epoch: usize,
         failure: UploadFailure,
@@ -349,10 +365,7 @@ async fn run_upload_worker(
                         upload_send_failed(
                             &tx,
                             epoch,
-                            UploadFailure::new(
-                                UploadFailureKind::OpenRemoteFile,
-                                err2.to_string(),
-                            ),
+                            UploadFailure::new(UploadFailureKind::OpenRemoteFile, err2.to_string()),
                         )
                         .await;
                         return;
@@ -977,10 +990,8 @@ mod tests {
     #[test]
     fn upload_batch_groups_failures_by_operation_and_cause() {
         let mut result = UploadBatchResult::default();
-        let permission_denied = UploadFailure::new(
-            UploadFailureKind::OpenRemoteFile,
-            "permission denied",
-        );
+        let permission_denied =
+            UploadFailure::new(UploadFailureKind::OpenRemoteFile, "permission denied");
         result.record_failure(permission_denied.clone(), "a.txt".to_string());
         result.record_failure(permission_denied, "b.txt".to_string());
         result.record_failure(
@@ -1009,10 +1020,12 @@ mod tests {
         let toast = classify_upload_batch(3, &result);
 
         assert!(matches!(toast.level, PromptLevel::Warning));
-        assert!(toast
-            .detail
-            .as_deref()
-            .is_some_and(|detail| detail.contains("disk full") && detail.contains("large.bin")));
+        assert!(
+            toast
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("disk full") && detail.contains("large.bin"))
+        );
     }
 
     #[test]
@@ -1033,10 +1046,7 @@ mod tests {
     #[test]
     fn terminal_auto_dismiss_removes_failed_task_only() {
         let mut state = TransferCenterState::default();
-        state.upsert(
-            TransferTask::new("failed", "failed")
-                .with_status(TransferStatus::Failed),
-        );
+        state.upsert(TransferTask::new("failed", "failed").with_status(TransferStatus::Failed));
         state.upsert(TransferTask::new("active", "active"));
 
         remove_transfer_if_terminal(&mut state, "failed");
