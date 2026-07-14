@@ -103,6 +103,22 @@ fn sftp_dir_icon_path_is_folder_open_blue_when_expanded() {
 }
 
 #[test]
+fn remote_drag_entry_icon_uses_directory_icon_for_dirs() {
+    assert_eq!(
+        remote_drag_entry_icon_path(EntryKind::Dir, "src"),
+        Some(TermuaIcon::FolderClosedBlue)
+    );
+}
+
+#[test]
+fn remote_drag_entry_icon_uses_file_type_icon_for_files() {
+    assert_eq!(
+        remote_drag_entry_icon_path(EntryKind::File, "archive.tar.gz"),
+        Some(TermuaIcon::FileArchive)
+    );
+}
+
+#[test]
 fn context_menu_for_blank_does_not_include_rename_or_delete_or_download() {
     use ContextMenu as S;
     use ContextMenuAction as A;

@@ -122,11 +122,24 @@ impl RemoteDragEntry {
     }
 }
 
+fn remote_drag_entry_icon_path(kind: EntryKind, name: &str) -> Option<TermuaIcon> {
+    match kind {
+        EntryKind::Dir => Some(sftp_dir_icon_path(false)),
+        EntryKind::File => file_icons::icon_path_for_file_name(name),
+        EntryKind::Symlink | EntryKind::Other => None,
+    }
+}
+
 impl Render for RemoteDragEntry {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let icon_path = remote_drag_entry_icon_path(self.kind, &self.name);
+
         div()
             .id("sftp-remote-drag-entry")
             .cursor_grab()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
             .px(px(10.0))
             .py(px(6.0))
             .border_1()
@@ -134,6 +147,17 @@ impl Render for RemoteDragEntry {
             .rounded_md()
             .bg(cx.theme().popover)
             .text_color(cx.theme().foreground)
+            .child(match icon_path {
+                Some(path) => img(path)
+                    .w(px(16.0))
+                    .h(px(16.0))
+                    .object_fit(gpui::ObjectFit::Contain)
+                    .into_any_element(),
+                None => Icon::new(IconName::File)
+                    .small()
+                    .text_color(cx.theme().muted_foreground)
+                    .into_any_element(),
+            })
             .child(self.name.clone())
     }
 }
