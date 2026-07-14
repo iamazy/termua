@@ -265,6 +265,52 @@ impl SftpTable {
         }
     }
 
+    pub(in crate::view) fn drop_remote_move_target_dir(
+        &self,
+        target_row: Option<usize>,
+        drag: &RemoteDragEntry,
+    ) -> Option<String> {
+        let tree = self.tree.as_ref()?;
+        let target_dir = match target_row.and_then(|ix| self.row(ix)) {
+            Some(row) if row.kind == EntryKind::Dir => row.id.clone(),
+            Some(_) => return None,
+            None => tree.root.clone(),
+        };
+
+        remote_move_target_dir(drag, target_dir)
+    }
+
+    pub(in crate::view) fn drop_remote_move_target_dir_for_blank_row(
+        &self,
+        blank_row_ix: usize,
+        drag: &RemoteDragEntry,
+    ) -> Option<String> {
+        let tree = self.tree.as_ref()?;
+        if self.row(blank_row_ix).is_some() {
+            return None;
+        }
+
+        let Some(prev_ix) = blank_row_ix.min(self.visible.len()).checked_sub(1) else {
+            return remote_move_target_dir(drag, tree.root.clone());
+        };
+        let previous = self.visible.get(prev_ix)?;
+
+        let target_dir = if previous.kind == EntryKind::Dir && previous.is_expanded {
+            previous.id.clone()
+        } else {
+            self.visible[..=prev_ix]
+                .iter()
+                .rev()
+                .find(|row| {
+                    row.kind == EntryKind::Dir && row.is_expanded && row.depth < previous.depth
+                })
+                .map(|row| row.id.clone())
+                .unwrap_or_else(|| tree.root.clone())
+        };
+
+        remote_move_target_dir(drag, target_dir)
+    }
+
     pub(super) fn selected_dir_for_new_entries(&self, target_row: Option<usize>) -> Option<String> {
         let tree = self.tree.as_ref()?;
         let Some(row) = target_row.and_then(|ix| self.row(ix)) else {
@@ -398,4 +444,12 @@ impl SftpTable {
         self.rebuild_visible();
         cx.notify();
     }
+}
+
+fn remote_move_target_dir(drag: &RemoteDragEntry, target_dir: String) -> Option<String> {
+    if drag.kind != EntryKind::File {
+        return None;
+    }
+
+    remote_move_destination(&drag.id, &drag.name, &target_dir).map(|_| target_dir)
 }

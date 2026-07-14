@@ -231,7 +231,11 @@ fn refresh_open_dirs_includes_root_and_expanded_dirs_only() {
     );
     tree.upsert_children(
         "/open",
-        vec![Entry::new("/open/nested.txt", "nested.txt", EntryKind::File)],
+        vec![Entry::new(
+            "/open/nested.txt",
+            "nested.txt",
+            EntryKind::File,
+        )],
     );
     tree.set_expanded("/open", true);
     tree.set_expanded("/closed", false);
@@ -289,6 +293,98 @@ fn drop_upload_target_dir_uses_root_unless_hovering_a_directory_row() {
     assert_eq!(
         d.drop_upload_target_dir(Some(file_ix)).as_deref(),
         Some("/")
+    );
+}
+
+#[test]
+fn remote_move_destination_moves_item_into_target_dir() {
+    assert_eq!(
+        remote_move_destination("/from/file.txt", "file.txt", "/to").as_deref(),
+        Some("/to/file.txt")
+    );
+    assert_eq!(
+        remote_move_destination("/from/file.txt", "file.txt", "/from"),
+        None
+    );
+}
+
+#[test]
+fn remote_move_detail_includes_name_source_and_destination() {
+    let detail = remote_move_detail("file.txt", "/from/file.txt", "/to/file.txt");
+
+    assert!(detail.contains("file.txt"), "detail={detail:?}");
+    assert!(detail.contains("/from/file.txt"), "detail={detail:?}");
+    assert!(detail.contains("/to/file.txt"), "detail={detail:?}");
+}
+
+#[test]
+fn remote_file_drop_target_accepts_directory_rows_only() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/dir", "dir", EntryKind::Dir),
+            Entry::new("/file.txt", "file.txt", EntryKind::File),
+        ],
+    );
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let dir_ix = d.visible.iter().position(|r| r.id == "/dir").unwrap();
+    let file_ix = d.visible.iter().position(|r| r.id == "/file.txt").unwrap();
+    let drag = RemoteDragEntry::new("/file.txt", "file.txt", EntryKind::File);
+
+    assert_eq!(
+        d.drop_remote_move_target_dir(Some(dir_ix), &drag)
+            .as_deref(),
+        Some("/dir")
+    );
+    assert_eq!(d.drop_remote_move_target_dir(Some(file_ix), &drag), None);
+}
+
+#[test]
+fn remote_file_drop_target_uses_root_for_blank_area() {
+    let mut tree = TreeState::new(Entry::new("/cwd", "cwd", EntryKind::Dir));
+    tree.upsert_children(
+        "/cwd",
+        vec![Entry::new("/from/file.txt", "file.txt", EntryKind::File)],
+    );
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let drag = RemoteDragEntry::new("/from/file.txt", "file.txt", EntryKind::File);
+    assert_eq!(
+        d.drop_remote_move_target_dir(None, &drag).as_deref(),
+        Some("/cwd")
+    );
+}
+
+#[test]
+fn remote_file_drop_target_uses_expanded_dir_for_blank_row_below_its_title() {
+    let mut tree = TreeState::new(Entry::new("/cwd", "cwd", EntryKind::Dir));
+    tree.upsert_children("/cwd", vec![Entry::new("/cwd/dir", "dir", EntryKind::Dir)]);
+    tree.upsert_children(
+        "/cwd/dir",
+        vec![Entry::new(
+            "/cwd/dir/existing.txt",
+            "existing.txt",
+            EntryKind::File,
+        )],
+    );
+    tree.set_expanded("/cwd/dir", true);
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let drag = RemoteDragEntry::new("/cwd/sibling.txt", "sibling.txt", EntryKind::File);
+    let blank_row_ix = d.visible.len();
+
+    assert_eq!(
+        d.drop_remote_move_target_dir_for_blank_row(blank_row_ix, &drag)
+            .as_deref(),
+        Some("/cwd/dir")
     );
 }
 

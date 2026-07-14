@@ -6,16 +6,37 @@ use gpui::{
 };
 use gpui_common::TermuaIcon;
 use gpui_dock::{Panel, PanelEvent, PanelView, TabIcon};
-use gpui_sftp::SftpView;
+use gpui_sftp::{SftpEvent, SftpView};
 use gpui_term::{Event as TerminalEvent, Terminal, TerminalView};
 
-use crate::lock_screen::LockState;
+use crate::{lock_screen::LockState, notification};
 
 pub struct SftpDockPanel {
     tab_label: gpui::SharedString,
     focus_handle: FocusHandle,
     sftp_view: gpui::Entity<SftpView>,
     _subscriptions: Vec<Subscription>,
+}
+
+fn sftp_event_message(event: &SftpEvent) -> Option<(notification::MessageKind, String)> {
+    match event {
+        SftpEvent::Toast {
+            level,
+            title,
+            detail,
+        } => {
+            let kind = match level {
+                gpui::PromptLevel::Info => notification::MessageKind::Info,
+                gpui::PromptLevel::Warning => notification::MessageKind::Warning,
+                gpui::PromptLevel::Critical => notification::MessageKind::Error,
+            };
+            let message = match detail.as_deref() {
+                Some(detail) if !detail.trim().is_empty() => format!("{title}\n{detail}"),
+                _ => title.clone(),
+            };
+            Some((kind, message))
+        }
+    }
 }
 
 impl SftpDockPanel {
@@ -35,7 +56,7 @@ impl SftpDockPanel {
             let focus_handle = cx.focus_handle();
             let sftp_view = cx.new(|cx| SftpView::new(sftp, window, cx));
 
-            let sub = cx.subscribe_in(&terminal, window, {
+            let terminal_sub = cx.subscribe_in(&terminal, window, {
                 let sftp_view = sftp_view.clone();
                 move |_, _terminal, ev, _window, cx| {
                     if matches!(ev, TerminalEvent::CloseTerminal) {
@@ -43,12 +64,20 @@ impl SftpDockPanel {
                     }
                 }
             });
+            let toast_sub = cx.subscribe_in(&sftp_view, window, {
+                move |_, _sftp_view, ev, window, cx| {
+                    let Some((kind, message)) = sftp_event_message(ev) else {
+                        return;
+                    };
+                    notification::notify(kind, message, window, cx);
+                }
+            });
 
             Self {
                 tab_label,
                 focus_handle,
                 sftp_view,
-                _subscriptions: vec![sub],
+                _subscriptions: vec![terminal_sub, toast_sub],
             }
         });
 
@@ -115,5 +144,27 @@ impl Render for SftpDockPanel {
                 }
             }))
             .child(self.sftp_view.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sftp_toast_event_message_includes_detail_for_message_center() {
+        let event = SftpEvent::Toast {
+            level: gpui::PromptLevel::Info,
+            title: "Moved".to_string(),
+            detail: Some("File: a.txt\nFrom: /from/a.txt\nTo: /to/a.txt".to_string()),
+        };
+
+        let (kind, message) = sftp_event_message(&event).expect("expected message");
+
+        assert_eq!(kind, notification::MessageKind::Info);
+        assert!(message.contains("Moved"), "message={message:?}");
+        assert!(message.contains("a.txt"), "message={message:?}");
+        assert!(message.contains("/from/a.txt"), "message={message:?}");
+        assert!(message.contains("/to/a.txt"), "message={message:?}");
     }
 }

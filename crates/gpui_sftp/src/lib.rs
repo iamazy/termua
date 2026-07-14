@@ -7,7 +7,7 @@ mod state;
 mod view;
 
 pub use state::{Entry, EntryKind, SortColumn, SortDirection, SortSpec, TreeState, VisibleRow};
-pub use view::SftpView;
+pub use view::{SftpEvent, SftpView};
 
 actions!(
     sftp,
