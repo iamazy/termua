@@ -165,6 +165,7 @@ impl SftpView {
             (PromptLevel::Warning, None) => Notification::warning(title),
             (PromptLevel::Critical, None) => Notification::error(title),
         }
+        .autohide(true)
         .id::<SftpToastNotification>();
 
         window.push_notification(note, cx);
