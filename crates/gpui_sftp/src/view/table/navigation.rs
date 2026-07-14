@@ -99,7 +99,6 @@ impl SftpTable {
 
     pub(in crate::view) fn begin_drag_select(&mut self, row_ix: usize, modifiers: gpui::Modifiers) {
         self.click_row_local(row_ix, modifiers);
-        self.drag_selecting = true;
     }
 
     pub(in crate::view) fn begin_blank_drag_select(&mut self) {
@@ -107,14 +106,15 @@ impl SftpTable {
         self.drag_selecting = true;
     }
 
-    pub(in crate::view) fn drag_select_row(&mut self, row_ix: usize) {
+    pub(in crate::view) fn drag_select_row(&mut self, row_ix: usize) -> bool {
         if !self.drag_selecting {
-            return;
+            return false;
         }
         let Some(row) = self.row(row_ix) else {
-            return;
+            return false;
         };
         self.selected_ids.insert(row.id.clone());
+        true
     }
 
     pub(in crate::view) fn end_drag_select(&mut self) {

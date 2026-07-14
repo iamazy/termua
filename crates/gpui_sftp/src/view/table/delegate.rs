@@ -87,9 +87,10 @@ impl TableDelegate for SftpTable {
                     return;
                 }
 
-                table.delegate_mut().drag_select_row(row_ix);
-                table.set_selected_row(row_ix, cx);
-                cx.notify();
+                if table.delegate_mut().drag_select_row(row_ix) {
+                    table.set_selected_row(row_ix, cx);
+                    cx.notify();
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,

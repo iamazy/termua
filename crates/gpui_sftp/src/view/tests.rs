@@ -341,14 +341,14 @@ fn selection_shift_click_selects_range() {
 }
 
 #[test]
-fn selection_dragging_over_rows_adds_to_selection() {
+fn selection_dragging_from_file_row_does_not_add_to_selection() {
     let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
     tree.upsert_children(
         "/",
         vec![
             Entry::new("/a", "a", EntryKind::File),
             Entry::new("/b", "b", EntryKind::File),
-            Entry::new("/c", "c", EntryKind::Dir),
+            Entry::new("/c", "c", EntryKind::File),
             Entry::new("/d", "d", EntryKind::File),
         ],
     );
@@ -356,19 +356,13 @@ fn selection_dragging_over_rows_adds_to_selection() {
     d.rebuild_visible();
 
     d.begin_drag_select(0, gpui::Modifiers::none());
-    d.drag_select_row(1);
-    d.drag_select_row(2);
-    assert_eq!(
-        d.selected_ids_sorted(),
-        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
-    );
+    assert!(!d.drag_select_row(1));
+    assert!(!d.drag_select_row(2));
+    assert_eq!(d.selected_ids_sorted(), vec!["/a".to_string()]);
 
     d.end_drag_select();
-    d.drag_select_row(3);
-    assert_eq!(
-        d.selected_ids_sorted(),
-        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
-    );
+    assert!(!d.drag_select_row(3));
+    assert_eq!(d.selected_ids_sorted(), vec!["/a".to_string()]);
 }
 
 #[test]
@@ -386,8 +380,8 @@ fn selection_dragging_from_blank_area_selects_rows_moved_over() {
     d.rebuild_visible();
 
     d.begin_blank_drag_select();
-    d.drag_select_row(1);
-    d.drag_select_row(2);
+    assert!(d.drag_select_row(1));
+    assert!(d.drag_select_row(2));
 
     assert_eq!(
         d.selected_ids_sorted(),
