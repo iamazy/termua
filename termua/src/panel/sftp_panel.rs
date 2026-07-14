@@ -65,11 +65,11 @@ impl SftpDockPanel {
                 }
             });
             let toast_sub = cx.subscribe_in(&sftp_view, window, {
-                move |_, _sftp_view, ev, window, cx| {
+                move |_, _sftp_view, ev, _window, cx| {
                     let Some((kind, message)) = sftp_event_message(ev) else {
                         return;
                     };
-                    notification::notify(kind, message, window, cx);
+                    notification::record(kind, message, cx);
                 }
             });
 
