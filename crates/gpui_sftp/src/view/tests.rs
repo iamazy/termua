@@ -219,6 +219,33 @@ fn sftp_table_can_expand_dir_rows_in_place() {
 }
 
 #[test]
+fn refresh_open_dirs_includes_root_and_expanded_dirs_only() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/closed", "closed", EntryKind::Dir),
+            Entry::new("/open", "open", EntryKind::Dir),
+            Entry::new("/file.txt", "file.txt", EntryKind::File),
+        ],
+    );
+    tree.upsert_children(
+        "/open",
+        vec![Entry::new("/open/nested.txt", "nested.txt", EntryKind::File)],
+    );
+    tree.set_expanded("/open", true);
+    tree.set_expanded("/closed", false);
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    assert_eq!(
+        d.open_refresh_dirs(),
+        vec!["/".to_string(), "/open".to_string()]
+    );
+}
+
+#[test]
 fn external_file_drop_rejects_directories() {
     let base = unique_tmp_path("drop");
     std::fs::create_dir_all(&base).unwrap();

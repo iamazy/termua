@@ -279,20 +279,26 @@ impl SftpTable {
 
     pub(in crate::view) fn refresh_at(
         &mut self,
-        target_row: Option<usize>,
+        _target_row: Option<usize>,
         cx: &mut Context<TableState<Self>>,
     ) {
-        let Some(tree) = self.tree.as_ref() else {
-            return;
-        };
+        let dirs = self.open_refresh_dirs();
+        for dir in dirs {
+            self.refresh_dir(dir, cx);
+        }
+    }
 
-        let dir = match target_row.and_then(|ix| self.row(ix)) {
-            Some(row) if row.kind == EntryKind::Dir => row.id.clone(),
-            Some(row) => parent_dir(&row.id).unwrap_or_else(|| tree.root.clone()),
-            None => tree.root.clone(),
-        };
-
-        self.refresh_dir(dir, cx);
+    pub(in crate::view) fn open_refresh_dirs(&self) -> Vec<String> {
+        self.tree
+            .as_ref()
+            .map(|tree| {
+                tree.visible_rows_sorted(self.sort)
+                    .into_iter()
+                    .filter(|row| row.kind == EntryKind::Dir && row.is_expanded)
+                    .map(|row| row.id)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub(super) fn refresh_dir(&mut self, dir: String, cx: &mut Context<TableState<Self>>) {
