@@ -39,6 +39,13 @@ impl SftpView {
             .can_drop(|any, _window, _cx| {
                 any.downcast_ref::<ExternalPaths>()
                     .is_some_and(|paths| accept_external_file_drop_paths(paths.paths()))
+                    || any.downcast_ref::<RemoteDragEntry>().is_some()
+            })
+            .drag_over::<RemoteDragEntry>(|mut style, _drag, _window, cx| {
+                let t = cx.theme();
+                style = style.border_1().border_color(t.table_active_border);
+                style.style().box_shadow = Some(folder_drop_ring_shadow(t.table_active_border));
+                style
             })
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
                 let table = this.table.clone();
@@ -61,6 +68,22 @@ impl SftpView {
                     );
                 });
             }))
+            .on_drop(
+                cx.listener(move |this, drag: &RemoteDragEntry, window, cx| {
+                    let table = this.table.clone();
+                    let remote_dir =
+                        this.remote_drop_target_dir_for_table_panel(drag, row_h, window, cx);
+                    let Some(remote_dir) = remote_dir else {
+                        return;
+                    };
+
+                    table.update(cx, |state, cx| {
+                        state
+                            .delegate_mut()
+                            .move_remote_entry_to_dir(drag.clone(), remote_dir, cx);
+                    });
+                }),
+            )
             .on_any_mouse_down({
                 let view_handle = view_handle.clone();
                 let table = table.clone();
@@ -137,6 +160,33 @@ impl SftpView {
             .into_any_element()
     }
 
+    fn remote_drop_target_dir_for_table_panel(
+        &self,
+        drag: &RemoteDragEntry,
+        row_h: Pixels,
+        window: &mut Window,
+        cx: &mut Context<SftpView>,
+    ) -> Option<String> {
+        let body_y = window.mouse_position().y - self.table_bounds.origin.y - row_h;
+        let table = self.table.read(cx);
+        let scroll_y = table
+            .vertical_scroll_handle
+            .0
+            .borrow()
+            .base_handle
+            .offset()
+            .y;
+
+        let delegate = table.delegate();
+        match table_row_ix_from_mouse_y(body_y, scroll_y, row_h) {
+            Some(ix) if delegate.row(ix).is_none() => {
+                delegate.drop_remote_move_target_dir_for_blank_row(ix, drag)
+            }
+            Some(_) => None,
+            None => delegate.drop_remote_move_target_dir(None, drag),
+        }
+    }
+
     fn maybe_push_pending_toast(
         &mut self,
         pending_toast: Option<PendingToast>,
@@ -156,14 +206,23 @@ impl SftpView {
 
         self.last_pushed_notification_epoch = pending_toast_epoch;
 
-        let title = toast.title;
-        let note = match (toast.level, toast.detail) {
-            (PromptLevel::Info, Some(detail)) => Notification::info(detail).title(title),
-            (PromptLevel::Warning, Some(detail)) => Notification::warning(detail).title(title),
-            (PromptLevel::Critical, Some(detail)) => Notification::error(detail).title(title),
-            (PromptLevel::Info, None) => Notification::info(title),
-            (PromptLevel::Warning, None) => Notification::warning(title),
-            (PromptLevel::Critical, None) => Notification::error(title),
+        cx.emit(SftpEvent::Toast {
+            level: toast.level,
+            title: toast.title.clone(),
+            detail: toast.detail.clone(),
+        });
+
+        let note = match (toast.level, toast.title, toast.detail) {
+            (PromptLevel::Info, title, Some(detail)) => Notification::info(detail).title(title),
+            (PromptLevel::Warning, title, Some(detail)) => {
+                Notification::warning(detail).title(title)
+            }
+            (PromptLevel::Critical, title, Some(detail)) => {
+                Notification::error(detail).title(title)
+            }
+            (PromptLevel::Info, title, None) => Notification::info(title),
+            (PromptLevel::Warning, title, None) => Notification::warning(title),
+            (PromptLevel::Critical, title, None) => Notification::error(title),
         }
         .autohide(true)
         .id::<SftpToastNotification>();

@@ -12,8 +12,8 @@ use gpui::{
     App, AppContext, Bounds, Context, Div, Entity, EventEmitter, ExternalPaths, FocusHandle,
     Focusable, Image, ImageSource, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, PathPromptOptions, PromptLevel, Render,
-    SharedString, Stateful, Styled, StyledImage, Subscription, Window, canvas, div, img,
-    prelude::FluentBuilder, px,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
+    canvas, div, img, prelude::FluentBuilder, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -103,6 +103,72 @@ enum ContextMenuAction {
 enum ContextMenu {
     Action(ContextMenuAction),
     Separator,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RemoteDragEntry {
+    id: String,
+    name: String,
+    kind: EntryKind,
+}
+
+impl RemoteDragEntry {
+    fn new(id: impl Into<String>, name: impl Into<String>, kind: EntryKind) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            kind,
+        }
+    }
+}
+
+fn remote_drag_entry_icon_path(kind: EntryKind, name: &str) -> Option<TermuaIcon> {
+    match kind {
+        EntryKind::Dir => Some(sftp_dir_icon_path(false)),
+        EntryKind::File => file_icons::icon_path_for_file_name(name),
+        EntryKind::Symlink | EntryKind::Other => None,
+    }
+}
+
+impl Render for RemoteDragEntry {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let icon_path = remote_drag_entry_icon_path(self.kind, &self.name);
+
+        div()
+            .id("sftp-remote-drag-entry")
+            .cursor_grab()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .px(px(10.0))
+            .py(px(6.0))
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_md()
+            .bg(cx.theme().popover)
+            .text_color(cx.theme().foreground)
+            .child(match icon_path {
+                Some(path) => img(path)
+                    .w(px(16.0))
+                    .h(px(16.0))
+                    .object_fit(gpui::ObjectFit::Contain)
+                    .into_any_element(),
+                None => Icon::new(IconName::File)
+                    .small()
+                    .text_color(cx.theme().muted_foreground)
+                    .into_any_element(),
+            })
+            .child(self.name.clone())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SftpEvent {
+    Toast {
+        level: PromptLevel,
+        title: String,
+        detail: Option<String>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -198,6 +264,21 @@ fn folder_drop_ring_shadow(border: gpui::Hsla) -> Vec<gpui::BoxShadow> {
     }]
 }
 
+fn remote_move_destination(src: &str, name: &str, target_dir: &str) -> Option<String> {
+    let dst = join_remote(target_dir, name);
+    (dst != src).then_some(dst)
+}
+
+fn remote_move_detail(name: &str, src: &str, dst: &str) -> String {
+    t!(
+        "Sftp.Toast.MoveDetail",
+        name = name,
+        source = src,
+        destination = dst
+    )
+    .to_string()
+}
+
 fn table_row_ix_from_mouse_y(
     body_y: gpui::Pixels,
     scroll_offset_y: gpui::Pixels,
@@ -250,7 +331,7 @@ pub struct SftpView {
     _subscriptions: Vec<Subscription>,
 }
 
-impl EventEmitter<()> for SftpView {}
+impl EventEmitter<SftpEvent> for SftpView {}
 
 impl Focusable for SftpView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {

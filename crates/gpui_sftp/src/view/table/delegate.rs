@@ -87,26 +87,49 @@ impl TableDelegate for SftpTable {
                     return;
                 }
 
-                table.delegate_mut().drag_select_row(row_ix);
-                table.set_selected_row(row_ix, cx);
-                cx.notify();
+                if table.delegate_mut().drag_select_row(row_ix) {
+                    table.set_selected_row(row_ix, cx);
+                    cx.notify();
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(move |table, _ev: &MouseUpEvent, _window, _cx| {
                     table.delegate_mut().end_drag_select();
                 }),
-            );
+            )
+            .when(row.kind == EntryKind::File, |this| {
+                let remote_drag = RemoteDragEntry::new(row.id.clone(), row.name.clone(), row.kind);
+                this.on_drag(remote_drag, |drag, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.new(|_| drag.clone())
+                })
+            });
 
         if row.kind != EntryKind::Dir {
             return tr;
         }
 
-        tr.can_drop(|any, _window, _cx| {
+        let target_dir = row.id.clone();
+        tr.can_drop(move |any, _window, _cx| {
             any.downcast_ref::<ExternalPaths>()
                 .is_some_and(|paths| accept_external_file_drop_paths(paths.paths()))
+                || any.downcast_ref::<RemoteDragEntry>().is_some_and(|drag| {
+                    drag.kind == EntryKind::File
+                        && remote_move_destination(&drag.id, &drag.name, &target_dir).is_some()
+                })
         })
         .drag_over::<ExternalPaths>(|mut style, _paths, _window, cx| {
+            let t = cx.theme();
+            style = style
+                .bg(t.table_active)
+                .border_1()
+                .border_color(t.table_active_border)
+                .rounded_md();
+            style.style().box_shadow = Some(folder_drop_ring_shadow(t.table_active_border));
+            style
+        })
+        .drag_over::<RemoteDragEntry>(|mut style, _drag, _window, cx| {
             let t = cx.theme();
             style = style
                 .bg(t.table_active)
@@ -126,6 +149,19 @@ impl TableDelegate for SftpTable {
                     paths.paths().to_vec(),
                     cx,
                 );
+            }),
+        )
+        .on_drop(
+            cx.listener(move |table, drag: &RemoteDragEntry, _window, cx| {
+                let Some(remote_dir) = table
+                    .delegate()
+                    .drop_remote_move_target_dir(Some(row_ix), drag)
+                else {
+                    return;
+                };
+                table
+                    .delegate_mut()
+                    .move_remote_entry_to_dir(drag.clone(), remote_dir, cx);
             }),
         )
     }

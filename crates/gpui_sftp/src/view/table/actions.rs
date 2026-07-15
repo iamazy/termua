@@ -1208,6 +1208,56 @@ impl SftpTable {
         }
     }
 
+    pub(in crate::view) fn move_remote_entry_to_dir(
+        &mut self,
+        drag: RemoteDragEntry,
+        target_dir: String,
+        cx: &mut Context<TableState<Self>>,
+    ) {
+        let Some(sftp) = self.sftp.clone() else {
+            self.show_toast(
+                PromptLevel::Warning,
+                t!("Sftp.Toast.Disconnected").to_string(),
+                None,
+                cx,
+            );
+            return;
+        };
+
+        let Some(dst) = remote_move_destination(&drag.id, &drag.name, &target_dir) else {
+            return;
+        };
+        let source_parent = parent_dir(&drag.id).unwrap_or_else(|| target_dir.clone());
+        let detail = remote_move_detail(&drag.name, &drag.id, &dst);
+
+        cx.spawn(async move |this, cx| {
+            let res = sftp
+                .rename(&drag.id, &dst, wezterm_ssh::RenameOptions::default())
+                .await;
+            let _ = this.update(cx, |this, cx| match res {
+                Ok(()) => {
+                    this.delegate_mut().show_toast(
+                        PromptLevel::Info,
+                        t!("Sftp.Toast.Moved").to_string(),
+                        Some(detail.clone()),
+                        cx,
+                    );
+                    this.delegate_mut().refresh_dir(source_parent.clone(), cx);
+                    if source_parent != target_dir {
+                        this.delegate_mut().refresh_dir(target_dir.clone(), cx);
+                    }
+                }
+                Err(err) => this.delegate_mut().show_toast(
+                    PromptLevel::Warning,
+                    t!("Sftp.Toast.MoveFailed").to_string(),
+                    Some(err.to_string()),
+                    cx,
+                ),
+            });
+        })
+        .detach();
+    }
+
     pub(in crate::view) fn upload(
         &mut self,
         target_row: Option<usize>,

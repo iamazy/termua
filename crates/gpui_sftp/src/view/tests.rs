@@ -126,6 +126,22 @@ fn sftp_dir_icon_path_is_folder_open_blue_when_expanded() {
 }
 
 #[test]
+fn remote_drag_entry_icon_uses_directory_icon_for_dirs() {
+    assert_eq!(
+        remote_drag_entry_icon_path(EntryKind::Dir, "src"),
+        Some(TermuaIcon::FolderClosedBlue)
+    );
+}
+
+#[test]
+fn remote_drag_entry_icon_uses_file_type_icon_for_files() {
+    assert_eq!(
+        remote_drag_entry_icon_path(EntryKind::File, "archive.tar.gz"),
+        Some(TermuaIcon::FileArchive)
+    );
+}
+
+#[test]
 fn context_menu_for_blank_does_not_include_rename_or_delete_or_download() {
     use ContextMenu as S;
     use ContextMenuAction as A;
@@ -242,6 +258,37 @@ fn sftp_table_can_expand_dir_rows_in_place() {
 }
 
 #[test]
+fn refresh_open_dirs_includes_root_and_expanded_dirs_only() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/closed", "closed", EntryKind::Dir),
+            Entry::new("/open", "open", EntryKind::Dir),
+            Entry::new("/file.txt", "file.txt", EntryKind::File),
+        ],
+    );
+    tree.upsert_children(
+        "/open",
+        vec![Entry::new(
+            "/open/nested.txt",
+            "nested.txt",
+            EntryKind::File,
+        )],
+    );
+    tree.set_expanded("/open", true);
+    tree.set_expanded("/closed", false);
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    assert_eq!(
+        d.open_refresh_dirs(),
+        vec!["/".to_string(), "/open".to_string()]
+    );
+}
+
+#[test]
 fn external_file_drop_rejects_directories() {
     let base = unique_tmp_path("drop");
     std::fs::create_dir_all(&base).unwrap();
@@ -285,6 +332,98 @@ fn drop_upload_target_dir_uses_root_unless_hovering_a_directory_row() {
     assert_eq!(
         d.drop_upload_target_dir(Some(file_ix)).as_deref(),
         Some("/")
+    );
+}
+
+#[test]
+fn remote_move_destination_moves_item_into_target_dir() {
+    assert_eq!(
+        remote_move_destination("/from/file.txt", "file.txt", "/to").as_deref(),
+        Some("/to/file.txt")
+    );
+    assert_eq!(
+        remote_move_destination("/from/file.txt", "file.txt", "/from"),
+        None
+    );
+}
+
+#[test]
+fn remote_move_detail_includes_name_source_and_destination() {
+    let detail = remote_move_detail("file.txt", "/from/file.txt", "/to/file.txt");
+
+    assert!(detail.contains("file.txt"), "detail={detail:?}");
+    assert!(detail.contains("/from/file.txt"), "detail={detail:?}");
+    assert!(detail.contains("/to/file.txt"), "detail={detail:?}");
+}
+
+#[test]
+fn remote_file_drop_target_accepts_directory_rows_only() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/dir", "dir", EntryKind::Dir),
+            Entry::new("/file.txt", "file.txt", EntryKind::File),
+        ],
+    );
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let dir_ix = d.visible.iter().position(|r| r.id == "/dir").unwrap();
+    let file_ix = d.visible.iter().position(|r| r.id == "/file.txt").unwrap();
+    let drag = RemoteDragEntry::new("/file.txt", "file.txt", EntryKind::File);
+
+    assert_eq!(
+        d.drop_remote_move_target_dir(Some(dir_ix), &drag)
+            .as_deref(),
+        Some("/dir")
+    );
+    assert_eq!(d.drop_remote_move_target_dir(Some(file_ix), &drag), None);
+}
+
+#[test]
+fn remote_file_drop_target_uses_root_for_blank_area() {
+    let mut tree = TreeState::new(Entry::new("/cwd", "cwd", EntryKind::Dir));
+    tree.upsert_children(
+        "/cwd",
+        vec![Entry::new("/from/file.txt", "file.txt", EntryKind::File)],
+    );
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let drag = RemoteDragEntry::new("/from/file.txt", "file.txt", EntryKind::File);
+    assert_eq!(
+        d.drop_remote_move_target_dir(None, &drag).as_deref(),
+        Some("/cwd")
+    );
+}
+
+#[test]
+fn remote_file_drop_target_uses_expanded_dir_for_blank_row_below_its_title() {
+    let mut tree = TreeState::new(Entry::new("/cwd", "cwd", EntryKind::Dir));
+    tree.upsert_children("/cwd", vec![Entry::new("/cwd/dir", "dir", EntryKind::Dir)]);
+    tree.upsert_children(
+        "/cwd/dir",
+        vec![Entry::new(
+            "/cwd/dir/existing.txt",
+            "existing.txt",
+            EntryKind::File,
+        )],
+    );
+    tree.set_expanded("/cwd/dir", true);
+
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+
+    let drag = RemoteDragEntry::new("/cwd/sibling.txt", "sibling.txt", EntryKind::File);
+    let blank_row_ix = d.visible.len();
+
+    assert_eq!(
+        d.drop_remote_move_target_dir_for_blank_row(blank_row_ix, &drag)
+            .as_deref(),
+        Some("/cwd/dir")
     );
 }
 
@@ -364,14 +503,14 @@ fn selection_shift_click_selects_range() {
 }
 
 #[test]
-fn selection_dragging_over_rows_adds_to_selection() {
+fn selection_dragging_from_file_row_does_not_add_to_selection() {
     let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
     tree.upsert_children(
         "/",
         vec![
             Entry::new("/a", "a", EntryKind::File),
             Entry::new("/b", "b", EntryKind::File),
-            Entry::new("/c", "c", EntryKind::Dir),
+            Entry::new("/c", "c", EntryKind::File),
             Entry::new("/d", "d", EntryKind::File),
         ],
     );
@@ -379,19 +518,13 @@ fn selection_dragging_over_rows_adds_to_selection() {
     d.rebuild_visible();
 
     d.begin_drag_select(0, gpui::Modifiers::none());
-    d.drag_select_row(1);
-    d.drag_select_row(2);
-    assert_eq!(
-        d.selected_ids_sorted(),
-        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
-    );
+    assert!(!d.drag_select_row(1));
+    assert!(!d.drag_select_row(2));
+    assert_eq!(d.selected_ids_sorted(), vec!["/a".to_string()]);
 
     d.end_drag_select();
-    d.drag_select_row(3);
-    assert_eq!(
-        d.selected_ids_sorted(),
-        vec!["/a".to_string(), "/b".to_string(), "/c".to_string()]
-    );
+    assert!(!d.drag_select_row(3));
+    assert_eq!(d.selected_ids_sorted(), vec!["/a".to_string()]);
 }
 
 #[test]
@@ -409,8 +542,8 @@ fn selection_dragging_from_blank_area_selects_rows_moved_over() {
     d.rebuild_visible();
 
     d.begin_blank_drag_select();
-    d.drag_select_row(1);
-    d.drag_select_row(2);
+    assert!(d.drag_select_row(1));
+    assert!(d.drag_select_row(2));
 
     assert_eq!(
         d.selected_ids_sorted(),
