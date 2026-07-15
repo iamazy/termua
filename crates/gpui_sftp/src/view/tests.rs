@@ -90,6 +90,29 @@ fn sftp_locale_keys_are_available() {
         t!("Sftp.Dialog.DeleteSelectedItem", locale = "zh-CN"),
         "删除选中的项目？"
     );
+    assert_eq!(
+        t!("Sftp.Toast.UploadFailed", locale = "en"),
+        "Upload failed"
+    );
+    assert_eq!(
+        t!(
+            "Sftp.Toast.UploadIncomplete",
+            uploaded = 1,
+            failed = 1,
+            cancelled = 1,
+            locale = "zh-CN"
+        ),
+        "上传未完成：成功 1 个，失败 1 个，已取消 1 个"
+    );
+    assert_eq!(
+        t!(
+            "Sftp.Toast.UploadFailureGroup",
+            reason = "权限不足",
+            files = "a.txt, b.txt",
+            locale = "zh-CN"
+        ),
+        "权限不足\n文件：a.txt, b.txt"
+    );
 }
 
 #[test]

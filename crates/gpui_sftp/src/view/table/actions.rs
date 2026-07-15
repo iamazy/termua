@@ -32,6 +32,134 @@ impl UploadTaskCtx {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UploadFailureKind {
+    OpenLocalFile,
+    ReadLocalFile,
+    OpenRemoteFile,
+    WriteRemoteFile,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct UploadFailure {
+    kind: UploadFailureKind,
+    cause: String,
+}
+
+impl UploadFailure {
+    fn new(kind: UploadFailureKind, cause: impl Into<String>) -> Self {
+        Self {
+            kind,
+            cause: cause.into(),
+        }
+    }
+
+    fn summary(&self) -> String {
+        match self.kind {
+            UploadFailureKind::OpenLocalFile => t!(
+                "Sftp.Transfer.OpenLocalFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::ReadLocalFile => t!(
+                "Sftp.Transfer.ReadLocalFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::OpenRemoteFile => t!(
+                "Sftp.Transfer.OpenRemoteFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+            UploadFailureKind::WriteRemoteFile => t!(
+                "Sftp.Transfer.WriteRemoteFileFailed",
+                err = self.cause.clone()
+            )
+            .to_string(),
+        }
+    }
+
+    fn task_detail(&self, ctx: &UploadTaskCtx) -> String {
+        if self.kind == UploadFailureKind::OpenRemoteFile {
+            return t!(
+                "Sftp.Transfer.OpenRemotePathFailed",
+                path = ctx.remote_path.to_string(),
+                err = self.cause.clone()
+            )
+            .to_string();
+        }
+        self.summary()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct UploadFailureGroup {
+    failure: UploadFailure,
+    files: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct UploadBatchResult {
+    uploaded: usize,
+    failed: usize,
+    cancelled: usize,
+    failure_groups: Vec<UploadFailureGroup>,
+}
+
+impl UploadBatchResult {
+    fn record_failure(&mut self, failure: UploadFailure, file_name: String) {
+        self.failed = self.failed.saturating_add(1);
+        if let Some(group) = self
+            .failure_groups
+            .iter_mut()
+            .find(|group| group.failure == failure)
+        {
+            group.files.push(file_name);
+            return;
+        }
+        self.failure_groups.push(UploadFailureGroup {
+            failure,
+            files: vec![file_name],
+        });
+    }
+
+    fn failure_detail(&self) -> Option<String> {
+        const MAX_VISIBLE_FILES: usize = 5;
+
+        let details = self
+            .failure_groups
+            .iter()
+            .map(|group| {
+                let files = group
+                    .files
+                    .iter()
+                    .take(MAX_VISIBLE_FILES)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let remaining = group.files.len().saturating_sub(MAX_VISIBLE_FILES);
+                if remaining > 0 {
+                    t!(
+                        "Sftp.Toast.UploadFailureGroupMore",
+                        reason = group.failure.summary(),
+                        files = files,
+                        remaining = remaining
+                    )
+                    .to_string()
+                } else {
+                    t!(
+                        "Sftp.Toast.UploadFailureGroup",
+                        reason = group.failure.summary(),
+                        files = files
+                    )
+                    .to_string()
+                }
+            })
+            .collect::<Vec<_>>();
+        (!details.is_empty()).then(|| details.join("\n"))
+    }
+}
+
 #[derive(Clone, Debug)]
 struct DownloadTaskCtx {
     epoch: usize,
@@ -49,10 +177,21 @@ impl DownloadTaskCtx {
 
 #[derive(Clone, Debug)]
 enum UploadMsg {
-    Progress { epoch: usize, sent: u64, total: u64 },
-    Finished { epoch: usize },
-    Cancelled { epoch: usize },
-    Failed { epoch: usize, error: String },
+    Progress {
+        epoch: usize,
+        sent: u64,
+        total: u64,
+    },
+    Finished {
+        epoch: usize,
+    },
+    Cancelled {
+        epoch: usize,
+    },
+    Failed {
+        epoch: usize,
+        failure: UploadFailure,
+    },
 }
 
 fn spawn_upload_worker(
@@ -77,8 +216,12 @@ async fn upload_send_cancelled(tx: &smol::channel::Sender<UploadMsg>, epoch: usi
     let _ = tx.send(UploadMsg::Cancelled { epoch }).await;
 }
 
-async fn upload_send_failed(tx: &smol::channel::Sender<UploadMsg>, epoch: usize, error: String) {
-    let _ = tx.send(UploadMsg::Failed { epoch, error }).await;
+async fn upload_send_failed(
+    tx: &smol::channel::Sender<UploadMsg>,
+    epoch: usize,
+    failure: UploadFailure,
+) {
+    let _ = tx.send(UploadMsg::Failed { epoch, failure }).await;
 }
 
 enum UploadOutcome {
@@ -115,7 +258,7 @@ async fn upload_copy_loop(
                 upload_send_failed(
                     tx,
                     epoch,
-                    t!("Sftp.Transfer.ReadLocalFileFailed", err = err.to_string()).to_string(),
+                    UploadFailure::new(UploadFailureKind::ReadLocalFile, err.to_string()),
                 )
                 .await;
                 return UploadOutcome::Failed;
@@ -131,7 +274,7 @@ async fn upload_copy_loop(
             upload_send_failed(
                 tx,
                 epoch,
-                t!("Sftp.Transfer.WriteRemoteFileFailed", err = err.to_string()).to_string(),
+                UploadFailure::new(UploadFailureKind::WriteRemoteFile, err.to_string()),
             )
             .await;
             return UploadOutcome::Failed;
@@ -181,7 +324,7 @@ async fn run_upload_worker(
             upload_send_failed(
                 &tx,
                 epoch,
-                t!("Sftp.Transfer.OpenLocalFileFailed", err = err.to_string()).to_string(),
+                UploadFailure::new(UploadFailureKind::OpenLocalFile, err.to_string()),
             )
             .await;
             return;
@@ -222,12 +365,7 @@ async fn run_upload_worker(
                         upload_send_failed(
                             &tx,
                             epoch,
-                            t!(
-                                "Sftp.Transfer.OpenRemotePathFailed",
-                                path = remote_path.clone(),
-                                err = err2.to_string()
-                            )
-                            .to_string(),
+                            UploadFailure::new(UploadFailureKind::OpenRemoteFile, err2.to_string()),
                         )
                         .await;
                         return;
@@ -237,12 +375,7 @@ async fn run_upload_worker(
                 upload_send_failed(
                     &tx,
                     epoch,
-                    t!(
-                        "Sftp.Transfer.OpenRemotePathFailed",
-                        path = remote_path.clone(),
-                        err = err.to_string()
-                    )
-                    .to_string(),
+                    UploadFailure::new(UploadFailureKind::OpenRemoteFile, err.to_string()),
                 )
                 .await;
                 return;
@@ -283,8 +416,8 @@ async fn upload_local_files_to_dir_task(
     }
 
     begin_upload_transfers(cx, &planned, &group_id, total_files);
-    let uploaded = run_upload_workers(cx, &sftp, &pool, planned, total_files).await;
-    finish_upload_batch(&this, cx, remote_dir, total_files, uploaded);
+    let result = run_upload_workers(cx, &sftp, &pool, planned, total_files).await;
+    finish_upload_batch(&this, cx, remote_dir, total_files, result);
 }
 
 async fn plan_uploads(
@@ -385,10 +518,10 @@ async fn run_upload_workers(
     pool: &gpui_common::PermitPool,
     planned: Vec<PlannedUpload>,
     total_files: usize,
-) -> usize {
+) -> UploadBatchResult {
     let (tx, rx) = smol::channel::unbounded::<UploadMsg>();
     let mut completed: usize = 0;
-    let mut uploaded: usize = 0;
+    let mut result = UploadBatchResult::default();
 
     let ctx_by_epoch: HashMap<usize, UploadTaskCtx> = planned
         .iter()
@@ -426,27 +559,33 @@ async fn run_upload_workers(
             }
             UploadMsg::Finished { epoch, .. } => {
                 completed = completed.saturating_add(1);
-                uploaded = uploaded.saturating_add(1);
+                result.uploaded = result.uploaded.saturating_add(1);
                 if let Some(ctx) = ctx_by_epoch.get(&epoch) {
                     finish_upload_task_in_center(cx, ctx);
                 }
             }
             UploadMsg::Cancelled { epoch, .. } => {
                 completed = completed.saturating_add(1);
+                result.cancelled = result.cancelled.saturating_add(1);
                 if let Some(ctx) = ctx_by_epoch.get(&epoch) {
                     cancel_upload_task_in_center(cx, ctx);
                 }
             }
-            UploadMsg::Failed { epoch, error } => {
+            UploadMsg::Failed { epoch, failure } => {
                 completed = completed.saturating_add(1);
+                let file_name = ctx_by_epoch
+                    .get(&epoch)
+                    .map(|ctx| ctx.file_name.clone())
+                    .unwrap_or_else(|| format!("#{epoch}"));
+                result.record_failure(failure.clone(), file_name);
                 if let Some(ctx) = ctx_by_epoch.get(&epoch) {
-                    fail_upload_task_in_center(cx, ctx, error);
+                    fail_upload_task_in_center(cx, ctx, failure.task_detail(ctx));
                 }
             }
         }
     }
 
-    uploaded
+    result
 }
 
 fn publish_upload_progress_to_center(
@@ -506,26 +645,29 @@ fn set_upload_terminal_in_center(
         detail_override,
     );
     cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
+    schedule_transfer_auto_dismiss(cx, ctx.task_id());
+}
 
-    let task_id = ctx.task_id();
+fn remove_transfer_if_terminal(state: &mut TransferCenterState, task_id: &str) {
+    let should_remove = state
+        .tasks_sorted()
+        .iter()
+        .find(|task| task.id == task_id)
+        .is_some_and(|task| task.status != TransferStatus::InProgress);
+    if should_remove {
+        state.remove(task_id);
+    }
+}
+
+fn schedule_transfer_auto_dismiss(cx: &gpui::AsyncApp, task_id: String) {
     cx.spawn(async move |cx| {
         Timer::after(AUTO_DISMISS_AFTER).await;
         if !cx.has_global::<TransferCenterState>() {
             return;
         }
-        let should_remove = cx
-            .try_read_global::<TransferCenterState, bool>(|state, _app| {
-                state
-                    .tasks_sorted()
-                    .iter()
-                    .find(|t| t.id == task_id)
-                    .is_some_and(|t| t.status != TransferStatus::InProgress)
-            })
-            .unwrap_or(false);
-        if !should_remove {
-            return;
-        }
-        cx.update_global::<TransferCenterState, _>(|state, _cx| state.remove(&task_id));
+        cx.update_global::<TransferCenterState, _>(|state, _cx| {
+            remove_transfer_if_terminal(state, &task_id)
+        });
     })
     .detach();
 }
@@ -557,28 +699,52 @@ fn build_upload_task(
     task
 }
 
+fn classify_upload_batch(total_files: usize, result: &UploadBatchResult) -> PendingToast {
+    if result.uploaded == total_files {
+        let title = if total_files == 1 {
+            t!("Sftp.Toast.UploadFinished").to_string()
+        } else {
+            t!("Sftp.Toast.UploadFinishedFiles", count = result.uploaded).to_string()
+        };
+        return PendingToast {
+            level: PromptLevel::Info,
+            title,
+            detail: None,
+        };
+    }
+
+    if result.failed == total_files {
+        return PendingToast {
+            level: PromptLevel::Critical,
+            title: t!("Sftp.Toast.UploadFailed").to_string(),
+            detail: result.failure_detail(),
+        };
+    }
+
+    PendingToast {
+        level: PromptLevel::Warning,
+        title: t!(
+            "Sftp.Toast.UploadIncomplete",
+            uploaded = result.uploaded,
+            failed = result.failed,
+            cancelled = result.cancelled
+        )
+        .to_string(),
+        detail: result.failure_detail(),
+    }
+}
+
 fn finish_upload_batch(
     this: &gpui::WeakEntity<TableState<SftpTable>>,
     cx: &mut gpui::AsyncApp,
     remote_dir: String,
     total_files: usize,
-    uploaded: usize,
+    result: UploadBatchResult,
 ) {
+    let toast = classify_upload_batch(total_files, &result);
     let _ = this.update(cx, |this, cx| {
-        let title = if total_files == 1 {
-            t!("Sftp.Toast.UploadFinished").to_string()
-        } else if uploaded == total_files {
-            t!("Sftp.Toast.UploadFinishedFiles", count = uploaded).to_string()
-        } else {
-            t!(
-                "Sftp.Toast.UploadFinishedPartial",
-                uploaded = uploaded,
-                total = total_files
-            )
-            .to_string()
-        };
         this.delegate_mut()
-            .show_toast(PromptLevel::Info, title, None, cx);
+            .show_toast(toast.level, toast.title, toast.detail, cx);
         this.delegate_mut().refresh_dir(remote_dir.clone(), cx);
     });
 }
@@ -651,28 +817,7 @@ fn set_download_terminal_in_center(
         detail_override,
     );
     cx.update_global::<TransferCenterState, _>(|state, _cx| state.upsert(task));
-
-    let task_id = ctx.task_id();
-    cx.spawn(async move |cx| {
-        Timer::after(AUTO_DISMISS_AFTER).await;
-        if !cx.has_global::<TransferCenterState>() {
-            return;
-        }
-        let should_remove = cx
-            .try_read_global::<TransferCenterState, bool>(|state, _app| {
-                state
-                    .tasks_sorted()
-                    .iter()
-                    .find(|t| t.id == task_id)
-                    .is_some_and(|t| t.status != TransferStatus::InProgress)
-            })
-            .unwrap_or(false);
-        if !should_remove {
-            return;
-        }
-        cx.update_global::<TransferCenterState, _>(|state, _cx| state.remove(&task_id));
-    })
-    .detach();
+    schedule_transfer_auto_dismiss(cx, ctx.task_id());
 }
 
 fn build_download_task(
@@ -800,6 +945,122 @@ async fn download_to_path(
     };
 
     finish_download_success(cx, &ctx, received).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_batch_all_success_is_info() {
+        let toast = classify_upload_batch(
+            2,
+            &UploadBatchResult {
+                uploaded: 2,
+                ..Default::default()
+            },
+        );
+
+        assert!(matches!(toast.level, PromptLevel::Info));
+        assert_eq!(toast.detail, None);
+    }
+
+    #[test]
+    fn upload_batch_all_failed_is_critical_with_aggregated_error() {
+        let mut result = UploadBatchResult::default();
+        result.record_failure(
+            UploadFailure::new(UploadFailureKind::OpenRemoteFile, "permission denied"),
+            "a.txt".to_string(),
+        );
+        result.record_failure(
+            UploadFailure::new(UploadFailureKind::OpenRemoteFile, "permission denied"),
+            "b.txt".to_string(),
+        );
+
+        let toast = classify_upload_batch(2, &result);
+
+        assert!(matches!(toast.level, PromptLevel::Critical));
+        assert!(toast.detail.as_deref().is_some_and(|detail| {
+            detail.contains("permission denied")
+                && detail.contains("a.txt")
+                && detail.contains("b.txt")
+        }));
+    }
+
+    #[test]
+    fn upload_batch_groups_failures_by_operation_and_cause() {
+        let mut result = UploadBatchResult::default();
+        let permission_denied =
+            UploadFailure::new(UploadFailureKind::OpenRemoteFile, "permission denied");
+        result.record_failure(permission_denied.clone(), "a.txt".to_string());
+        result.record_failure(permission_denied, "b.txt".to_string());
+        result.record_failure(
+            UploadFailure::new(UploadFailureKind::WriteRemoteFile, "permission denied"),
+            "c.txt".to_string(),
+        );
+
+        assert_eq!(result.failed, 3);
+        assert_eq!(result.failure_groups.len(), 2);
+        assert_eq!(result.failure_groups[0].files, ["a.txt", "b.txt"]);
+        assert_eq!(result.failure_groups[1].files, ["c.txt"]);
+    }
+
+    #[test]
+    fn upload_batch_partial_failure_is_warning() {
+        let mut result = UploadBatchResult {
+            uploaded: 1,
+            cancelled: 1,
+            ..Default::default()
+        };
+        result.record_failure(
+            UploadFailure::new(UploadFailureKind::WriteRemoteFile, "disk full"),
+            "large.bin".to_string(),
+        );
+
+        let toast = classify_upload_batch(3, &result);
+
+        assert!(matches!(toast.level, PromptLevel::Warning));
+        assert!(
+            toast
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("disk full") && detail.contains("large.bin"))
+        );
+    }
+
+    #[test]
+    fn upload_batch_cancellation_is_incomplete_not_failed() {
+        let toast = classify_upload_batch(
+            2,
+            &UploadBatchResult {
+                uploaded: 1,
+                cancelled: 1,
+                ..Default::default()
+            },
+        );
+
+        assert!(matches!(toast.level, PromptLevel::Warning));
+        assert_eq!(toast.detail, None);
+    }
+
+    #[test]
+    fn terminal_auto_dismiss_removes_failed_task_only() {
+        let mut state = TransferCenterState::default();
+        state.upsert(TransferTask::new("failed", "failed").with_status(TransferStatus::Failed));
+        state.upsert(TransferTask::new("active", "active"));
+
+        remove_transfer_if_terminal(&mut state, "failed");
+        remove_transfer_if_terminal(&mut state, "active");
+
+        assert_eq!(
+            state
+                .tasks_sorted()
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["active"]
+        );
+    }
 }
 
 impl SftpTable {
