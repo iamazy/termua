@@ -937,7 +937,10 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
         };
         input.update(app, |state, cx| {
             state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
@@ -1046,7 +1049,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         };
         input.update(app, |state, cx| {
             state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
@@ -1064,7 +1070,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         };
         input.update(app, |state, cx| {
             state.set_value("#ffffff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
