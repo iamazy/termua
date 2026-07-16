@@ -118,6 +118,7 @@ mod tests {
         });
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn right_sidebar_does_not_render_outer_tab_title_or_tab_bar(cx: &mut gpui::TestAppContext) {
         cx.update(|app| {

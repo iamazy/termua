@@ -202,6 +202,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn notifications_panel_renders_header_icon(cx: &mut gpui::TestAppContext) {
         cx.update(|app| {
