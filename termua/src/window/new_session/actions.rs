@@ -629,13 +629,11 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = backend;
-
         Ok(SessionStoreOp::UpdateLocal {
             session_id,
             group,
             label,
-            backend: backend_for_store,
+            backend,
             env: session_store_env_from_fields(
                 term.as_ref(),
                 Self::trimmed_non_empty_option(colorterm.as_str()),
@@ -651,7 +649,6 @@ impl NewSessionWindow {
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
         let values = self.read_ssh_form_values(cx);
-        let backend_for_store = values.backend;
         let group = Self::trimmed_or_value(values.group.as_str(), "ssh".to_string());
 
         let host_trimmed = values.host_raw.trim();
@@ -689,7 +686,7 @@ impl NewSessionWindow {
                     session_id,
                     group,
                     label: name,
-                    backend: backend_for_store,
+                    backend: values.backend,
                     host: host_trimmed.to_string(),
                     port,
                     user: user.to_string(),
@@ -720,7 +717,7 @@ impl NewSessionWindow {
                     session_id,
                     group,
                     label: name,
-                    backend: backend_for_store,
+                    backend: values.backend,
                     host: host_trimmed.to_string(),
                     port,
                     env: session_store_env_from_fields(
@@ -851,7 +848,6 @@ impl NewSessionWindow {
 
         let name = Self::trimmed_or_value(values.label.as_str(), host.clone());
         let group = Self::trimmed_or_value(values.group.as_str(), "ssh".to_string());
-        let backend_for_store = values.backend;
 
         let (proxy_mode, proxy_command, proxy_workdir, proxy_env, proxy_jump) =
             self.ssh.proxy_settings_for_store(cx);
@@ -862,7 +858,7 @@ impl NewSessionWindow {
             Authentication::Password(user, pw) => SessionStoreOp::SaveSshPassword {
                 group,
                 label: name.clone(),
-                backend: backend_for_store,
+                backend: values.backend,
                 host: host.clone(),
                 port,
                 user: user.clone(),
@@ -884,7 +880,7 @@ impl NewSessionWindow {
             Authentication::Config => SessionStoreOp::SaveSshConfig {
                 group,
                 label: name.clone(),
-                backend: backend_for_store,
+                backend: values.backend,
                 host: host.clone(),
                 port,
                 env: session_store_env_from_fields(
@@ -989,13 +985,11 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = backend;
-
         Ok(SessionStoreOp::UpdateSerial {
             session_id,
             group,
             label,
-            backend: backend_for_store,
+            backend,
             port: port.trim().to_string(),
             baud,
             data_bits,
@@ -1058,8 +1052,6 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = backend;
-
         if cx.global::<crate::TermuaAppState>().main_window.is_none() {
             return Err(anyhow::anyhow!("Main window not ready yet."));
         };
@@ -1070,7 +1062,7 @@ impl NewSessionWindow {
             SessionStoreOp::SaveSerial {
                 group,
                 label: label.clone(),
-                backend: backend_for_store,
+                backend,
                 port: port.trim().to_string(),
                 baud,
                 data_bits,
@@ -1487,7 +1479,6 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = backend;
         let env = session_store_env_from_fields(
             term.as_ref(),
             Self::trimmed_non_empty_option(colorterm.as_str()),
@@ -1499,7 +1490,7 @@ impl NewSessionWindow {
         crate::store::save_local_session_with_env(
             group.as_str(),
             label.as_str(),
-            backend_for_store,
+            backend,
             term.as_str(),
             colorterm.as_deref(),
             charset.as_str(),

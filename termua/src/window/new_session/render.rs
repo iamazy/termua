@@ -91,6 +91,11 @@ impl Render for NewSessionWindow {
             .lock_overlay
             .render_overlay_if_locked(Self::unlock_from_overlay, cx);
 
+        let default_backend = crate::settings::load_settings_from_disk()
+            .unwrap_or_default()
+            .terminal
+            .default_backend;
+
         v_flex()
             .id("termua-new-session-window")
             .size_full()
@@ -118,11 +123,7 @@ impl Render for NewSessionWindow {
                         .id("termua-new-session-titlebar-left")
                         .items_center()
                         .gap_x_1()
-                        .child({
-                            let default_backend = crate::settings::load_settings_from_disk()
-                                .unwrap_or_default()
-                                .terminal
-                                .default_backend;
+                        .child(
                             div()
                                 .debug_selector(|| "termua-new-session-titlebar-icon".to_string())
                                 .child(
@@ -131,8 +132,8 @@ impl Render for NewSessionWindow {
                                         .h(px(16.))
                                         .flex_shrink_0()
                                         .object_fit(gpui::ObjectFit::Contain),
-                                )
-                        })
+                                ),
+                        )
                         .child(div().text_sm().child(title)),
                 ),
             )
