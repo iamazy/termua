@@ -391,7 +391,7 @@ fn render_transfer_header_row(
                             .text()
                             .tab_stop(false)
                             .flex_1()
-                            .flex_shrink()
+                            .flex_shrink(1.0)
                             .min_w_0()
                             .child(
                                 div()

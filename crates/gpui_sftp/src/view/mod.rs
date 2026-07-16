@@ -257,6 +257,7 @@ fn accept_external_file_drop_paths(paths: &[PathBuf]) -> bool {
 
 fn folder_drop_ring_shadow(border: gpui::Hsla) -> Vec<gpui::BoxShadow> {
     vec![gpui::BoxShadow {
+        inset: false,
         color: border.opacity(0.25),
         offset: gpui::point(px(0.0), px(0.0)),
         blur_radius: px(0.0),
