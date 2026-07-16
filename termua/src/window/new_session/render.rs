@@ -1,6 +1,7 @@
 use gpui::{
     Context, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img, prelude::FluentBuilder, px,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
+    prelude::FluentBuilder, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{

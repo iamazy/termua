@@ -855,7 +855,11 @@ fn new_session_session_pages_do_not_render_type_controls(cx: &mut gpui::TestAppC
         },
     );
     shell.run_until_parked();
-    assert!(shell.debug_bounds("termua-new-session-shell-type").is_none());
+    assert!(
+        shell
+            .debug_bounds("termua-new-session-shell-type")
+            .is_none()
+    );
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-type-select")
@@ -897,7 +901,11 @@ fn new_session_session_pages_do_not_render_type_controls(cx: &mut gpui::TestAppC
         },
     );
     serial.run_until_parked();
-    assert!(serial.debug_bounds("termua-new-session-serial-type").is_none());
+    assert!(
+        serial
+            .debug_bounds("termua-new-session-serial-type")
+            .is_none()
+    );
 }
 
 #[gpui::test]

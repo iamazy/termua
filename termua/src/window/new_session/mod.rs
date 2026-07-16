@@ -32,9 +32,9 @@ pub use ssh::connect_enabled;
 pub use state::Protocol;
 use state::{
     EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
-    SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState, SerialStopBitsSelectItem,
-    SessionCommonState, SessionEditorMode, ShellSessionState, SshAuthSelectItem, SshAuthType,
-    SshProxySelectItem, SshSessionState, shell_program_title,
+    SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState,
+    SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellSessionState,
+    SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState, shell_program_title,
 };
 
 pub struct NewSessionWindow {
@@ -790,10 +790,7 @@ impl SessionCommonState {
         );
     }
 
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
         let term_select = new_select(
             window,
             cx,
@@ -881,14 +878,8 @@ impl ShellSessionState {
         gpui_term::shell::default_shell_program().into()
     }
 
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            window,
-            cx,
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let program = Self::program_default_value();
 
@@ -959,14 +950,8 @@ impl ShellSessionState {
 }
 
 impl SshSessionState {
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            window,
-            cx,
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let auth_select = new_select(
             window,
@@ -1153,14 +1138,8 @@ impl SshSessionState {
 }
 
 impl SerialSessionState {
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            window,
-            cx,
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let ports = Vec::<SharedString>::new();
         let port_select = new_select(window, cx, ports.clone(), None);
