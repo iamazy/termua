@@ -1,6 +1,6 @@
 use gpui::{
     Context, Entity, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img, prelude::FluentBuilder, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -35,6 +35,13 @@ fn is_reserved_terminal_env_name(name: &str) -> bool {
 
 fn reserved_terminal_env_hint() -> String {
     t!("NewSession.Hint.ReservedTerminalEnv").to_string()
+}
+
+fn backend_icon(backend: crate::settings::TerminalBackend) -> TermuaIcon {
+    match backend {
+        crate::settings::TerminalBackend::Alacritty => TermuaIcon::Alacritty,
+        crate::settings::TerminalBackend::Wezterm => TermuaIcon::Wezterm,
+    }
 }
 
 impl Render for NewSessionWindow {
@@ -111,11 +118,21 @@ impl Render for NewSessionWindow {
                         .id("termua-new-session-titlebar-left")
                         .items_center()
                         .gap_x_1()
-                        .child(
+                        .child({
+                            let default_backend = crate::settings::load_settings_from_disk()
+                                .unwrap_or_default()
+                                .terminal
+                                .default_backend;
                             div()
                                 .debug_selector(|| "termua-new-session-titlebar-icon".to_string())
-                                .child(gpui_component::Icon::new(IconName::SquareTerminal).small()),
-                        )
+                                .child(
+                                    img(backend_icon(default_backend))
+                                        .w(px(16.))
+                                        .h(px(16.))
+                                        .flex_shrink_0()
+                                        .object_fit(gpui::ObjectFit::Contain),
+                                )
+                        })
                         .child(div().text_sm().child(title)),
                 ),
             )
@@ -615,19 +632,6 @@ impl ShellSessionState {
             .id("termua-new-session-shell-session")
             .gap_3()
             .child(render_form_row(
-                t!("NewSession.Field.Type").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-shell-type".to_string())
-                    .child(
-                        div()
-                            .w_full()
-                            .debug_selector(|| "termua-new-session-shell-type-select".to_string())
-                            .child(Select::new(&self.common.type_select)),
-                    ),
-                cx,
-            ))
-            .child(render_form_row(
                 t!("NewSession.Field.Label").to_string(),
                 div().w_full().child(Input::new(&self.common.label_input)),
                 cx,
@@ -1112,20 +1116,6 @@ impl SshSessionState {
         let env_editor = self.render_env_editor(view, cx);
         vec![
             render_form_row(
-                t!("NewSession.Field.Type").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-ssh-type".to_string())
-                    .child(
-                        div()
-                            .w_full()
-                            .debug_selector(|| "termua-new-session-ssh-type-select".to_string())
-                            .child(Select::new(&self.common.type_select)),
-                    ),
-                cx,
-            )
-            .into_any_element(),
-            render_form_row(
                 t!("NewSession.Field.Label").to_string(),
                 Input::new(&self.common.label_input),
                 cx,
@@ -1444,14 +1434,6 @@ impl SerialSessionState {
                     .w_full()
                     .debug_selector(|| "termua-new-session-serial-charset-select".to_string())
                     .child(Select::new(&self.common.charset_select)),
-                cx,
-            ))
-            .child(render_form_row(
-                t!("NewSession.Field.Type").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-serial-type".to_string())
-                    .child(Select::new(&self.common.type_select)),
                 cx,
             ))
     }

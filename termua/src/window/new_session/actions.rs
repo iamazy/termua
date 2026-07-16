@@ -2,7 +2,7 @@ use gpui::{App, Context, Window};
 use gpui_term::{Authentication, SshOptions, TerminalType};
 
 use super::{
-    DEFAULT_COLORTERM, EnvRowState, NewSessionWindow, Protocol, SshAuthType, TermBackend,
+    DEFAULT_COLORTERM, EnvRowState, NewSessionWindow, Protocol, SshAuthType,
     new_proxy_jump_row_state, set_input_value, ssh,
 };
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 struct SshFormValues {
-    backend: TermBackend,
+    backend: crate::settings::TerminalBackend,
     auth_type: SshAuthType,
     user_raw: String,
     host_raw: String,
@@ -453,8 +453,9 @@ impl SessionStoreOp {
 
 impl NewSessionWindow {
     fn read_ssh_form_values(&self, cx: &Context<Self>) -> SshFormValues {
+        let backend = Self::load_default_backend();
         SshFormValues {
-            backend: self.ssh.common.ty,
+            backend,
             auth_type: self.ssh.auth_type,
             user_raw: self.ssh.user_input.read(cx).value().to_string(),
             host_raw: self.ssh.host_input.read(cx).value().to_string(),
@@ -470,17 +471,17 @@ impl NewSessionWindow {
         }
     }
 
-    fn backend_for_store(backend: TermBackend) -> crate::settings::TerminalBackend {
-        match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        }
+    fn load_default_backend() -> crate::settings::TerminalBackend {
+        crate::settings::load_settings_from_disk()
+            .unwrap_or_default()
+            .terminal
+            .default_backend
     }
 
-    fn backend_for_terminal_type(backend: TermBackend) -> TerminalType {
+    fn backend_for_terminal_type(backend: crate::settings::TerminalBackend) -> TerminalType {
         match backend {
-            TermBackend::Alacritty => TerminalType::Alacritty,
-            TermBackend::Wezterm => TerminalType::WezTerm,
+            crate::settings::TerminalBackend::Alacritty => TerminalType::Alacritty,
+            crate::settings::TerminalBackend::Wezterm => TerminalType::WezTerm,
         }
     }
 
@@ -601,8 +602,8 @@ impl NewSessionWindow {
         session_id: i64,
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
-        let (backend, shell_program, term, colorterm, charset, label, group) = (
-            self.shell.common.ty,
+        let backend = Self::load_default_backend();
+        let (shell_program, term, colorterm, charset, label, group) = (
             self.shell.program.clone(),
             self.shell.common.term.clone(),
             self.shell.common.colorterm.to_string(),
@@ -628,10 +629,7 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        };
+        let backend_for_store = backend;
 
         Ok(SessionStoreOp::UpdateLocal {
             session_id,
@@ -653,7 +651,7 @@ impl NewSessionWindow {
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
         let values = self.read_ssh_form_values(cx);
-        let backend_for_store = Self::backend_for_store(values.backend);
+        let backend_for_store = values.backend;
         let group = Self::trimmed_or_value(values.group.as_str(), "ssh".to_string());
 
         let host_trimmed = values.host_raw.trim();
@@ -756,18 +754,15 @@ impl NewSessionWindow {
     }
 
     fn connect_new_local_shell(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
-        let (backend, shell_program, term, colorterm, charset) = (
-            self.shell.common.ty,
+        let backend = Self::load_default_backend();
+        let (shell_program, term, colorterm, charset) = (
             self.shell.program.clone(),
             self.shell.common.term.clone(),
             self.shell.common.colorterm.to_string(),
             self.shell.common.charset.clone(),
         );
 
-        let backend_type = match backend {
-            TermBackend::Alacritty => TerminalType::Alacritty,
-            TermBackend::Wezterm => TerminalType::WezTerm,
-        };
+        let backend_type = Self::backend_for_terminal_type(backend);
         let session_env = self.shell_session_env_for_store(cx);
         let env = build_terminal_env(
             shell_program.as_ref(),
@@ -797,11 +792,6 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        };
-
         if cx.global::<crate::TermuaAppState>().main_window.is_none() {
             return Err(anyhow::anyhow!("Main window not ready yet."));
         };
@@ -812,7 +802,7 @@ impl NewSessionWindow {
             SessionStoreOp::SaveLocal {
                 group,
                 label,
-                backend: backend_for_store,
+                backend,
                 env: session_store_env_from_fields(
                     term.as_ref(),
                     Self::trimmed_non_empty_option(colorterm.as_str()),
@@ -861,7 +851,7 @@ impl NewSessionWindow {
 
         let name = Self::trimmed_or_value(values.label.as_str(), host.clone());
         let group = Self::trimmed_or_value(values.group.as_str(), "ssh".to_string());
-        let backend_for_store = Self::backend_for_store(values.backend);
+        let backend_for_store = values.backend;
 
         let (proxy_mode, proxy_command, proxy_workdir, proxy_env, proxy_jump) =
             self.ssh.proxy_settings_for_store(cx);
@@ -950,8 +940,8 @@ impl NewSessionWindow {
         session_id: i64,
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
+        let backend = Self::load_default_backend();
         let (
-            backend,
             port,
             baud_raw,
             data_bits,
@@ -963,7 +953,6 @@ impl NewSessionWindow {
             label,
             group,
         ) = (
-            self.serial.common.ty,
             self.serial.selected_port(cx).unwrap_or_default(),
             self.serial.baud_input.read(cx).value().to_string(),
             self.serial.selected_data_bits(cx),
@@ -1000,10 +989,7 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        };
+        let backend_for_store = backend;
 
         Ok(SessionStoreOp::UpdateSerial {
             session_id,
@@ -1021,8 +1007,8 @@ impl NewSessionWindow {
     }
 
     fn connect_new_serial(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
+        let backend = Self::load_default_backend();
         let (
-            backend,
             port,
             baud_raw,
             data_bits,
@@ -1034,7 +1020,6 @@ impl NewSessionWindow {
             label,
             group,
         ) = (
-            self.serial.common.ty,
             self.serial.selected_port(cx).unwrap_or_default(),
             self.serial.baud_input.read(cx).value().to_string(),
             self.serial.selected_data_bits(cx),
@@ -1047,10 +1032,7 @@ impl NewSessionWindow {
             self.serial.common.group_input.read(cx).value().to_string(),
         );
 
-        let backend_type = match backend {
-            TermBackend::Alacritty => TerminalType::Alacritty,
-            TermBackend::Wezterm => TerminalType::WezTerm,
-        };
+        let backend_type = Self::backend_for_terminal_type(backend);
 
         if port.trim().is_empty() {
             return Err(anyhow::anyhow!("Port is required."));
@@ -1076,10 +1058,7 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        };
+        let backend_for_store = backend;
 
         if cx.global::<crate::TermuaAppState>().main_window.is_none() {
             return Err(anyhow::anyhow!("Main window not ready yet."));
@@ -1130,12 +1109,7 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let backend = match session.backend {
-            crate::settings::TerminalBackend::Alacritty => TermBackend::Alacritty,
-            crate::settings::TerminalBackend::Wezterm => TermBackend::Wezterm,
-        };
-
-        self.apply_common_fields_for_edit(backend, session, window, cx);
+        self.apply_common_fields_for_edit(session, window, cx);
         match session.protocol {
             crate::store::SessionType::Local => {
                 self.apply_local_session_for_edit(session, window, cx);
@@ -1154,7 +1128,6 @@ impl NewSessionWindow {
 
     fn apply_common_fields_for_edit(
         &mut self,
-        backend: TermBackend,
         session: &crate::store::Session,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1171,7 +1144,6 @@ impl NewSessionWindow {
 
         Self::apply_common_state_fields(
             &mut self.shell.common,
-            backend,
             &term,
             &colorterm,
             &charset,
@@ -1182,7 +1154,6 @@ impl NewSessionWindow {
         );
         Self::apply_common_state_fields(
             &mut self.ssh.common,
-            backend,
             &term,
             &colorterm,
             &charset,
@@ -1193,7 +1164,6 @@ impl NewSessionWindow {
         );
         Self::apply_common_state_fields(
             &mut self.serial.common,
-            backend,
             &term,
             &colorterm,
             &charset,
@@ -1206,7 +1176,6 @@ impl NewSessionWindow {
 
     fn apply_common_state_fields(
         common: &mut super::state::SessionCommonState,
-        backend: TermBackend,
         term: &gpui::SharedString,
         colorterm: &gpui::SharedString,
         charset: &gpui::SharedString,
@@ -1215,7 +1184,6 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        common.set_type(backend, window, cx);
         common.set_term(term.clone(), window, cx);
         common.set_colorterm(colorterm.as_ref(), window, cx);
         common.set_charset(charset.clone(), window, cx);
@@ -1492,7 +1460,7 @@ impl NewSessionWindow {
         app: &gpui::App,
     ) -> anyhow::Result<()> {
         let (backend, shell_program, term, colorterm, charset, label, group) = (
-            self.shell.common.ty,
+            Self::load_default_backend(),
             self.shell.program.clone(),
             self.shell.common.term.clone(),
             self.shell.common.colorterm.to_string(),
@@ -1519,10 +1487,7 @@ impl NewSessionWindow {
             }
         };
 
-        let backend_for_store = match backend {
-            TermBackend::Alacritty => crate::settings::TerminalBackend::Alacritty,
-            TermBackend::Wezterm => crate::settings::TerminalBackend::Wezterm,
-        };
+        let backend_for_store = backend;
         let env = session_store_env_from_fields(
             term.as_ref(),
             Self::trimmed_non_empty_option(colorterm.as_str()),

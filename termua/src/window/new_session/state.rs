@@ -1,10 +1,5 @@
-use gpui::{
-    App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString, Styled, StyledImage,
-    Window, div, img, px,
-};
-use gpui_common::TermuaIcon;
+use gpui::{App, Entity, IntoElement, ParentElement, SharedString, Window, div};
 use gpui_component::{
-    h_flex,
     input::InputState,
     select::{SearchableVec, SelectItem, SelectState},
 };
@@ -32,13 +27,11 @@ impl SessionEditorMode {
 }
 
 pub(super) struct SessionCommonState {
-    pub(super) ty: TermBackend,
     pub(super) term: SharedString,
     pub(super) colorterm: SharedString,
     pub(super) charset: SharedString,
     pub(super) label_input: Entity<InputState>,
     pub(super) group_input: Entity<InputState>,
-    pub(super) type_select: Entity<SelectState<SearchableVec<BackendSelectItem>>>,
     pub(super) term_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) colorterm_options: Vec<SharedString>,
     pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -126,18 +119,6 @@ pub enum Protocol {
     Shell,
     Ssh,
     Serial,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum TermBackend {
-    Alacritty,
-    Wezterm,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) struct BackendSelectItem {
-    backend: TermBackend,
-    debug_icon_prefix: &'static str,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -308,58 +289,6 @@ impl SelectItem for SerialFlowControlSelectItem {
     }
 }
 
-impl BackendSelectItem {
-    pub(super) fn new(backend: TermBackend, debug_icon_prefix: &'static str) -> Self {
-        Self {
-            backend,
-            debug_icon_prefix,
-        }
-    }
-}
-
-impl SelectItem for BackendSelectItem {
-    type Value = TermBackend;
-
-    fn title(&self) -> SharedString {
-        SharedString::from(self.backend.label().to_string())
-    }
-
-    fn display_title(&self) -> Option<gpui::AnyElement> {
-        Some(backend_label_with_icon(self.backend, Some(self.debug_icon_prefix)).into_any_element())
-    }
-
-    fn render(&self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        backend_label_with_icon(self.backend, None)
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.backend
-    }
-}
-
-impl TermBackend {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            TermBackend::Alacritty => "Alacritty",
-            TermBackend::Wezterm => "Wezterm",
-        }
-    }
-
-    pub(super) fn icon_path(self) -> TermuaIcon {
-        match self {
-            TermBackend::Alacritty => TermuaIcon::Alacritty,
-            TermBackend::Wezterm => TermuaIcon::Wezterm,
-        }
-    }
-
-    fn id_suffix(self) -> &'static str {
-        match self {
-            TermBackend::Alacritty => "alacritty",
-            TermBackend::Wezterm => "wezterm",
-        }
-    }
-}
-
 impl SshAuthType {
     pub(super) fn label(self) -> SharedString {
         match self {
@@ -404,40 +333,6 @@ fn serial_flow_control_label(flow: SerialFlowControl) -> SharedString {
         SerialFlowControl::Hardware => t!("NewSession.Select.SerialFlow.Hardware")
             .to_string()
             .into(),
-    }
-}
-
-fn backend_label_with_icon(
-    backend: TermBackend,
-    debug_icon_prefix: Option<&'static str>,
-) -> impl IntoElement {
-    let icon = img(backend.icon_path())
-        .w(px(16.))
-        .h(px(16.))
-        .flex_shrink_0()
-        .object_fit(gpui::ObjectFit::Contain);
-
-    let icon = if let Some(prefix) = debug_icon_prefix {
-        let selector = format!("{prefix}-{}", backend.id_suffix());
-        div()
-            .debug_selector(move || selector)
-            .child(icon)
-            .into_any_element()
-    } else {
-        icon.into_any_element()
-    };
-
-    let content = h_flex()
-        .items_center()
-        .gap_2()
-        .child(icon)
-        .child(div().child(backend.label()));
-
-    if let Some(prefix) = debug_icon_prefix {
-        let selector = format!("{prefix}-content-{}", backend.id_suffix());
-        content.debug_selector(move || selector).into_any_element()
-    } else {
-        content.into_any_element()
     }
 }
 
