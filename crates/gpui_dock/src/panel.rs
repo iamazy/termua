@@ -19,7 +19,7 @@ pub enum TabIcon {
     Monochrome {
         /// Asset path, e.g. `icons/close.svg` or `icons/git-bash.svg`.
         path: SharedString,
-        /// Optional tint color. When `None`, the tab foreground color is used.
+        /// Optional tint color. When `None`, the icon inherits the parent text color.
         color: Option<Hsla>,
     },
     /// Multi-color SVG icon (rendered as a raster image, preserving original SVG colors).

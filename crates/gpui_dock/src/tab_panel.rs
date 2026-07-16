@@ -896,12 +896,13 @@ impl TabPanel {
                                     // NOTE: GPUI's `svg()` element is monochrome (alpha mask),
                                     // so multi-color SVGs must use `img()` to preserve colors.
                                     let icon_el = match icon {
-                                        TabIcon::Monochrome { path, color } => Icon::default()
-                                            .path(path)
-                                            .text_color(
-                                                color.unwrap_or_else(|| cx.theme().tab_foreground),
-                                            )
-                                            .into_any_element(),
+                                        TabIcon::Monochrome { path, color } => {
+                                            let mut icon = Icon::default().path(path);
+                                            if let Some(c) = color {
+                                                icon = icon.text_color(c);
+                                            }
+                                            icon.into_any_element()
+                                        }
                                         TabIcon::ColoredSvg { path } => img(path)
                                             // Match the tab header's text size (like Icon does by
                                             // default).

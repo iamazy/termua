@@ -8,7 +8,7 @@ use gpui::{
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, scroll::ScrollableElement};
 use gpui_dock::{Panel, PanelEvent};
-use gpui_term::{TerminalMode, TerminalShutdownPolicy, TerminalType, TerminalView};
+use gpui_term::{TerminalMode, TerminalShutdownPolicy, TerminalView};
 
 use crate::notification::{self, MessageKind};
 
@@ -87,24 +87,23 @@ pub(crate) fn local_terminal_panel_tab_name(
     }
 }
 
-pub(crate) fn tab_icon_path_for_terminal_type(terminal_type: TerminalType) -> TermuaIcon {
-    match terminal_type {
-        TerminalType::Alacritty => TermuaIcon::Alacritty,
-        TerminalType::WezTerm => TermuaIcon::Wezterm,
-    }
-}
-
-pub(crate) fn tab_icon_for_terminal_panel(
-    kind: PanelKind,
-    terminal_type: TerminalType,
-) -> gpui_dock::TabIcon {
+pub(crate) fn tab_icon_for_terminal_panel(kind: PanelKind) -> gpui_dock::TabIcon {
     match kind {
         PanelKind::Recorder => gpui_dock::TabIcon::Monochrome {
             path: TermuaIcon::Record.into(),
             color: Some(gpui::red()),
         },
-        PanelKind::Local | PanelKind::Ssh | PanelKind::Serial => gpui_dock::TabIcon::ColoredSvg {
-            path: tab_icon_path_for_terminal_type(terminal_type).into(),
+        PanelKind::Local => gpui_dock::TabIcon::Monochrome {
+            path: TermuaIcon::Terminal.into(),
+            color: None,
+        },
+        PanelKind::Ssh => gpui_dock::TabIcon::Monochrome {
+            path: TermuaIcon::Ssh.into(),
+            color: None,
+        },
+        PanelKind::Serial => gpui_dock::TabIcon::Monochrome {
+            path: TermuaIcon::Usb.into(),
+            color: None,
         },
     }
 }
@@ -469,9 +468,8 @@ impl Panel for TerminalPanel {
         "TerminalPanel"
     }
 
-    fn tab_icon(&self, cx: &App) -> Option<gpui_dock::TabIcon> {
-        let backend_type = self.terminal_view.read(cx).terminal.read(cx).backend_type();
-        Some(tab_icon_for_terminal_panel(self.kind, backend_type))
+    fn tab_icon(&self, _cx: &App) -> Option<gpui_dock::TabIcon> {
+        Some(tab_icon_for_terminal_panel(self.kind))
     }
 
     fn on_removed(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
@@ -566,21 +564,9 @@ mod tests {
     }
 
     #[test]
-    fn terminal_tab_icon_path_matches_backend_type() {
-        assert_eq!(
-            tab_icon_path_for_terminal_type(TerminalType::Alacritty),
-            TermuaIcon::Alacritty
-        );
-        assert_eq!(
-            tab_icon_path_for_terminal_type(TerminalType::WezTerm),
-            TermuaIcon::Wezterm
-        );
-    }
-
-    #[test]
     fn recorder_terminal_tab_icon_path_is_record_svg() {
         assert!(matches!(
-            tab_icon_for_terminal_panel(PanelKind::Recorder, TerminalType::WezTerm),
+            tab_icon_for_terminal_panel(PanelKind::Recorder),
             gpui_dock::TabIcon::Monochrome { path, color }
                 if path.as_ref() == TermuaIcon::Record.path() && color.is_some()
         ));
