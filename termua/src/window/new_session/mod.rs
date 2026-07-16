@@ -31,11 +31,10 @@ mod state;
 pub use ssh::connect_enabled;
 pub use state::Protocol;
 use state::{
-    BackendSelectItem, EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
+    EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
     SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState,
     SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellSessionState,
-    SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState, TermBackend,
-    shell_program_title,
+    SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState, shell_program_title,
 };
 
 pub struct NewSessionWindow {
@@ -337,23 +336,17 @@ impl NewSessionWindow {
         Self::set_window_title_for_mode(mode, window);
         Self::ensure_globals(cx);
 
-        let settings = crate::settings::load_settings_from_disk().unwrap_or_default();
-        let default_backend = match settings.terminal.default_backend {
-            crate::settings::TerminalBackend::Alacritty => TermBackend::Alacritty,
-            crate::settings::TerminalBackend::Wezterm => TermBackend::Wezterm,
-        };
-
         let lock_overlay = crate::lock_screen::overlay::LockOverlayState::new(window, cx);
 
         let nav_tree_items = build_nav_tree_items(protocol);
         let nav_tree_state = cx.new(|cx| TreeState::new(cx).items(nav_tree_items.clone()));
 
-        let shell = ShellSessionState::new(default_backend, window, cx);
-        let mut ssh = SshSessionState::new(default_backend, window, cx);
+        let shell = ShellSessionState::new(window, cx);
+        let mut ssh = SshSessionState::new(window, cx);
         if mode.is_edit() {
             ssh.password_edit_unlocked = false;
         }
-        let serial = SerialSessionState::new(default_backend, window, cx);
+        let serial = SerialSessionState::new(window, cx);
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
@@ -552,20 +545,6 @@ impl NewSessionWindow {
 
     fn install_shell_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions
-            .push(cx.subscribe_in(&self.shell.common.type_select, window, {
-                move |this,
-                      _select,
-                      ev: &SelectEvent<SearchableVec<BackendSelectItem>>,
-                      window,
-                      cx| {
-                    if let SelectEvent::Confirm(Some(backend)) = ev {
-                        this.shell.common.set_type(*backend, window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions
             .push(cx.subscribe_in(&self.shell.common.term_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
                     if let SelectEvent::Confirm(Some(term)) = ev {
@@ -626,20 +605,6 @@ impl NewSessionWindow {
             cx,
         );
 
-        self._subscriptions
-            .push(cx.subscribe_in(&self.ssh.common.type_select, window, {
-                move |this,
-                      _select,
-                      ev: &SelectEvent<SearchableVec<BackendSelectItem>>,
-                      window,
-                      cx| {
-                    if let SelectEvent::Confirm(Some(backend)) = ev {
-                        this.ssh.common.set_type(*backend, window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
         self._subscriptions
             .push(cx.subscribe_in(&self.ssh.auth_select, window, {
                 move |this,
@@ -703,20 +668,6 @@ impl NewSessionWindow {
     }
 
     fn install_serial_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self._subscriptions
-            .push(cx.subscribe_in(&self.serial.common.type_select, window, {
-                move |this,
-                      _select,
-                      ev: &SelectEvent<SearchableVec<BackendSelectItem>>,
-                      window,
-                      cx| {
-                    if let SelectEvent::Confirm(Some(backend)) = ev {
-                        this.serial.common.set_type(*backend, window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
         self._subscriptions
             .push(cx.subscribe_in(&self.serial.common.term_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
@@ -839,12 +790,7 @@ impl SessionCommonState {
         );
     }
 
-    fn new(
-        default_backend: TermBackend,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-        debug_icon_prefix: &'static str,
-    ) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
         let term_select = new_select(
             window,
             cx,
@@ -863,48 +809,21 @@ impl SessionCommonState {
             Some(0),
         );
 
-        let type_select = new_select(
-            window,
-            cx,
-            vec![
-                BackendSelectItem::new(TermBackend::Alacritty, debug_icon_prefix),
-                BackendSelectItem::new(TermBackend::Wezterm, debug_icon_prefix),
-            ],
-            Some(match default_backend {
-                TermBackend::Alacritty => 0,
-                TermBackend::Wezterm => 1,
-            }),
-        );
-
         let label_input = new_input(window, cx, t!("NewSession.Placeholder.Label").to_string());
         let group_input = new_input(window, cx, t!("NewSession.Placeholder.Group").to_string());
         let colorterm_options = colorterm_options();
         let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         Self {
-            ty: default_backend,
             term: "xterm-256color".into(),
             colorterm: DEFAULT_COLORTERM.into(),
             charset: "UTF-8".into(),
             label_input,
             group_input,
-            type_select,
             term_select,
             colorterm_options,
             colorterm_select,
             charset_select,
         }
-    }
-
-    fn set_type(
-        &mut self,
-        ty: TermBackend,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        self.ty = ty;
-        self.type_select.update(cx, |select, cx| {
-            select.set_selected_value(&ty, window, cx);
-        });
     }
 
     fn set_term(
@@ -959,17 +878,8 @@ impl ShellSessionState {
         gpui_term::shell::default_shell_program().into()
     }
 
-    fn new(
-        default_backend: TermBackend,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            default_backend,
-            window,
-            cx,
-            "termua-new-session-shell-type-icon",
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let program = Self::program_default_value();
 
@@ -1040,17 +950,8 @@ impl ShellSessionState {
 }
 
 impl SshSessionState {
-    fn new(
-        default_backend: TermBackend,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            default_backend,
-            window,
-            cx,
-            "termua-new-session-ssh-type-icon",
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let auth_select = new_select(
             window,
@@ -1237,17 +1138,8 @@ impl SshSessionState {
 }
 
 impl SerialSessionState {
-    fn new(
-        default_backend: TermBackend,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> Self {
-        let common = SessionCommonState::new(
-            default_backend,
-            window,
-            cx,
-            "termua-new-session-serial-type-icon",
-        );
+    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+        let common = SessionCommonState::new(window, cx);
 
         let ports = Vec::<SharedString>::new();
         let port_select = new_select(window, cx, ports.clone(), None);

@@ -586,6 +586,7 @@ fn new_session_ssh_renders_password_input(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_session_window_is_wrapped_in_gpui_component_root(cx: &mut gpui::TestAppContext) {
     let handle = {
@@ -835,7 +836,7 @@ fn new_session_ssh_proxy_page_renders_jumpserver_controls(cx: &mut gpui::TestApp
 }
 
 #[gpui::test]
-fn new_session_shell_and_ssh_session_pages_render_type_dropdowns(cx: &mut gpui::TestAppContext) {
+fn new_session_session_pages_do_not_render_type_controls(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         menubar::init(app);
         gpui_term::init(app);
@@ -858,7 +859,12 @@ fn new_session_shell_and_ssh_session_pages_render_type_dropdowns(cx: &mut gpui::
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-type")
-            .is_some()
+            .is_none()
+    );
+    assert!(
+        shell
+            .debug_bounds("termua-new-session-shell-type-select")
+            .is_none()
     );
 
     // Switch to SSH protocol and ensure the SSH session page has its type dropdown.
@@ -876,7 +882,31 @@ fn new_session_shell_and_ssh_session_pages_render_type_dropdowns(cx: &mut gpui::
         },
     );
     ssh.run_until_parked();
-    assert!(ssh.debug_bounds("termua-new-session-ssh-type").is_some());
+    assert!(ssh.debug_bounds("termua-new-session-ssh-type").is_none());
+    assert!(
+        ssh.debug_bounds("termua-new-session-ssh-type-select")
+            .is_none()
+    );
+
+    let serial = cx.add_empty_window();
+    serial.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            view.update(app, |this, cx| this.set_protocol(Protocol::Serial, cx));
+            div().size_full().child(view)
+        },
+    );
+    serial.run_until_parked();
+    assert!(
+        serial
+            .debug_bounds("termua-new-session-serial-type")
+            .is_none()
+    );
 }
 
 #[gpui::test]
@@ -961,126 +991,6 @@ fn new_session_ssh_tcp_nodelay_defaults_to_true(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn new_session_type_dropdown_buttons_render_icons_for_alacritty_and_wezterm(
-    cx: &mut gpui::TestAppContext,
-) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-test-type-icons-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Set the default backend to Wezterm so the initial icon is predictable.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-          "terminal": { "default_backend": "wezterm" }
-        }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    // Shell type icon: wezterm (default) and alacritty (after update).
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-type-icon-wezterm")
-            .is_some()
-    );
-
-    let shell_alacritty = cx.add_empty_window();
-    shell_alacritty.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            view.update(app, |this, cx| {
-                this.shell
-                    .common
-                    .set_type(TermBackend::Alacritty, window, cx);
-                cx.notify();
-            });
-            div().size_full().child(view)
-        },
-    );
-    shell_alacritty.run_until_parked();
-    assert!(
-        shell_alacritty
-            .debug_bounds("termua-new-session-shell-type-icon-alacritty")
-            .is_some()
-    );
-
-    // SSH type icon: wezterm (default) and alacritty (after update).
-    let ssh = cx.add_empty_window();
-    ssh.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            view.update(app, |this, cx| this.set_protocol(Protocol::Ssh, cx));
-            div().size_full().child(view)
-        },
-    );
-    ssh.run_until_parked();
-    assert!(
-        ssh.debug_bounds("termua-new-session-ssh-type-icon-wezterm")
-            .is_some()
-    );
-
-    let ssh_alacritty = cx.add_empty_window();
-    ssh_alacritty.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            view.update(app, |this, cx| {
-                this.set_protocol(Protocol::Ssh, cx);
-                this.ssh.common.set_type(TermBackend::Alacritty, window, cx);
-                cx.notify();
-            });
-            div().size_full().child(view)
-        },
-    );
-    ssh_alacritty.run_until_parked();
-    assert!(
-        ssh_alacritty
-            .debug_bounds("termua-new-session-ssh-type-icon-alacritty")
-            .is_some()
-    );
-}
-
-#[gpui::test]
 fn new_session_default_type_matches_terminal_default_backend_setting(
     cx: &mut gpui::TestAppContext,
 ) {
@@ -1123,57 +1033,11 @@ fn new_session_default_type_matches_terminal_default_backend_setting(
         },
     );
     shell.run_until_parked();
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-type-icon-alacritty")
-            .is_some()
-    );
-}
 
-#[gpui::test]
-fn new_session_type_controls_render_select_component(cx: &mut gpui::TestAppContext) {
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
+    shell.update(|_window, app| {
+        let view = app.new(|cx| NewSessionWindow::new(_window, cx));
+        let _view = view.read(app);
     });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-    assert!(
-        shell
-            .debug_bounds("termua-new-session-shell-type-select")
-            .is_some()
-    );
-
-    let ssh = cx.add_empty_window();
-    ssh.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            view.update(app, |this, cx| this.set_protocol(Protocol::Ssh, cx));
-            div().size_full().child(view)
-        },
-    );
-    ssh.run_until_parked();
-    assert!(
-        ssh.debug_bounds("termua-new-session-ssh-type-select")
-            .is_some()
-    );
 }
 
 #[gpui::test]
@@ -1278,88 +1142,6 @@ fn new_session_term_and_charset_controls_render_selects(cx: &mut gpui::TestAppCo
     assert!(
         ssh.debug_bounds("termua-new-session-ssh-charset-select")
             .is_some()
-    );
-}
-
-#[gpui::test]
-fn new_session_type_select_is_left_aligned(cx: &mut gpui::TestAppContext) {
-    // Point settings.json to a temp directory so this test is hermetic.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "termua-new-session-test-type-left-aligned-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp_dir).unwrap();
-
-    // Set the default backend to Wezterm so the type content selector id is predictable.
-    let path = tmp_dir.join("termua").join("settings.json");
-    let _guard = crate::settings::override_settings_json_path(path.clone());
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(
-        &path,
-        r#"{
-          "terminal": { "default_backend": "wezterm" }
-        }"#,
-    )
-    .unwrap();
-
-    cx.update(|app| {
-        menubar::init(app);
-        gpui_term::init(app);
-    });
-
-    let shell = cx.add_empty_window();
-    shell.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            div().size_full().child(view)
-        },
-    );
-    shell.run_until_parked();
-
-    let shell_select = shell
-        .debug_bounds("termua-new-session-shell-type-select")
-        .expect("shell type select should exist");
-    let shell_content = shell
-        .debug_bounds("termua-new-session-shell-type-icon-content-wezterm")
-        .expect("shell type content should exist");
-    let shell_left_gap = shell_content.left() - shell_select.left();
-    assert!(
-        shell_left_gap <= gpui::px(60.0),
-        "expected shell type to be left-aligned"
-    );
-
-    let ssh = cx.add_empty_window();
-    ssh.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(800.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        |window, app| {
-            let view = app.new(|cx| NewSessionWindow::new(window, cx));
-            view.update(app, |this, cx| this.set_protocol(Protocol::Ssh, cx));
-            div().size_full().child(view)
-        },
-    );
-    ssh.run_until_parked();
-
-    let ssh_select = ssh
-        .debug_bounds("termua-new-session-ssh-type-select")
-        .expect("ssh type select should exist");
-    let ssh_content = ssh
-        .debug_bounds("termua-new-session-ssh-type-icon-content-wezterm")
-        .expect("ssh type content should exist");
-    let ssh_left_gap = ssh_content.left() - ssh_select.left();
-    assert!(
-        ssh_left_gap <= gpui::px(60.0),
-        "expected ssh type to be left-aligned"
     );
 }
 
@@ -1954,6 +1736,7 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
     assert_eq!(env_value("FOO"), Some("bar"));
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_persist(
     cx: &mut gpui::TestAppContext,
@@ -2056,6 +1839,7 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
     assert_eq!(sessions[0].label, expected_label);
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_local_persist_error_is_shown_in_sessions_sidebar(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {

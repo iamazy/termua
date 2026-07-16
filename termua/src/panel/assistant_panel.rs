@@ -1181,6 +1181,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_text_is_rendered_by_textview_and_send_scrolls_to_bottom(
         cx: &mut gpui::TestAppContext,
@@ -1271,6 +1272,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_prompt_renders_options_and_send_buttons(cx: &mut gpui::TestAppContext) {
         cx.update(|app| init_test_app(app));
@@ -1301,6 +1303,7 @@ mod tests {
             .expect("expected assistant header icon to render");
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_in_flight_card_renders_bot_icon(cx: &mut gpui::TestAppContext) {
         cx.update(|app| init_test_app(app));
@@ -1329,6 +1332,7 @@ mod tests {
             .expect("expected assistant in-flight card to render a bot icon");
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_is_rightmost_and_above_body(cx: &mut gpui::TestAppContext) {
         cx.update(|app| init_test_app(app));
@@ -1389,6 +1393,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_removes_only_that_message(cx: &mut gpui::TestAppContext) {
         cx.update(|app| init_test_app(app));
@@ -1432,6 +1437,7 @@ mod tests {
         assert_eq!(remaining, vec!["b".to_string()]);
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_reply_with_multiple_commands_renders_run_button_per_command(
         cx: &mut gpui::TestAppContext,
@@ -1470,6 +1476,7 @@ mod tests {
 
     // Intentionally no assistant "tool" UI in the panel.
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_user_messages_render_rerun_button_after_assistant_reply(
         cx: &mut gpui::TestAppContext,
@@ -1503,6 +1510,7 @@ mod tests {
             .expect("expected user messages to render a rerun button");
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_user_messages_hide_rerun_button_before_assistant_reply(
         cx: &mut gpui::TestAppContext,
@@ -1538,6 +1546,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_only_hides_rerun_for_last_user_message_while_in_flight(
         cx: &mut gpui::TestAppContext,

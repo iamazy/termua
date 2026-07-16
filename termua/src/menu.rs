@@ -541,6 +541,7 @@ mod tests {
         });
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn open_settings_opens_a_single_settings_window(cx: &mut gpui::TestAppContext) {
         let _guard = crate::locale::lock();

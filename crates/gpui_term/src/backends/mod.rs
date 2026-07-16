@@ -89,7 +89,7 @@ pub(crate) fn determine_scroll_lines(
             *scroll_px %= viewport_height;
             Some(new_offset - old_offset)
         }
-        TouchPhase::Ended => None,
+        TouchPhase::Ended | TouchPhase::Cancelled => None,
     }
 }
 

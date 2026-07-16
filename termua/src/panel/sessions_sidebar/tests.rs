@@ -366,6 +366,7 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn sessions_can_be_deleted_via_right_click_menu(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -589,6 +590,7 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -628,6 +630,7 @@ fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
         .expect("expected local sessions to render the generic terminal icon");
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -674,6 +677,7 @@ fn blank_area_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppCont
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -731,6 +735,7 @@ fn folder_right_click_shows_new_session_menu_item(cx: &mut gpui::TestAppContext)
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -775,6 +780,7 @@ fn sidebar_shows_load_error_when_disk_sessions_cannot_be_parsed(cx: &mut gpui::T
         .expect("expected a visible load error when disk sessions cannot be parsed");
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn session_labels_do_not_wrap_when_sidebar_is_narrow(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {

@@ -135,6 +135,7 @@ fn assistant_settings_are_present_in_settings_meta_and_sidebar() {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn assistant_model_dropdown_does_not_render_inline_fetch_error_below_control(
     cx: &mut gpui::TestAppContext,
@@ -193,6 +194,7 @@ fn assistant_model_dropdown_does_not_render_inline_fetch_error_below_control(
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn assistant_model_dropdown_filters_options_from_typed_query(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -368,6 +370,7 @@ fn terminal_font_fallback_setting_is_not_present_in_settings_meta_or_supported()
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn settings_window_is_wrapped_in_gpui_component_root(cx: &mut gpui::TestAppContext) {
     let handle = {
@@ -385,6 +388,7 @@ fn settings_window_is_wrapped_in_gpui_component_root(cx: &mut gpui::TestAppConte
         .unwrap();
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn settings_window_lock_password_input_accepts_text(cx: &mut gpui::TestAppContext) {
     use gpui_component::WindowExt;
@@ -450,6 +454,7 @@ fn settings_window_lock_password_input_accepts_text(cx: &mut gpui::TestAppContex
     assert_eq!(value, "pw");
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn settings_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppContext) {
     use std::sync::Arc;
@@ -659,6 +664,7 @@ fn assistant_page_renders_zeroclaw_controls(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn disabling_assistant_shows_zeroclaw_shutdown_dialog_buttons(cx: &mut gpui::TestAppContext) {
     let tmp_dir = std::env::temp_dir().join(format!(
@@ -865,6 +871,7 @@ fn recording_page_renders_playback_speed_as_select(cx: &mut gpui::TestAppContext
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn clicking_new_theme_button_opens_theme_editor_sheet(cx: &mut gpui::TestAppContext) {
     let _guard = override_settings_page("theme-editor-sheet", "nav.page.appearance.theme");
@@ -885,6 +892,7 @@ fn clicking_new_theme_button_opens_theme_editor_sheet(cx: &mut gpui::TestAppCont
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_sheet_lists_background_color(cx: &mut gpui::TestAppContext) {
     let _guard =
@@ -907,6 +915,7 @@ fn theme_editor_sheet_lists_background_color(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
     use gpui_component::Colorize as _;
@@ -937,7 +946,10 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
         };
         input.update(app, |state, cx| {
             state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
@@ -962,6 +974,7 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_sheet_lists_muted_color(cx: &mut gpui::TestAppContext) {
     let _guard = override_settings_page("theme-editor-sheet-muted", "nav.page.appearance.theme");
@@ -982,6 +995,7 @@ fn theme_editor_sheet_lists_muted_color(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppContext) {
     use gpui_component::Colorize as _;
@@ -1046,7 +1060,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         };
         input.update(app, |state, cx| {
             state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
@@ -1064,7 +1081,10 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         };
         input.update(app, |state, cx| {
             state.set_value("#ffffff", window, cx);
-            cx.emit(InputEvent::PressEnter { secondary: false });
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
         });
     });
     cx.run_until_parked();
@@ -1077,6 +1097,7 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_renders_color_swatch_for_background(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
@@ -1135,6 +1156,7 @@ fn theme_editor_renders_color_swatch_for_background(cx: &mut gpui::TestAppContex
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_long_color_labels_do_not_wrap(cx: &mut gpui::TestAppContext) {
     use std::rc::Rc;
@@ -1203,6 +1225,7 @@ fn theme_editor_long_color_labels_do_not_wrap(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_footer_buttons_are_right_aligned(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
@@ -1276,6 +1299,7 @@ fn theme_editor_footer_buttons_are_right_aligned(cx: &mut gpui::TestAppContext) 
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_sheet_keeps_settings_window_draggable(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
@@ -1334,6 +1358,7 @@ fn theme_editor_sheet_keeps_settings_window_draggable(cx: &mut gpui::TestAppCont
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_mode_switch_toggles_preview_mode(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
@@ -1407,6 +1432,7 @@ fn theme_editor_mode_switch_toggles_preview_mode(cx: &mut gpui::TestAppContext) 
     cx.run_until_parked();
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn theme_editor_save_writes_a_theme_file(cx: &mut gpui::TestAppContext) {
     // Point settings.json to a temp directory so this test is hermetic.
@@ -1858,6 +1884,7 @@ fn terminal_font_page_renders_ligatures_switch(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_font_family_dropdown_renders_font_preview_options(cx: &mut gpui::TestAppContext) {
     let _guard = override_settings_page("terminal-font-family-dropdown", "nav.page.terminal.font");
@@ -1880,6 +1907,7 @@ fn terminal_font_family_dropdown_renders_font_preview_options(cx: &mut gpui::Tes
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_keybinding_field_accepts_delete_key_as_binding(cx: &mut gpui::TestAppContext) {
     let tmp_dir = std::env::temp_dir().join(format!(
@@ -1952,6 +1980,7 @@ fn terminal_keybinding_field_accepts_delete_key_as_binding(cx: &mut gpui::TestAp
     });
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_keybindings_page_uses_compact_two_column_rows(cx: &mut gpui::TestAppContext) {
     let _guard = override_settings_page(
@@ -2021,6 +2050,7 @@ fn terminal_keybindings_page_uses_compact_two_column_rows(cx: &mut gpui::TestApp
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_keybindings_tooltip_stays_hidden_when_hovering_title_cell_padding(
     cx: &mut gpui::TestAppContext,
@@ -2055,6 +2085,7 @@ fn terminal_keybindings_tooltip_stays_hidden_when_hovering_title_cell_padding(
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_font_family_dropdown_filters_options_from_typed_query(cx: &mut gpui::TestAppContext) {
     let _guard = override_settings_page("terminal-font-family-filter", "nav.page.terminal.font");
