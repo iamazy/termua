@@ -213,7 +213,7 @@ impl TermuaWindow {
             );
             if let Some(right) = dock.right_dock().cloned() {
                 right.update(cx, |dock, cx| {
-                    dock.set_min_size(gpui::px(320.0), window, cx);
+                    dock.set_min_size(gpui::px(220.0), window, cx);
                     dock.set_max_size(gpui::px(400.0), window, cx);
                 });
             }
