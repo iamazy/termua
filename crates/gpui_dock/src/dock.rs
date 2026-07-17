@@ -68,6 +68,8 @@ pub struct Dock {
     pub(super) size: Pixels,
     /// The minimum size of the dock (width/height depending on placement).
     pub(super) min_size: Pixels,
+    /// The maximum size of the dock (width/height depending on placement).
+    pub(super) max_size: Option<Pixels>,
     pub(super) open: bool,
     /// Whether the Dock is collapsible, default: true
     pub(super) collapsible: bool,
@@ -106,6 +108,7 @@ impl Dock {
             collapsible: true,
             size: px(200.0),
             min_size: PANEL_MIN_SIZE,
+            max_size: None,
             resizing: false,
         }
     }
@@ -179,6 +182,7 @@ impl Dock {
             open,
             size,
             min_size: PANEL_MIN_SIZE,
+            max_size: None,
             collapsible: true,
             resizing: false,
         }
@@ -262,9 +266,21 @@ impl Dock {
         cx.notify();
     }
 
+    pub fn set_max_size(&mut self, max_size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
+        self.max_size = Some(max_size.max(self.min_size));
+        if self.size > max_size {
+            self.size = max_size;
+        }
+        cx.notify();
+    }
+
     /// Set the size of the Dock.
     pub fn set_size(&mut self, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
-        self.size = size.max(self.min_size);
+        let mut size = size.max(self.min_size);
+        if let Some(max) = self.max_size {
+            size = size.min(max);
+        }
+        self.size = size;
         cx.notify();
     }
 
@@ -365,23 +381,20 @@ impl Dock {
             DockPlacement::Center => unreachable!(),
         };
         let min_size = self.min_size;
-        match self.placement {
+        let max_size = match self.placement {
             DockPlacement::Left => {
-                let max_size =
-                    (area_bounds.size.width - PANEL_MIN_SIZE - right_dock_size).max(min_size);
-                self.size = size.clamp(min_size, max_size);
+                (area_bounds.size.width - PANEL_MIN_SIZE - right_dock_size).max(min_size)
             }
             DockPlacement::Right => {
-                let max_size =
-                    (area_bounds.size.width - PANEL_MIN_SIZE - left_dock_size).max(min_size);
-                self.size = size.clamp(min_size, max_size);
+                (area_bounds.size.width - PANEL_MIN_SIZE - left_dock_size).max(min_size)
             }
-            DockPlacement::Bottom => {
-                let max_size = (area_bounds.size.height - PANEL_MIN_SIZE).max(min_size);
-                self.size = size.clamp(min_size, max_size);
-            }
+            DockPlacement::Bottom => (area_bounds.size.height - PANEL_MIN_SIZE).max(min_size),
             DockPlacement::Center => unreachable!(),
-        }
+        };
+        let max_size = self
+            .max_size
+            .map_or(max_size, |self_max| max_size.min(self_max));
+        self.size = size.clamp(min_size, max_size);
 
         cx.notify();
     }
