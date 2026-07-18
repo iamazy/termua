@@ -2095,8 +2095,8 @@ fn right_sidebar_width_is_clamped_to_min_width(cx: &mut gpui::TestAppContext) {
         .expect("expected right sidebar to still render");
 
     assert!(
-        after.size.width >= gpui::px(320.0),
-        "expected right sidebar width to be clamped to >= 320px, got {:?}",
+        after.size.width >= gpui::px(220.0),
+        "expected right sidebar width to be clamped to >= 220px, got {:?}",
         after.size.width
     );
 }

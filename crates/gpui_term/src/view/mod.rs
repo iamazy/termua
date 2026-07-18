@@ -1,4 +1,4 @@
-use std::{ops::Range, sync::Arc, time::Duration};
+use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
     Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyContext,
@@ -213,6 +213,7 @@ pub struct TerminalView {
     snippet: Option<SnippetSession>,
     context_menu_enabled: bool,
     context_menu_provider: Option<Arc<dyn ContextMenuProvider>>,
+    cast_recording_path: Option<PathBuf>,
     _subscriptions: Vec<Subscription>,
     _terminal_subscriptions: Vec<Subscription>,
 }
@@ -318,6 +319,7 @@ impl TerminalView {
             snippet: None,
             context_menu_enabled,
             context_menu_provider,
+            cast_recording_path: None,
             _subscriptions: vec![focus_in, focus_out],
             _terminal_subscriptions: terminal_subscriptions,
         }
@@ -495,13 +497,16 @@ impl TerminalView {
         });
 
         match result {
-            Ok(()) => self.show_toast(
-                PromptLevel::Info,
-                "Recording started",
-                Some(path.display().to_string()),
-                window,
-                cx,
-            ),
+            Ok(()) => {
+                self.cast_recording_path = Some(path.clone());
+                self.show_toast(
+                    PromptLevel::Info,
+                    "Recording started",
+                    Some(format!("Path: {}", path.display())),
+                    window,
+                    cx,
+                )
+            }
             Err(err) => self.show_toast(
                 PromptLevel::Warning,
                 "Recording failed",
@@ -527,7 +532,17 @@ impl TerminalView {
         self.terminal.update(cx, |term, _| {
             term.stop_cast_recording();
         });
-        self.show_toast(PromptLevel::Info, "Recording stopped", None, window, cx);
+        let path_detail = self
+            .cast_recording_path
+            .take()
+            .map(|p| format!("Path: {}", p.display()));
+        self.show_toast(
+            PromptLevel::Info,
+            "Recording stopped",
+            path_detail,
+            window,
+            cx,
+        );
     }
 
     fn toggle_cast_recording(
