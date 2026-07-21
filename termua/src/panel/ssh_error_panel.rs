@@ -104,7 +104,7 @@ impl Focusable for SshErrorPanel {
 
 impl Panel for SshErrorPanel {
     fn panel_name(&self) -> &'static str {
-        "SshErrorPanel"
+        super::SSH_ERROR_PANEL_NAME
     }
 
     fn tab_icon(&self, _cx: &App) -> Option<gpui_dock::TabIcon> {
@@ -157,7 +157,7 @@ impl Panel for SshErrorPanel {
             return PanelState::new(self);
         };
         PanelState {
-            panel_name: "TerminalPanel".to_string(),
+            panel_name: super::TERMINAL_PANEL_NAME.to_string(),
             children: Vec::new(),
             info: PanelInfo::panel(
                 serde_json::to_value(terminal_state)
@@ -187,8 +187,9 @@ mod tests {
     use gpui_dock::Panel as _;
 
     use super::*;
-    use crate::panel::terminal_panel::tab_icon_for_terminal_panel;
-    use crate::panel::{PanelKind, TerminalLaunchState};
+    use crate::panel::{
+        PanelKind, TerminalLaunchState, terminal_panel::tab_icon_for_terminal_panel,
+    };
 
     #[gpui::test]
     fn restoring_ssh_panel_uses_ssh_terminal_icon(cx: &mut gpui::TestAppContext) {

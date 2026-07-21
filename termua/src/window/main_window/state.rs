@@ -68,8 +68,14 @@ fn unwrap_fixed_dock_panel(dock: &mut Option<DockState>, panel_name: &str) {
 }
 
 fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
-    unwrap_fixed_dock_panel(&mut state.left_dock, "termua.sessions_sidebar");
-    unwrap_fixed_dock_panel(&mut state.right_dock, "termua.right_sidebar");
+    unwrap_fixed_dock_panel(
+        &mut state.left_dock,
+        crate::panel::SESSIONS_SIDEBAR_PANEL_NAME,
+    );
+    unwrap_fixed_dock_panel(
+        &mut state.right_dock,
+        crate::panel::RIGHT_SIDEBAR_PANEL_NAME,
+    );
 }
 
 struct TermuaContextMenuProvider;
@@ -175,7 +181,7 @@ impl TermuaWindow {
             cx.new(|cx| DockArea::new("termua", Some(crate::workspace::STATE_VERSION), window, cx));
         let sessions_sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
         let right_sidebar = cx.new(|cx| RightSidebarView::new(window, cx));
-        register_panel(cx, "termua.sessions_sidebar", {
+        register_panel(cx, crate::panel::SESSIONS_SIDEBAR_PANEL_NAME, {
             let sessions_sidebar = sessions_sidebar.clone();
             move |_, _, info, window, cx| {
                 if let gpui_dock::PanelInfo::Panel(value) = info
@@ -190,7 +196,7 @@ impl TermuaWindow {
                 Box::new(sessions_sidebar.clone())
             }
         });
-        register_panel(cx, "termua.right_sidebar", {
+        register_panel(cx, crate::panel::RIGHT_SIDEBAR_PANEL_NAME, {
             let right_sidebar = right_sidebar.clone();
             move |_, _, info, window, cx| {
                 if let gpui_dock::PanelInfo::Panel(value) = info
@@ -285,7 +291,7 @@ impl TermuaWindow {
         });
 
         let terminal_context_menu_provider = this.terminal_context_menu_provider.clone();
-        register_panel(cx, "TerminalPanel", {
+        register_panel(cx, crate::panel::TERMINAL_PANEL_NAME, {
             move |_, _, info, window, cx| {
                 let panel_state = match info {
                     gpui_dock::PanelInfo::Panel(value) => {
@@ -403,7 +409,7 @@ impl TermuaWindow {
                 }))
             }
         });
-        register_panel(cx, "termua.sftp_dock_panel", |_, _, info, _, cx| {
+        register_panel(cx, crate::panel::SFTP_PANEL_NAME, |_, _, info, _, cx| {
             let state = match info {
                 gpui_dock::PanelInfo::Panel(value) => serde_json::from_value::<
                     crate::panel::sftp_panel::SftpPanelState,

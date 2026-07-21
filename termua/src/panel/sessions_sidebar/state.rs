@@ -68,7 +68,7 @@ impl Focusable for SessionsSidebarView {
 
 impl Panel for SessionsSidebarView {
     fn panel_name(&self) -> &'static str {
-        "termua.sessions_sidebar"
+        crate::panel::SESSIONS_SIDEBAR_PANEL_NAME
     }
 
     fn dump(&self, _cx: &App) -> PanelState {

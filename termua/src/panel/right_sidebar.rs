@@ -73,7 +73,7 @@ impl RightSidebarView {
 
 impl Panel for RightSidebarView {
     fn panel_name(&self) -> &'static str {
-        "termua.right_sidebar"
+        super::RIGHT_SIDEBAR_PANEL_NAME
     }
 
     fn tab_name(&self, _cx: &App) -> Option<gpui::SharedString> {

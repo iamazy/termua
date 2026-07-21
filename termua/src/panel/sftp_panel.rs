@@ -166,7 +166,7 @@ impl Focusable for SftpDockPanel {
 
 impl Panel for SftpDockPanel {
     fn panel_name(&self) -> &'static str {
-        "termua.sftp_dock_panel"
+        super::SFTP_PANEL_NAME
     }
 
     fn persistable(&self, _cx: &App) -> bool {

@@ -510,7 +510,7 @@ impl gpui::Focusable for TerminalPanel {
 
 impl Panel for TerminalPanel {
     fn panel_name(&self) -> &'static str {
-        "TerminalPanel"
+        super::TERMINAL_PANEL_NAME
     }
 
     fn tab_icon(&self, _cx: &App) -> Option<gpui_dock::TabIcon> {
