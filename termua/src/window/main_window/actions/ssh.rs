@@ -579,7 +579,7 @@ impl TermuaWindow {
                 let message = ssh_connect_failure_message(&params.opts, &err);
 
                 let panel = cx.new(|cx| {
-                    SshErrorPanel::restoring(
+                    SshErrorPanel::with_terminal_error(
                         crate::panel::TerminalPanelState {
                             version: 1,
                             id,

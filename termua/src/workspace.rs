@@ -3,9 +3,23 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use gpui_dock::DockAreaState;
 
-pub(crate) const STATE_VERSION: usize = 1;
+pub(crate) const STATE_VERSION: usize = 2;
 
 pub(crate) fn state_path() -> PathBuf {
+    #[cfg(test)]
+    if !crate::settings::settings_json_path_is_overridden() {
+        let thread = std::thread::current();
+        let test_id = thread
+            .name()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{:?}", thread.id()))
+            .replace(|ch: char| !ch.is_ascii_alphanumeric(), "_");
+        return std::env::temp_dir()
+            .join(format!("termua-workspace-tests-{}", std::process::id()))
+            .join(test_id)
+            .join("workspace.json");
+    }
+
     crate::settings::settings_dir_path().join("workspace.json")
 }
 
@@ -46,6 +60,16 @@ mod tests {
         assert_eq!(
             super::state_path(),
             settings_path.parent().unwrap().join("workspace.json")
+        );
+    }
+
+    #[test]
+    fn default_test_workspace_state_path_is_isolated_from_user_config() {
+        let path = super::state_path();
+        assert!(path.starts_with(std::env::temp_dir()));
+        assert_ne!(
+            path,
+            crate::settings::settings_dir_path().join("workspace.json")
         );
     }
 

@@ -81,6 +81,52 @@ fn main_window_restores_saved_dock_layout(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+fn main_window_unwraps_fixed_sidebars_from_saved_tab_panels(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("unwrap-fixed-sidebars");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|_window, cx| {
+        let state = first.read(cx).dock_area.read(cx).dump(cx);
+        let mut value = serde_json::to_value(state).expect("serialize workspace state");
+        for dock_name in ["left_dock", "right_dock"] {
+            let panel = value[dock_name]["panel"].take();
+            value[dock_name]["panel"] = serde_json::json!({
+                "panel_name": "TabPanel",
+                "children": [panel],
+                "info": { "tabs": { "active_index": 0 } }
+            });
+        }
+        let state = serde_json::from_value(value).expect("deserialize wrapped workspace state");
+        crate::workspace::save_to_path(&crate::workspace::state_path(), &state)
+            .expect("save wrapped workspace state");
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_window, cx| {
+        let dock_area = restored.read(cx).dock_area.read(cx);
+        assert!(matches!(
+            dock_area.left_dock().expect("left dock").read(cx).panel(),
+            gpui_dock::DockItem::Panel { .. }
+        ));
+        assert!(matches!(
+            dock_area.right_dock().expect("right dock").read(cx).panel(),
+            gpui_dock::DockItem::Panel { .. }
+        ));
+    });
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
 fn main_window_saves_dock_layout_after_change(cx: &mut gpui::TestAppContext) {
     let settings_path = unique_workspace_settings_path("save-layout");
     let _guard = crate::settings::override_settings_json_path(settings_path);

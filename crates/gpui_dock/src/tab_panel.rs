@@ -140,9 +140,9 @@ impl Panel for TabPanel {
 
     fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
+        state.info = PanelInfo::tabs(self.active_ix);
         for panel in self.panels.iter() {
             state.add_child(panel.dump(cx));
-            state.info = PanelInfo::tabs(self.active_ix);
         }
         state
     }

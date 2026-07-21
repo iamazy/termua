@@ -994,6 +994,11 @@ pub fn override_settings_json_path(path: PathBuf) -> SettingsJsonPathOverrideGua
 }
 
 #[cfg(test)]
+pub(crate) fn settings_json_path_is_overridden() -> bool {
+    SETTINGS_JSON_PATH_OVERRIDE.with(|slot| slot.borrow().is_some())
+}
+
+#[cfg(test)]
 mod tests {
     use gpui::px;
     use serde_json::Value;

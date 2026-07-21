@@ -5,7 +5,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use gpui::{App, AppContext, Context, Focusable, Styled, Subscription, Window};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
-use gpui_dock::{DockArea, DockEvent, DockItem, DockPlacement, PanelView, register_panel};
+use gpui_dock::{
+    DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, DockState, PanelState, PanelView,
+    register_panel,
+};
 use gpui_term::{
     Clear, Copy as CopyAction, CursorShape, Paste, PtySource, SelectAll, SshOptions,
     TerminalBuilder, TerminalType, TerminalView, ToggleCastRecording,
@@ -44,6 +47,30 @@ pub(crate) struct TermuaWindow {
 const WORKSPACE_SAVE_DEBOUNCE: Duration = Duration::from_millis(10);
 #[cfg(not(test))]
 const WORKSPACE_SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
+
+fn find_panel_state<'a>(state: &'a PanelState, panel_name: &str) -> Option<&'a PanelState> {
+    if state.panel_name == panel_name {
+        return Some(state);
+    }
+    state
+        .children
+        .iter()
+        .find_map(|child| find_panel_state(child, panel_name))
+}
+
+fn unwrap_fixed_dock_panel(dock: &mut Option<DockState>, panel_name: &str) {
+    let Some(dock) = dock else {
+        return;
+    };
+    if let Some(panel) = find_panel_state(dock.panel_state(), panel_name).cloned() {
+        dock.set_panel_state(panel);
+    }
+}
+
+fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
+    unwrap_fixed_dock_panel(&mut state.left_dock, "termua.sessions_sidebar");
+    unwrap_fixed_dock_panel(&mut state.right_dock, "termua.right_sidebar");
+}
 
 struct TermuaContextMenuProvider;
 
@@ -342,7 +369,7 @@ impl TermuaWindow {
                     Ok(builder) => builder,
                     Err(err) => {
                         return Box::new(cx.new(|cx| {
-                            crate::panel::SshErrorPanel::restoring(
+                            crate::panel::SshErrorPanel::with_terminal_error(
                                 panel_state,
                                 format!("Failed to restore terminal: {err:#}").into(),
                                 cx,
@@ -400,7 +427,8 @@ impl TermuaWindow {
         });
 
         match crate::workspace::load_from_path(&crate::workspace::state_path()) {
-            Ok(state) if state.version == Some(crate::workspace::STATE_VERSION) => {
+            Ok(mut state) if state.version == Some(crate::workspace::STATE_VERSION) => {
+                normalize_fixed_sidebar_panels(&mut state);
                 if let Err(err) = dock_area.update(cx, |dock, cx| dock.load(state, window, cx)) {
                     log::warn!("termua: failed to restore dock workspace: {err:#}");
                 }
