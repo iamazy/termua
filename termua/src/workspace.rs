@@ -23,12 +23,12 @@ pub(crate) fn state_path() -> PathBuf {
     crate::settings::settings_dir_path().join("workspace.json")
 }
 
-pub(crate) fn save_to_path(path: &Path, state: &DockAreaState) -> anyhow::Result<()> {
+pub(crate) fn save_to_path(path: &Path, state: DockAreaState) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("create workspace state directory {parent:?}"))?;
     }
-    let json = serde_json::to_string_pretty(state).context("serialize dock workspace state")?;
+    let json = serde_json::to_string_pretty(&state).context("serialize dock workspace state")?;
     crate::atomic_write::write_string(path, &json)
 }
 
@@ -84,7 +84,7 @@ mod tests {
             bottom_dock: None,
         };
 
-        super::save_to_path(&path, &state).expect("save dock state");
+        super::save_to_path(&path, state.clone()).expect("save dock state");
         let loaded = super::load_from_path(&path).expect("load dock state");
 
         assert_eq!(loaded, state);

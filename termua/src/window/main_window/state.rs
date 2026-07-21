@@ -620,7 +620,7 @@ impl TermuaWindow {
             let state = dock_area.read(cx).dump(cx);
             let path = crate::workspace::state_path();
             cx.background_executor().spawn(async move {
-                if let Err(err) = crate::workspace::save_to_path(&path, &state) {
+                if let Err(err) = crate::workspace::save_to_path(&path, state) {
                     log::warn!("termua: failed to save dock workspace on quit: {err:#}");
                 }
             })
@@ -639,14 +639,18 @@ impl TermuaWindow {
                 .background_executor()
                 .timer(WORKSPACE_SAVE_DEBOUNCE)
                 .await;
-            let _ = view.update_in(window, move |_, _, cx| {
-                let state = dock_area.read(cx).dump(cx);
-                if let Err(err) =
-                    crate::workspace::save_to_path(&crate::workspace::state_path(), &state)
-                {
-                    log::warn!("termua: failed to save dock workspace: {err:#}");
-                }
-            });
+            let Ok(state) = view.update_in(window, move |_, _, cx| dock_area.read(cx).dump(cx))
+            else {
+                return;
+            };
+            let path = crate::workspace::state_path();
+            if let Err(err) = window
+                .background_executor()
+                .spawn(async move { crate::workspace::save_to_path(&path, state) })
+                .await
+            {
+                log::warn!("termua: failed to save dock workspace: {err:#}");
+            }
         }));
     }
 }

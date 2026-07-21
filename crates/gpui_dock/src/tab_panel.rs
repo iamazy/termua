@@ -140,10 +140,17 @@ impl Panel for TabPanel {
 
     fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
-        state.info = PanelInfo::tabs(self.active_ix);
-        for panel in self.panels.iter() {
+        let mut active_ix = 0;
+        for (ix, panel) in self.panels.iter().enumerate() {
+            if !panel.persistable(cx) {
+                continue;
+            }
+            if ix < self.active_ix {
+                active_ix += 1;
+            }
             state.add_child(panel.dump(cx));
         }
+        state.info = PanelInfo::tabs(active_ix.min(state.children.len().saturating_sub(1)));
         state
     }
 
@@ -1718,6 +1725,65 @@ mod tests {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div()
         }
+    }
+
+    struct FakeTransientPanel {
+        focus: FocusHandle,
+    }
+
+    impl EventEmitter<PanelEvent> for FakeTransientPanel {}
+
+    impl Focusable for FakeTransientPanel {
+        fn focus_handle(&self, _cx: &App) -> FocusHandle {
+            self.focus.clone()
+        }
+    }
+
+    impl Panel for FakeTransientPanel {
+        fn panel_name(&self) -> &'static str {
+            "fake.panel.transient"
+        }
+
+        fn persistable(&self, _cx: &App) -> bool {
+            false
+        }
+    }
+
+    impl Render for FakeTransientPanel {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn tab_panel_dump_omits_transient_panels_and_preserves_active_panel(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            crate::init(app);
+        });
+
+        let (tab_panel, window_cx) = cx.add_window_view(|window, cx| {
+            let dock_area = cx.new(|cx| DockArea::new("dock", None, window, cx));
+            TabPanel::new(None, dock_area.downgrade(), window, cx)
+        });
+        window_cx.update(|window, cx| {
+            let transient: Arc<dyn PanelView> = Arc::new(cx.new(|cx| FakeTransientPanel {
+                focus: cx.focus_handle(),
+            }));
+            let active: Arc<dyn PanelView> = Arc::new(cx.new(FakePanelWithoutIcon::new));
+            tab_panel.update(cx, |tabs, cx| {
+                tabs.add_panel(transient, window, cx);
+                tabs.add_panel(active, window, cx);
+                tabs.active_ix = 1;
+            });
+
+            let state = tab_panel.read(cx).dump(cx);
+            assert_eq!(state.children.len(), 1);
+            assert_eq!(state.children[0].panel_name, "fake.panel.without_icon");
+            assert_eq!(state.info.active_index(), Some(0));
+        });
     }
 
     #[gpui::test]

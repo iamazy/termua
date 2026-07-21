@@ -79,6 +79,11 @@ pub trait Panel: EventEmitter<PanelEvent> + Render + Focusable {
     /// Once you have defined a panel name, this must not be changed.
     fn panel_name(&self) -> &'static str;
 
+    /// Whether this panel should be included in persisted dock state.
+    fn persistable(&self, cx: &App) -> bool {
+        true
+    }
+
     /// The name of the tab of the panel, default is `None`.
     ///
     /// Used to display in the already collapsed tab panel.
@@ -225,6 +230,7 @@ pub trait Panel: EventEmitter<PanelEvent> + Render + Focusable {
 #[allow(unused_variables)]
 pub trait PanelView: 'static + Send + Sync {
     fn panel_name(&self, cx: &App) -> &'static str;
+    fn persistable(&self, cx: &App) -> bool;
     fn panel_id(&self, cx: &App) -> EntityId;
     fn tab_name(&self, cx: &App) -> Option<SharedString>;
     fn tab_tooltip(&self, window: &mut Window, cx: &mut App) -> Option<AnyElement>;
@@ -252,6 +258,10 @@ pub trait PanelView: 'static + Send + Sync {
 impl<T: Panel> PanelView for Entity<T> {
     fn panel_name(&self, cx: &App) -> &'static str {
         self.read(cx).panel_name()
+    }
+
+    fn persistable(&self, cx: &App) -> bool {
+        self.read(cx).persistable(cx)
     }
 
     fn panel_id(&self, _: &App) -> EntityId {

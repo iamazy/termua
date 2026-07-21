@@ -169,6 +169,10 @@ impl Panel for SftpDockPanel {
         "termua.sftp_dock_panel"
     }
 
+    fn persistable(&self, _cx: &App) -> bool {
+        false
+    }
+
     fn tab_icon(&self, _cx: &App) -> Option<TabIcon> {
         Some(TabIcon::ColoredSvg {
             path: TermuaIcon::FolderClosedBlue.into(),
@@ -250,6 +254,23 @@ impl Render for SftpDockPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn sftp_panel_is_not_persistable(cx: &mut gpui::TestAppContext) {
+        let panel = cx.new(|cx| {
+            SftpDockPanel::restoring(
+                SftpPanelState {
+                    version: 1,
+                    tab_label: "prod".to_string(),
+                    terminal_id: 42,
+                    current_dir: None,
+                },
+                cx,
+            )
+        });
+
+        assert!(!panel.read_with(cx, |panel, app| panel.persistable(app)));
+    }
 
     #[test]
     fn sftp_panel_state_round_trips_terminal_link_and_directory() {

@@ -61,7 +61,7 @@ fn main_window_restores_saved_dock_layout(cx: &mut gpui::TestAppContext) {
                 if dock.is_dock_open(gpui_dock::DockPlacement::Left, cx) {
                     dock.toggle_dock(gpui_dock::DockPlacement::Left, window, cx);
                 }
-                crate::workspace::save_to_path(&crate::workspace::state_path(), &dock.dump(cx))
+                crate::workspace::save_to_path(&crate::workspace::state_path(), dock.dump(cx))
                     .expect("save workspace layout");
             });
         });
@@ -106,7 +106,7 @@ fn main_window_unwraps_fixed_sidebars_from_saved_tab_panels(cx: &mut gpui::TestA
             });
         }
         let state = serde_json::from_value(value).expect("deserialize wrapped workspace state");
-        crate::workspace::save_to_path(&crate::workspace::state_path(), &state)
+        crate::workspace::save_to_path(&crate::workspace::state_path(), state)
             .expect("save wrapped workspace state");
     });
 
@@ -184,7 +184,7 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             );
             crate::workspace::save_to_path(
                 &crate::workspace::state_path(),
-                &this.dock_area.read(cx).dump(cx),
+                this.dock_area.read(cx).dump(cx),
             )
             .expect("save local terminal layout");
         });
@@ -266,7 +266,7 @@ fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext
     first_cx.update(|_window, cx| {
         crate::workspace::save_to_path(
             &crate::workspace::state_path(),
-            &first.read(cx).dock_area.read(cx).dump(cx),
+            first.read(cx).dock_area.read(cx).dump(cx),
         )
         .expect("save ssh terminal layout");
     });
@@ -333,7 +333,7 @@ fn main_window_restores_right_sidebar_stable_state(cx: &mut gpui::TestAppContext
             .push(crate::assistant::AssistantRole::User, "remember this");
         crate::workspace::save_to_path(
             &crate::workspace::state_path(),
-            &first.read(cx).dock_area.read(cx).dump(cx),
+            first.read(cx).dock_area.read(cx).dump(cx),
         )
         .expect("save right sidebar state");
 
