@@ -5,11 +5,25 @@ use std::{
     sync::Arc,
 };
 
-use gpui::SharedString;
-use gpui_term::{Authentication, SshOptions, TerminalBuilder, TerminalType};
+use gpui::{Context, SharedString};
+use gpui_term::{Authentication, SshOptions, Terminal, TerminalBuilder, TerminalType};
+
+pub(crate) trait SshTerminalFactory: Send {
+    fn build(self: Box<Self>, cx: &mut Context<Terminal>) -> Terminal;
+}
+
+impl SshTerminalFactory for TerminalBuilder {
+    fn build(self: Box<Self>, cx: &mut Context<Terminal>) -> Terminal {
+        (*self).subscribe(cx)
+    }
+}
 
 pub(crate) type SshTerminalBuilderFn = Arc<
-    dyn Fn(TerminalType, HashMap<String, String>, SshOptions) -> anyhow::Result<TerminalBuilder>
+    dyn Fn(
+            TerminalType,
+            HashMap<String, String>,
+            SshOptions,
+        ) -> anyhow::Result<Box<dyn SshTerminalFactory>>
         + Send
         + Sync,
 >;

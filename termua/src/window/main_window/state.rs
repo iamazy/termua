@@ -164,6 +164,7 @@ impl TermuaWindow {
                     CursorShape::default(),
                     None,
                 )
+                .map(|builder| Box::new(builder) as Box<dyn crate::ssh::SshTerminalFactory>)
             },
         );
 

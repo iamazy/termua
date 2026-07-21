@@ -464,9 +464,9 @@ impl TermuaWindow {
         })
     }
 
-    pub(super) fn build_ssh_panel_from_builder(
+    pub(super) fn build_ssh_panel_from_factory(
         &mut self,
-        builder: TerminalBuilder,
+        factory: Box<dyn crate::ssh::SshTerminalFactory>,
         name: String,
         opts: SshOptions,
         launch_state: Option<TerminalLaunchState>,
@@ -479,7 +479,7 @@ impl TermuaWindow {
         let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, name.as_str());
         let tab_tooltip = ssh_tab_tooltip(&opts);
 
-        let terminal = cx.new(move |cx| builder.subscribe(cx));
+        let terminal = cx.new(move |cx| factory.build(cx));
         self.build_wired_terminal_panel(
             id,
             PanelKind::Ssh,

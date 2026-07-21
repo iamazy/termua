@@ -26,7 +26,7 @@ use crate::{
     SshParams, TermuaAppState, ToggleSessionsSidebar, lock_screen,
     menu::Quit,
     notification,
-    ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn},
+    ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn, SshTerminalFactory},
 };
 
 fn unique_workspace_settings_path(label: &str) -> std::path::PathBuf {
@@ -320,9 +320,12 @@ fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext
     let attempts = Arc::new(AtomicUsize::new(0));
     let builder: SshTerminalBuilderFn = {
         let attempts = attempts.clone();
-        Arc::new(move |backend, env, _opts| {
+        Arc::new(move |backend, _env, _opts| {
             attempts.fetch_add(1, Ordering::SeqCst);
-            gpui_term::TerminalBuilder::new(backend, env, CursorShape::default(), None, 999)
+            Ok(Box::new(FakeSshTerminalFactory {
+                backend,
+                recording_active: Arc::new(AtomicBool::new(false)),
+            }) as Box<dyn SshTerminalFactory>)
         })
     };
 
@@ -3049,6 +3052,20 @@ struct FakeBackend {
     content: gpui_term::TerminalContent,
     recording_active: Arc<AtomicBool>,
     exited: bool,
+}
+
+struct FakeSshTerminalFactory {
+    backend: TerminalType,
+    recording_active: Arc<AtomicBool>,
+}
+
+impl SshTerminalFactory for FakeSshTerminalFactory {
+    fn build(self: Box<Self>, _cx: &mut Context<Terminal>) -> Terminal {
+        Terminal::new(
+            self.backend,
+            Box::new(FakeBackend::new(self.recording_active)),
+        )
+    }
 }
 
 impl FakeBackend {

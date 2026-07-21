@@ -12,7 +12,7 @@ use gpui_component::{
     h_flex, v_flex,
 };
 use gpui_dock::{DockPlacement, PanelView};
-use gpui_term::{Authentication, SshOptions, TerminalBuilder, TerminalType};
+use gpui_term::{Authentication, SshOptions, TerminalType};
 use rust_i18n::t;
 
 use super::TermuaWindow;
@@ -512,7 +512,7 @@ impl TermuaWindow {
 
     fn finish_add_ssh_terminal_task(
         &mut self,
-        result: anyhow::Result<TerminalBuilder>,
+        result: anyhow::Result<Box<dyn crate::ssh::SshTerminalFactory>>,
         backend_type: TerminalType,
         params: SshParams,
         session_id: Option<i64>,
@@ -521,9 +521,9 @@ impl TermuaWindow {
         cx: &mut Context<Self>,
     ) {
         match result {
-            Ok(builder) => {
-                let panel = self.build_ssh_panel_from_builder(
-                    builder,
+            Ok(factory) => {
+                let panel = self.build_ssh_panel_from_factory(
+                    factory,
                     params.name,
                     params.opts,
                     Some(crate::panel::TerminalLaunchState::Ssh {
