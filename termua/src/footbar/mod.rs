@@ -1,6 +1,6 @@
 use gpui::{
     App, Context, InteractiveElement, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, div, prelude::FluentBuilder as _, px,
+    StyledImage, Subscription, Window, div, img, prelude::FluentBuilder as _, px,
 };
 use gpui_common::{TermuaIcon, format_bytes};
 use gpui_component::{
@@ -8,6 +8,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
 };
+use gpui_term::TerminalType;
 use gpui_transfer::TransferCenterState;
 use rust_i18n::t;
 
@@ -21,31 +22,112 @@ use crate::{
 
 mod transfers;
 
+#[derive(Clone, Copy)]
+struct FocusedTerminalBackend {
+    panel_id: usize,
+    backend: TerminalType,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FocusedTerminalBackendState(Option<FocusedTerminalBackend>);
+
+impl gpui::Global for FocusedTerminalBackendState {}
+
+impl FocusedTerminalBackendState {
+    pub(crate) fn focused(panel_id: usize, backend: TerminalType) -> Self {
+        Self(Some(FocusedTerminalBackend { panel_id, backend }))
+    }
+
+    fn blur(&mut self, panel_id: usize) -> bool {
+        if self.0.is_some_and(|focused| focused.panel_id == panel_id) {
+            *self = Self::default();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn backend(&self) -> Option<TerminalType> {
+        self.0.map(|focused| focused.backend)
+    }
+}
+
+pub(crate) fn focus_terminal_backend<T>(
+    panel_id: usize,
+    backend: TerminalType,
+    cx: &mut Context<T>,
+) {
+    cx.set_global(FocusedTerminalBackendState::focused(panel_id, backend));
+}
+
+pub(crate) fn blur_terminal_backend<T>(panel_id: usize, cx: &mut Context<T>) {
+    let Some(mut state) = cx.try_global::<FocusedTerminalBackendState>().copied() else {
+        return;
+    };
+    if state.blur(panel_id) {
+        cx.set_global(state);
+    }
+}
+
 pub(crate) struct FootbarView {
     _observe_app_state: Subscription,
     _observe_messages: Subscription,
     _observe_right_sidebar: Subscription,
     _observe_transfers: Subscription,
+    _observe_terminal_backend: Subscription,
     transfers_open: bool,
 }
 
 impl FootbarView {
+    fn backend_icon(backend: TerminalType) -> (TermuaIcon, &'static str) {
+        match backend {
+            TerminalType::Alacritty => (TermuaIcon::Alacritty, "Alacritty"),
+            TerminalType::WezTerm => (TermuaIcon::Wezterm, "WezTerm"),
+        }
+    }
+
+    fn render_backend_indicator(backend: TerminalType) -> gpui::AnyElement {
+        let (icon, tooltip) = Self::backend_icon(backend);
+        Button::new("termua-footbar-backend-button")
+            .xsmall()
+            .compact()
+            .ghost()
+            .tooltip(tooltip)
+            .debug_selector(|| "termua-footbar-backend".to_string())
+            .child(
+                div()
+                    .debug_selector(|| "termua-footbar-backend-image".to_string())
+                    .child(
+                        img(icon)
+                            .w(px(16.))
+                            .h(px(16.))
+                            .flex_shrink_0()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
         ensure_ctx_global_with(cx, lock_screen::LockState::new_default);
         ensure_ctx_global::<notification::NotifyState, _>(cx);
         ensure_ctx_global::<RightSidebarState, _>(cx);
         ensure_ctx_global::<TransferCenterState, _>(cx);
+        ensure_ctx_global::<FocusedTerminalBackendState, _>(cx);
 
         // Keep the footbar reactive to global state changes.
         let app_state_sub = cx.observe_global::<TermuaAppState>(|_, cx| cx.notify());
         let messages_sub = cx.observe_global::<notification::NotifyState>(|_, cx| cx.notify());
         let right_sidebar_sub = cx.observe_global::<RightSidebarState>(|_, cx| cx.notify());
         let transfers_sub = cx.observe_global::<TransferCenterState>(|_, cx| cx.notify());
+        let terminal_backend_sub =
+            cx.observe_global::<FocusedTerminalBackendState>(|_, cx| cx.notify());
         Self {
             _observe_app_state: app_state_sub,
             _observe_messages: messages_sub,
             _observe_right_sidebar: right_sidebar_sub,
             _observe_transfers: transfers_sub,
+            _observe_terminal_backend: terminal_backend_sub,
             transfers_open: false,
         }
     }
@@ -96,6 +178,7 @@ impl FootbarView {
         messages_selected: bool,
         assistant_enabled: bool,
         assistant_selected: bool,
+        backend: Option<TerminalType>,
     ) -> gpui::AnyElement {
         h_flex()
             .items_center()
@@ -172,6 +255,9 @@ impl FootbarView {
                         }),
                 )
             })
+            .when_some(backend, |this, backend| {
+                this.child(Self::render_backend_indicator(backend))
+            })
             .into_any_element()
     }
 }
@@ -229,6 +315,7 @@ impl Render for FootbarView {
 
         let transfers_summary = self.render_transfers_summary(&transfers, cx);
 
+        let backend = cx.global::<FocusedTerminalBackendState>().backend();
         let left_controls = self.render_controls_left(sessions_visible);
         let right_controls = self.render_controls_right(
             enabled,
@@ -238,6 +325,7 @@ impl Render for FootbarView {
             messages_selected,
             assistant_enabled,
             assistant_selected,
+            backend,
         );
 
         div()
@@ -275,6 +363,88 @@ mod tests {
     fn footbar_multi_exec_icon_paths_match_spec() {
         assert_eq!(FootbarView::multi_exec_icon_path(false), TermuaIcon::Dice1);
         assert_eq!(FootbarView::multi_exec_icon_path(true), TermuaIcon::Dice4);
+    }
+
+    #[test]
+    fn focused_terminal_backend_ignores_stale_blur() {
+        let mut state = FocusedTerminalBackendState::focused(2, gpui_term::TerminalType::WezTerm);
+
+        assert!(!state.blur(1));
+        assert_eq!(state.backend(), Some(gpui_term::TerminalType::WezTerm));
+
+        assert!(state.blur(2));
+        assert_eq!(state.backend(), None);
+    }
+
+    #[test]
+    fn footbar_backend_icons_match_terminal_types() {
+        assert_eq!(
+            FootbarView::backend_icon(gpui_term::TerminalType::Alacritty),
+            (TermuaIcon::Alacritty, "Alacritty")
+        );
+        assert_eq!(
+            FootbarView::backend_icon(gpui_term::TerminalType::WezTerm),
+            (TermuaIcon::Wezterm, "WezTerm")
+        );
+    }
+
+    #[gpui::test]
+    fn footbar_backend_icon_tracks_focused_terminal(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            app.activate(true);
+            app.set_global(TermuaAppState::default());
+        });
+
+        struct Root {
+            footbar: gpui::Entity<FootbarView>,
+        }
+
+        impl Render for Root {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div().size_full().child(self.footbar.clone())
+            }
+        }
+
+        let (root, cx) = cx.add_window_view(|_window, cx| Root {
+            footbar: cx.new(FootbarView::new),
+        });
+        cx.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(
+                gpui::AvailableSpace::Definite(gpui::px(800.)),
+                gpui::AvailableSpace::Definite(gpui::px(200.)),
+            ),
+            move |_, _| div().size_full().child(root),
+        );
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-backend").is_none());
+
+        cx.update(|_, app| {
+            app.set_global(FocusedTerminalBackendState::focused(
+                1,
+                gpui_term::TerminalType::Alacritty,
+            ));
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-backend").is_some());
+
+        cx.update(|_, app| {
+            app.set_global(FocusedTerminalBackendState::focused(
+                2,
+                gpui_term::TerminalType::WezTerm,
+            ));
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-backend").is_some());
+
+        cx.update(|_, app| app.set_global(FocusedTerminalBackendState::default()));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-backend").is_none());
     }
 
     #[gpui::test]

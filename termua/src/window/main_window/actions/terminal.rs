@@ -328,10 +328,12 @@ impl TermuaWindow {
         id: usize,
         tab_label: SharedString,
         terminal_view: &gpui::Entity<TerminalView>,
-        terminal_weak: gpui::WeakEntity<gpui_term::Terminal>,
+        terminal: &gpui::Entity<gpui_term::Terminal>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let terminal_weak = terminal.downgrade();
+        let backend = terminal.read(cx).backend_type();
         crate::assistant::register_terminal_target(cx, id, tab_label, terminal_weak.clone());
 
         let focused_terminal_view = terminal_view.downgrade();
@@ -340,8 +342,12 @@ impl TermuaWindow {
         let sub = cx.on_focus_in(&focus_handle, window, move |this, _window, cx| {
             this.focused_terminal_view = Some(focused_terminal_view.clone());
             crate::assistant::set_focused_terminal(cx, Some(id), Some(focused_terminal.clone()));
+            crate::footbar::focus_terminal_backend(id, backend, cx);
         });
-        self._subscriptions.push(sub);
+        let blur_sub = cx.on_focus_out(&focus_handle, window, move |_, _event, _window, cx| {
+            crate::footbar::blur_terminal_backend(id, cx);
+        });
+        self._subscriptions.extend([sub, blur_sub]);
     }
 
     pub(crate) fn subscribe_terminal_view_events(
@@ -429,14 +435,13 @@ impl TermuaWindow {
             cx,
         );
 
-        let terminal_weak = terminal.downgrade();
-        let terminal_view = self.create_terminal_view(kind, terminal, window, cx);
+        let terminal_view = self.create_terminal_view(kind, terminal.clone(), window, cx);
 
         self.register_terminal_target_and_focus(
             id,
             tab_label.clone(),
             &terminal_view,
-            terminal_weak,
+            &terminal,
             window,
             cx,
         );
@@ -444,6 +449,8 @@ impl TermuaWindow {
 
         let focus: FocusHandle = terminal_view.read(cx).focus_handle.clone();
         window.focus(&focus, cx);
+        let backend = terminal.read(cx).backend_type();
+        crate::footbar::focus_terminal_backend(id, backend, cx);
 
         cx.new(|_| {
             TerminalPanel::new_with_launch_state(
@@ -587,7 +594,7 @@ impl TermuaWindow {
                 id,
                 tab_label,
                 &terminal_view,
-                terminal.downgrade(),
+                &terminal,
                 window,
                 cx,
             );

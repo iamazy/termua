@@ -213,6 +213,84 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+fn footbar_backend_tracks_opened_terminal(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.activate(true);
+    });
+
+    let (view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    let root = view.clone();
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    window_cx.run_until_parked();
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.add_local_terminal_with_params(
+                TerminalType::Alacritty,
+                HashMap::new(),
+                window,
+                cx,
+            );
+        });
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::Alacritty)
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
+    assert!(
+        window_cx
+            .debug_bounds("termua-footbar-backend-image")
+            .is_some()
+    );
+    let backend = window_cx
+        .debug_bounds("termua-footbar-backend")
+        .expect("backend icon");
+    let issues = window_cx
+        .debug_bounds("termua-footbar-issues")
+        .expect("issues icon");
+    assert!(
+        backend.origin.x > issues.origin.x,
+        "backend icon should be in the right status group"
+    );
+
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.add_local_terminal_with_params(TerminalType::WezTerm, HashMap::new(), window, cx);
+        });
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::WezTerm)
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
+    assert!(
+        window_cx
+            .debug_bounds("termua-footbar-backend-image")
+            .is_some()
+    );
+}
+
+#[gpui::test]
 fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext) {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1140,6 +1218,10 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
     );
 
     window_cx.update(|_window, app| {
+        app.set_global(crate::footbar::FocusedTerminalBackendState::focused(
+            42,
+            TerminalType::WezTerm,
+        ));
         terminal.update(app, |_terminal, cx| {
             cx.emit(TerminalEvent::CloseTerminal);
         });
@@ -1166,6 +1248,14 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
         terminal_tabs_after, 0,
         "expected close event on local terminal to remove the terminal tab"
     );
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            None,
+            "closing the focused terminal should hide its backend icon"
+        );
+    });
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

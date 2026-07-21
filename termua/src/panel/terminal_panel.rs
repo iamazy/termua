@@ -196,6 +196,11 @@ impl TerminalPanel {
         self.tab_label.clone()
     }
 
+    pub(crate) fn cleanup_runtime_state<T>(id: usize, cx: &mut Context<T>) {
+        crate::assistant::unregister_terminal_target(cx, id);
+        crate::footbar::blur_terminal_backend(id, cx);
+    }
+
     fn terminal_has_sftp(&self, cx: &App) -> bool {
         self.terminal_view
             .read(cx)
@@ -528,7 +533,7 @@ impl Panel for TerminalPanel {
             self.id
         );
 
-        crate::assistant::unregister_terminal_target(cx, self.id);
+        Self::cleanup_runtime_state(self.id, cx);
 
         // Ensure the backend releases its PTY/process resources when the tab is explicitly closed.
         self.terminal_view.update(cx, |terminal_view, cx| {
