@@ -10,5 +10,6 @@ pub(crate) use right_sidebar::RightSidebarView;
 pub(crate) use sessions_sidebar::{SessionsSidebarEvent, SessionsSidebarView};
 pub(crate) use ssh_error_panel::SshErrorPanel;
 pub(crate) use terminal_panel::{
-    PanelKind, TerminalPanel, local_terminal_panel_tab_name, terminal_panel_tab_name,
+    PanelKind, TerminalLaunchState, TerminalPanel, TerminalPanelState,
+    local_terminal_panel_tab_name, terminal_panel_tab_name,
 };

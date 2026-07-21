@@ -154,6 +154,10 @@ impl Panel for TabPanel {
 }
 
 impl TabPanel {
+    pub fn panels(&self) -> &[Arc<dyn PanelView>] {
+        &self.panels
+    }
+
     pub fn new(
         stack_panel: Option<WeakEntity<StackPanel>>,
         dock_area: WeakEntity<DockArea>,
@@ -403,6 +407,32 @@ impl TabPanel {
         cx.emit(PanelEvent::ZoomOut);
         cx.emit(PanelEvent::LayoutChanged);
         cx.notify();
+    }
+
+    pub fn replace_panel(
+        &mut self,
+        old_panel: Arc<dyn PanelView>,
+        new_panel: Arc<dyn PanelView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(ix) = self
+            .panels
+            .iter()
+            .position(|panel| panel.view() == old_panel.view())
+        else {
+            return false;
+        };
+
+        old_panel.on_removed(window, cx);
+        new_panel.on_added_to(cx.entity().downgrade(), window, cx);
+        self.panels[ix] = new_panel;
+        if self.active_ix == ix {
+            self.set_active_ix(ix, window, cx);
+        }
+        cx.emit(PanelEvent::LayoutChanged);
+        cx.notify();
+        true
     }
 
     fn detach_panel(

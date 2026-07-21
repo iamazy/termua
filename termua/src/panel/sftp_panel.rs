@@ -5,16 +5,26 @@ use gpui::{
     IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
 };
 use gpui_common::TermuaIcon;
-use gpui_dock::{Panel, PanelEvent, PanelView, TabIcon};
+use gpui_dock::{Panel, PanelEvent, PanelInfo, PanelState, PanelView, TabIcon};
 use gpui_sftp::{SftpEvent, SftpView};
 use gpui_term::{Event as TerminalEvent, Terminal, TerminalView};
 
 use crate::{lock_screen::LockState, notification};
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SftpPanelState {
+    pub(crate) version: usize,
+    pub(crate) tab_label: String,
+    pub(crate) terminal_id: usize,
+    pub(crate) current_dir: Option<String>,
+}
+
 pub struct SftpDockPanel {
     tab_label: gpui::SharedString,
+    terminal_id: usize,
     focus_handle: FocusHandle,
-    sftp_view: gpui::Entity<SftpView>,
+    sftp_view: Option<gpui::Entity<SftpView>>,
+    restored_current_dir: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -43,6 +53,7 @@ impl SftpDockPanel {
     pub fn open_for_terminal_view<T: 'static>(
         terminal_view: gpui::Entity<TerminalView>,
         tab_label: gpui::SharedString,
+        terminal_id: usize,
         window: &mut Window,
         cx: &mut Context<T>,
     ) -> anyhow::Result<Arc<dyn PanelView>> {
@@ -75,13 +86,73 @@ impl SftpDockPanel {
 
             Self {
                 tab_label,
+                terminal_id,
                 focus_handle,
-                sftp_view,
+                sftp_view: Some(sftp_view),
+                restored_current_dir: None,
                 _subscriptions: vec![terminal_sub, toast_sub],
             }
         });
 
         Ok(Arc::new(panel) as Arc<dyn PanelView>)
+    }
+
+    pub(crate) fn restoring(state: SftpPanelState, cx: &mut Context<Self>) -> Self {
+        Self {
+            tab_label: state.tab_label.into(),
+            terminal_id: state.terminal_id,
+            focus_handle: cx.focus_handle(),
+            sftp_view: None,
+            restored_current_dir: state.current_dir,
+            _subscriptions: Vec::new(),
+        }
+    }
+
+    pub(crate) fn terminal_id(&self) -> usize {
+        self.terminal_id
+    }
+
+    pub(crate) fn is_connected(&self) -> bool {
+        self.sftp_view.is_some()
+    }
+
+    pub(crate) fn connect_to_terminal_view(
+        &mut self,
+        terminal_view: gpui::Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        let Some(sftp) = terminal_view.read(cx).terminal.read(cx).sftp() else {
+            anyhow::bail!("SFTP is only available for SSH terminals");
+        };
+        let terminal: gpui::Entity<Terminal> = terminal_view.read(cx).terminal.clone();
+        let sftp_view = cx.new(|cx| SftpView::new(sftp, window, cx));
+        if let Some(dir) = self.restored_current_dir.take() {
+            sftp_view.update(cx, |view, cx| view.change_dir(dir, cx));
+        }
+
+        self._subscriptions
+            .push(cx.subscribe_in(&terminal, window, {
+                let sftp_view = sftp_view.clone();
+                move |_, _terminal, ev, _window, cx| {
+                    if matches!(ev, TerminalEvent::CloseTerminal) {
+                        sftp_view.update(cx, |view, cx| view.disconnect(cx));
+                    }
+                }
+            }));
+        self._subscriptions.push(cx.subscribe_in(
+            &sftp_view,
+            window,
+            move |_, _sftp_view, ev, _window, cx| {
+                let Some((kind, message)) = sftp_event_message(ev) else {
+                    return;
+                };
+                notification::record(kind, message, cx);
+            },
+        ));
+        self.sftp_view = Some(sftp_view);
+        cx.notify();
+        Ok(())
     }
 }
 
@@ -114,9 +185,30 @@ impl Panel for SftpDockPanel {
 
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
         if active {
-            let focus = self.sftp_view.read(cx).focus_handle(cx);
-            window.focus(&focus, cx);
+            if let Some(sftp_view) = &self.sftp_view {
+                let focus = sftp_view.read(cx).focus_handle(cx);
+                window.focus(&focus, cx);
+            }
         }
+    }
+
+    fn dump(&self, cx: &App) -> PanelState {
+        let current_dir = self
+            .sftp_view
+            .as_ref()
+            .and_then(|view| view.read(cx).current_dir(cx))
+            .or_else(|| self.restored_current_dir.clone());
+        let mut state = PanelState::new(self);
+        state.info = PanelInfo::panel(
+            serde_json::to_value(SftpPanelState {
+                version: 1,
+                tab_label: self.tab_label.to_string(),
+                terminal_id: self.terminal_id,
+                current_dir,
+            })
+            .expect("sftp panel state should serialize"),
+        );
+        state
     }
 }
 
@@ -143,13 +235,37 @@ impl Render for SftpDockPanel {
                     cx.global::<LockState>().report_activity();
                 }
             }))
-            .child(self.sftp_view.clone())
+            .child(match &self.sftp_view {
+                Some(view) => div().size_full().child(view.clone()),
+                None => div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child("Waiting for SSH connection..."),
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sftp_panel_state_round_trips_terminal_link_and_directory() {
+        let state = SftpPanelState {
+            version: 1,
+            tab_label: "prod".to_string(),
+            terminal_id: 42,
+            current_dir: Some("/srv/app".to_string()),
+        };
+
+        let json = serde_json::to_value(&state).expect("serialize sftp panel state");
+        let restored: SftpPanelState =
+            serde_json::from_value(json).expect("deserialize sftp panel state");
+
+        assert_eq!(restored, state);
+    }
 
     #[test]
     fn sftp_toast_event_message_includes_detail_for_message_center() {

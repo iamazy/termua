@@ -430,6 +430,18 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.add_ssh_terminal_with_params_at(backend_type, params, session_id, None, window, cx);
+    }
+
+    fn add_ssh_terminal_with_params_at(
+        &mut self,
+        backend_type: TerminalType,
+        params: SshParams,
+        session_id: Option<i64>,
+        replacement: Option<gpui::Entity<SshErrorPanel>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // Building the SSH PTY involves a blocking login handshake. Run that work in a background
         // thread and only attach the terminal panel on success.
         let builder_fn = self.ssh_terminal_builder.clone();
@@ -486,6 +498,7 @@ impl TermuaWindow {
                     backend_type,
                     params_for_finish,
                     session_id,
+                    replacement,
                     window,
                     cx,
                 );
@@ -503,6 +516,7 @@ impl TermuaWindow {
         backend_type: TerminalType,
         params: SshParams,
         session_id: Option<i64>,
+        replacement: Option<gpui::Entity<SshErrorPanel>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -512,18 +526,26 @@ impl TermuaWindow {
                     builder,
                     params.name,
                     params.opts,
+                    Some(crate::panel::TerminalLaunchState::Ssh {
+                        backend_type,
+                        session_id,
+                    }),
                     window,
                     cx,
                 );
-                self.dock_area.update(cx, |dock, cx| {
-                    dock.add_panel(
-                        Arc::new(panel) as Arc<dyn PanelView>,
-                        DockPlacement::Center,
-                        None,
-                        window,
-                        cx,
-                    );
-                });
+                if let Some(replacement) = replacement {
+                    self.replace_ssh_restore_panel(replacement, panel, window, cx);
+                } else {
+                    self.dock_area.update(cx, |dock, cx| {
+                        dock.add_panel(
+                            Arc::new(panel) as Arc<dyn PanelView>,
+                            DockPlacement::Center,
+                            None,
+                            window,
+                            cx,
+                        );
+                    });
+                }
                 self.clear_connecting_session(session_id, cx);
                 cx.notify();
             }
@@ -541,6 +563,13 @@ impl TermuaWindow {
                     self.clear_connecting_session(session_id, cx);
                     return;
                 }
+                if let Some(replacement) = replacement {
+                    let message = ssh_connect_failure_message(&params.opts, &err);
+                    replacement.update(cx, |panel, cx| panel.set_message(message, cx));
+                    self.clear_connecting_session(session_id, cx);
+                    return;
+                }
+
                 let id = self.next_terminal_id;
                 self.next_terminal_id += 1;
 
@@ -550,7 +579,20 @@ impl TermuaWindow {
                 let message = ssh_connect_failure_message(&params.opts, &err);
 
                 let panel = cx.new(|cx| {
-                    SshErrorPanel::new(id, tab_label, Some(tab_tooltip), message.into(), cx)
+                    SshErrorPanel::restoring(
+                        crate::panel::TerminalPanelState {
+                            version: 1,
+                            id,
+                            tab_label: tab_label.to_string(),
+                            tab_tooltip: Some(tab_tooltip.to_string()),
+                            launch: crate::panel::TerminalLaunchState::Ssh {
+                                backend_type,
+                                session_id,
+                            },
+                        },
+                        message.into(),
+                        cx,
+                    )
                 });
 
                 self.dock_area.update(cx, |dock, cx| {
@@ -582,6 +624,18 @@ impl TermuaWindow {
         backend_type: TerminalType,
         session: crate::store::Session,
         session_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_saved_ssh_session_at(backend_type, session, session_id, None, window, cx);
+    }
+
+    fn open_saved_ssh_session_at(
+        &mut self,
+        backend_type: TerminalType,
+        session: crate::store::Session,
+        session_id: i64,
+        replacement: Option<gpui::Entity<SshErrorPanel>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -635,12 +689,98 @@ impl TermuaWindow {
             tcp_nodelay: session.ssh_tcp_nodelay,
             tcp_keepalive: session.ssh_tcp_keepalive,
         };
-        self.add_ssh_terminal_with_params(
+        self.add_ssh_terminal_with_params_at(
             backend_type,
             SshParams { env, name, opts },
             Some(session_id),
+            replacement,
             window,
             cx,
         );
+    }
+
+    pub(in crate::window::main_window) fn restore_pending_ssh_panels(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let panels = self
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| panel.view().downcast::<SshErrorPanel>().ok())
+            .collect::<Vec<_>>();
+
+        for panel in panels {
+            let Some(state) = panel.read(cx).terminal_state() else {
+                continue;
+            };
+            let crate::panel::TerminalLaunchState::Ssh {
+                backend_type,
+                session_id,
+            } = state.launch
+            else {
+                continue;
+            };
+            let Some(session_id) = session_id else {
+                panel.update(cx, |panel, cx| {
+                    panel.set_message(
+                        "This SSH tab was not linked to a saved session and cannot be reconnected.",
+                        cx,
+                    );
+                });
+                continue;
+            };
+            let Ok(Some(session)) = crate::store::load_session(session_id) else {
+                panel.update(cx, |panel, cx| {
+                    panel.set_message("The saved SSH session no longer exists.", cx);
+                });
+                continue;
+            };
+            self.open_saved_ssh_session_at(
+                backend_type,
+                session,
+                session_id,
+                Some(panel),
+                window,
+                cx,
+            );
+        }
+    }
+
+    fn replace_ssh_restore_panel(
+        &mut self,
+        old_panel: gpui::Entity<SshErrorPanel>,
+        new_panel: gpui::Entity<crate::panel::TerminalPanel>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let parent = old_panel.read(cx).parent_tab();
+        let replaced = parent.is_some_and(|parent| {
+            parent
+                .update(cx, |tabs, cx| {
+                    tabs.replace_panel(
+                        Arc::new(old_panel.clone()) as Arc<dyn PanelView>,
+                        Arc::new(new_panel.clone()) as Arc<dyn PanelView>,
+                        window,
+                        cx,
+                    )
+                })
+                .unwrap_or(false)
+        });
+        if !replaced {
+            self.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(new_panel) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        }
+        self.restore_pending_sftp_panels(window, cx);
     }
 }

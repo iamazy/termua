@@ -1,16 +1,20 @@
 use gpui::{
     App, Context, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window, div,
+    SharedString, Styled, WeakEntity, Window, div,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme as _, v_flex};
-use gpui_dock::{Panel, PanelEvent};
+use gpui_dock::{Panel, PanelEvent, PanelInfo, PanelState, TabPanel};
+
+use super::TerminalPanelState;
 
 pub(crate) struct SshErrorPanel {
     id: usize,
     tab_label: SharedString,
     tab_tooltip: Option<SharedString>,
     message: SharedString,
+    terminal_state: Option<TerminalPanelState>,
+    parent_tab: Option<WeakEntity<TabPanel>>,
     focus_handle: FocusHandle,
 }
 
@@ -27,8 +31,39 @@ impl SshErrorPanel {
             tab_label,
             tab_tooltip,
             message,
+            terminal_state: None,
+            parent_tab: None,
             focus_handle: cx.focus_handle(),
         }
+    }
+
+    pub(crate) fn restoring(
+        state: TerminalPanelState,
+        message: SharedString,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self {
+            id: state.id,
+            tab_label: state.tab_label.clone().into(),
+            tab_tooltip: state.tab_tooltip.clone().map(Into::into),
+            message,
+            terminal_state: Some(state),
+            parent_tab: None,
+            focus_handle: cx.focus_handle(),
+        }
+    }
+
+    pub(crate) fn terminal_state(&self) -> Option<TerminalPanelState> {
+        self.terminal_state.clone()
+    }
+
+    pub(crate) fn parent_tab(&self) -> Option<WeakEntity<TabPanel>> {
+        self.parent_tab.clone()
+    }
+
+    pub(crate) fn set_message(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.message = message.into();
+        cx.notify();
     }
 }
 
@@ -73,6 +108,29 @@ impl Panel for SshErrorPanel {
 
     fn title(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.tab_name(cx).unwrap_or_else(|| "ssh".into())
+    }
+
+    fn on_added_to(
+        &mut self,
+        tab_panel: WeakEntity<TabPanel>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        self.parent_tab = Some(tab_panel);
+    }
+
+    fn dump(&self, _cx: &App) -> PanelState {
+        let Some(terminal_state) = self.terminal_state.clone() else {
+            return PanelState::new(self);
+        };
+        PanelState {
+            panel_name: "TerminalPanel".to_string(),
+            children: Vec::new(),
+            info: PanelInfo::panel(
+                serde_json::to_value(terminal_state)
+                    .expect("restoring terminal state should serialize"),
+            ),
+        }
     }
 }
 

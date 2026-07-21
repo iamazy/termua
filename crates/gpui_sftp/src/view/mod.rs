@@ -544,6 +544,21 @@ impl SftpView {
             .update(cx, |state, cx| state.delegate_mut().disconnect(cx));
     }
 
+    pub fn current_dir(&self, cx: &App) -> Option<String> {
+        self.table
+            .read(cx)
+            .delegate()
+            .tree
+            .as_ref()
+            .map(|tree| tree.root.clone())
+    }
+
+    pub fn change_dir(&mut self, dir: String, cx: &mut Context<Self>) {
+        self.close_preview(cx);
+        self.table
+            .update(cx, |state, cx| state.delegate_mut().cd(dir, cx));
+    }
+
     fn on_refresh(&mut self, _: &Refresh, _window: &mut Window, cx: &mut Context<Self>) {
         let table = self.table.clone();
         table.update(cx, |state, cx| {

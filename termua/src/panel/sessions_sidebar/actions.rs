@@ -20,6 +20,22 @@ fn set_input_placeholder(
 }
 
 impl SessionsSidebarView {
+    pub(crate) fn restore_persisted_state(
+        &mut self,
+        state: super::SessionsSidebarPanelState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if state.version != 1 {
+            return;
+        }
+        self.query = state.query.clone();
+        self.search_input
+            .update(cx, |input, cx| input.set_value(state.query, window, cx));
+        self.rebuild_tree(window, cx);
+        cx.notify();
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::settings::ensure_language_state_with_default(crate::settings::Language::English, cx);
 

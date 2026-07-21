@@ -1,6 +1,6 @@
 use gpui::{Pixels, px};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum RightSidebarTab {
     Notifications,
     Assistant,

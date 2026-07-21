@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use gpui::{App, AppContext, Context, Focusable, Styled, Subscription, Window};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
-use gpui_dock::{DockArea, DockItem, DockPlacement, PanelView};
+use gpui_dock::{DockArea, DockEvent, DockItem, DockPlacement, PanelView, register_panel};
 use gpui_term::{
     Clear, Copy as CopyAction, CursorShape, Paste, PtySource, SelectAll, SshOptions,
     TerminalBuilder, TerminalType, TerminalView, ToggleCastRecording,
@@ -36,8 +36,14 @@ pub(crate) struct TermuaWindow {
     pub(super) ssh_tab_label_counts: HashMap<String, usize>,
     pub(super) ssh_terminal_builder: SshTerminalBuilderFn,
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
+    pub(super) workspace_save_task: Option<gpui::Task<()>>,
     pub(super) _subscriptions: Vec<Subscription>,
 }
+
+#[cfg(test)]
+const WORKSPACE_SAVE_DEBOUNCE: Duration = Duration::from_millis(10);
+#[cfg(not(test))]
+const WORKSPACE_SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
 struct TermuaContextMenuProvider;
 
@@ -138,9 +144,40 @@ impl TermuaWindow {
     ) -> Self {
         Self::ensure_globals(cx);
 
-        let dock_area = cx.new(|cx| DockArea::new("termua", None, window, cx));
+        let dock_area =
+            cx.new(|cx| DockArea::new("termua", Some(crate::workspace::STATE_VERSION), window, cx));
         let sessions_sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
         let right_sidebar = cx.new(|cx| RightSidebarView::new(window, cx));
+        register_panel(cx, "termua.sessions_sidebar", {
+            let sessions_sidebar = sessions_sidebar.clone();
+            move |_, _, info, window, cx| {
+                if let gpui_dock::PanelInfo::Panel(value) = info
+                    && let Ok(state) = serde_json::from_value::<
+                        crate::panel::sessions_sidebar::SessionsSidebarPanelState,
+                    >(value.clone())
+                {
+                    sessions_sidebar.update(cx, |sidebar, cx| {
+                        sidebar.restore_persisted_state(state, window, cx)
+                    });
+                }
+                Box::new(sessions_sidebar.clone())
+            }
+        });
+        register_panel(cx, "termua.right_sidebar", {
+            let right_sidebar = right_sidebar.clone();
+            move |_, _, info, window, cx| {
+                if let gpui_dock::PanelInfo::Panel(value) = info
+                    && let Ok(state) = serde_json::from_value::<
+                        crate::panel::right_sidebar::RightSidebarPanelState,
+                    >(value.clone())
+                {
+                    right_sidebar.update(cx, |sidebar, cx| {
+                        sidebar.restore_persisted_state(state, window, cx)
+                    });
+                }
+                Box::new(right_sidebar.clone())
+            }
+        });
         let footbar = cx.new(FootbarView::new);
         let lock_overlay = lock_screen::overlay::LockOverlayState::new(window, cx);
         let mut this = Self {
@@ -156,6 +193,7 @@ impl TermuaWindow {
             ssh_tab_label_counts: HashMap::new(),
             ssh_terminal_builder,
             terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider),
+            workspace_save_task: None,
             _subscriptions: Vec::new(),
         };
 
@@ -218,6 +256,207 @@ impl TermuaWindow {
                 });
             }
         });
+
+        let terminal_context_menu_provider = this.terminal_context_menu_provider.clone();
+        register_panel(cx, "TerminalPanel", {
+            move |_, _, info, window, cx| {
+                let panel_state = match info {
+                    gpui_dock::PanelInfo::Panel(value) => {
+                        serde_json::from_value::<crate::panel::TerminalPanelState>(value.clone())
+                    }
+                    _ => unreachable!("terminal factory received non-panel state"),
+                };
+                let panel_state = match panel_state {
+                    Ok(state) if state.version == 1 => state,
+                    Ok(state) => {
+                        return Box::new(cx.new(|cx| {
+                            crate::panel::SshErrorPanel::new(
+                                state.id,
+                                state.tab_label.into(),
+                                state.tab_tooltip.map(Into::into),
+                                "This saved terminal state is from an unsupported version.".into(),
+                                cx,
+                            )
+                        }));
+                    }
+                    Err(err) => {
+                        return Box::new(cx.new(|cx| {
+                            crate::panel::SshErrorPanel::new(
+                                0,
+                                "Terminal".into(),
+                                None,
+                                format!("Failed to restore terminal state: {err}").into(),
+                                cx,
+                            )
+                        }));
+                    }
+                };
+
+                let id = panel_state.id;
+                let builder = match panel_state.launch.clone() {
+                    crate::panel::TerminalLaunchState::Local { backend_type, env } => {
+                        TerminalBuilder::new(
+                            backend_type,
+                            env,
+                            CursorShape::default(),
+                            None,
+                            id as u64,
+                        )
+                        .map(|builder| (crate::panel::PanelKind::Local, builder))
+                    }
+                    crate::panel::TerminalLaunchState::Serial {
+                        backend_type,
+                        params,
+                        ..
+                    } => TerminalBuilder::new_with_pty(
+                        backend_type,
+                        PtySource::Serial {
+                            opts: params.to_options(),
+                        },
+                        CursorShape::default(),
+                        None,
+                    )
+                    .map(|builder| (crate::panel::PanelKind::Serial, builder)),
+                    crate::panel::TerminalLaunchState::Recorder {
+                        cast_path,
+                        playback_speed,
+                    } => TerminalBuilder::new(
+                        TerminalType::WezTerm,
+                        crate::env::cast_player_child_env(&cast_path, playback_speed),
+                        CursorShape::default(),
+                        None,
+                        id as u64,
+                    )
+                    .map(|builder| (crate::panel::PanelKind::Recorder, builder)),
+                    crate::panel::TerminalLaunchState::Ssh { .. } => {
+                        return Box::new(cx.new(|cx| {
+                            crate::panel::SshErrorPanel::restoring(
+                                panel_state,
+                                "Reconnecting SSH session...".into(),
+                                cx,
+                            )
+                        }));
+                    }
+                };
+                let (kind, builder) = match builder {
+                    Ok(builder) => builder,
+                    Err(err) => {
+                        return Box::new(cx.new(|cx| {
+                            crate::panel::SshErrorPanel::restoring(
+                                panel_state,
+                                format!("Failed to restore terminal: {err:#}").into(),
+                                cx,
+                            )
+                        }));
+                    }
+                };
+                let terminal = cx.new(move |cx| builder.subscribe(cx));
+                let terminal_view = if kind == crate::panel::PanelKind::Recorder {
+                    cx.new(|cx| TerminalView::new_with_context_menu(terminal, window, cx, false))
+                } else {
+                    cx.new(|cx| {
+                        TerminalView::new_with_context_menu_provider(
+                            terminal,
+                            window,
+                            cx,
+                            true,
+                            Some(terminal_context_menu_provider.clone()),
+                        )
+                    })
+                };
+                Box::new(cx.new(|_| {
+                    crate::panel::TerminalPanel::new_with_launch_state(
+                        id,
+                        kind,
+                        panel_state.tab_label.into(),
+                        panel_state.tab_tooltip.map(Into::into),
+                        Some(panel_state.launch),
+                        terminal_view,
+                    )
+                }))
+            }
+        });
+        register_panel(cx, "termua.sftp_dock_panel", |_, _, info, _, cx| {
+            let state = match info {
+                gpui_dock::PanelInfo::Panel(value) => serde_json::from_value::<
+                    crate::panel::sftp_panel::SftpPanelState,
+                >(value.clone()),
+                _ => unreachable!("sftp factory received non-panel state"),
+            };
+            match state {
+                Ok(state) if state.version == 1 => Box::new(
+                    cx.new(|cx| crate::panel::sftp_panel::SftpDockPanel::restoring(state, cx)),
+                ),
+                Ok(_) | Err(_) => Box::new(cx.new(|cx| {
+                    crate::panel::SshErrorPanel::new(
+                        0,
+                        "SFTP".into(),
+                        None,
+                        "Failed to restore SFTP panel state.".into(),
+                        cx,
+                    )
+                })),
+            }
+        });
+
+        match crate::workspace::load_from_path(&crate::workspace::state_path()) {
+            Ok(state) if state.version == Some(crate::workspace::STATE_VERSION) => {
+                if let Err(err) = dock_area.update(cx, |dock, cx| dock.load(state, window, cx)) {
+                    log::warn!("termua: failed to restore dock workspace: {err:#}");
+                }
+            }
+            Ok(state) => log::info!(
+                "termua: ignoring dock workspace version {:?}, expected {}",
+                state.version,
+                crate::workspace::STATE_VERSION
+            ),
+            Err(err) if crate::workspace::state_path().exists() => {
+                log::warn!("termua: failed to read dock workspace: {err:#}");
+            }
+            Err(_) => {}
+        }
+        let (left_dock, right_dock) = {
+            let dock = dock_area.read(cx);
+            (dock.left_dock().cloned(), dock.right_dock().cloned())
+        };
+        if let Some(left) = left_dock {
+            left.update(cx, |dock, cx| {
+                dock.set_min_size(gpui::px(220.0), window, cx);
+                dock.set_max_size(gpui::px(400.0), window, cx);
+            });
+        }
+        if let Some(right) = right_dock {
+            right.update(cx, |dock, cx| {
+                dock.set_min_size(gpui::px(220.0), window, cx);
+                dock.set_max_size(gpui::px(400.0), window, cx);
+            });
+        }
+        this.wire_restored_terminal_panels(window, cx);
+        this.restore_pending_ssh_panels(window, cx);
+        this.restore_pending_sftp_panels(window, cx);
+
+        let (left_state, right_state) = {
+            let dock = dock_area.read(cx);
+            let left = dock
+                .left_dock()
+                .map(|left| (left.read(cx).is_open(), left.read(cx).size()));
+            let right = dock
+                .right_dock()
+                .map(|right| (right.read(cx).is_open(), right.read(cx).size()));
+            (left, right)
+        };
+        if let Some((visible, width)) = left_state {
+            let state = cx.global_mut::<TermuaAppState>();
+            state.sessions_sidebar_visible = visible;
+            state.sessions_sidebar_width = width;
+        }
+        if let Some((visible, width)) = right_state {
+            let state = cx.global_mut::<right_sidebar::RightSidebarState>();
+            state.visible = visible;
+            state.width = width;
+        }
+
+        this.install_workspace_persistence(window, cx);
 
         this
     }
@@ -334,5 +573,52 @@ impl TermuaWindow {
                     set_theme_mode(ThemeMode::System, Some(window), cx);
                 }
             }));
+    }
+
+    fn install_workspace_persistence(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dock_area = self.dock_area.clone();
+        self._subscriptions.push(cx.subscribe_in(
+            &dock_area,
+            window,
+            |this, dock_area, event: &DockEvent, window, cx| {
+                if matches!(event, DockEvent::LayoutChanged) {
+                    this.schedule_workspace_save(dock_area.clone(), window, cx);
+                }
+            },
+        ));
+
+        let dock_area = self.dock_area.clone();
+        cx.on_app_quit(move |_, cx| {
+            let state = dock_area.read(cx).dump(cx);
+            let path = crate::workspace::state_path();
+            cx.background_executor().spawn(async move {
+                if let Err(err) = crate::workspace::save_to_path(&path, &state) {
+                    log::warn!("termua: failed to save dock workspace on quit: {err:#}");
+                }
+            })
+        })
+        .detach();
+    }
+
+    fn schedule_workspace_save(
+        &mut self,
+        dock_area: gpui::Entity<DockArea>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace_save_task = Some(cx.spawn_in(window, async move |view, window| {
+            window
+                .background_executor()
+                .timer(WORKSPACE_SAVE_DEBOUNCE)
+                .await;
+            let _ = view.update_in(window, move |_, _, cx| {
+                let state = dock_area.read(cx).dump(cx);
+                if let Err(err) =
+                    crate::workspace::save_to_path(&crate::workspace::state_path(), &state)
+                {
+                    log::warn!("termua: failed to save dock workspace: {err:#}");
+                }
+            });
+        }));
     }
 }

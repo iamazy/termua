@@ -12,7 +12,7 @@ use crate::{
     SerialParams, TermuaAppState,
     env::{build_terminal_env, cast_player_child_env},
     lock_screen, notification,
-    panel::{PanelKind, TerminalPanel, terminal_panel_tab_name},
+    panel::{PanelKind, TerminalLaunchState, TerminalPanel, terminal_panel_tab_name},
     ssh::{dedupe_tab_label, ssh_tab_tooltip},
 };
 
@@ -58,8 +58,17 @@ impl TermuaWindow {
             .unwrap_or(1.0);
         let env = cast_player_child_env(&cast_path, playback_speed);
 
-        let panel =
-            self.build_terminal_panel(PanelKind::Recorder, TerminalType::WezTerm, env, window, cx);
+        let panel = self.build_terminal_panel(
+            PanelKind::Recorder,
+            TerminalType::WezTerm,
+            env,
+            Some(TerminalLaunchState::Recorder {
+                cast_path,
+                playback_speed,
+            }),
+            window,
+            cx,
+        );
 
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
@@ -72,14 +81,25 @@ impl TermuaWindow {
         });
     }
 
-    pub(super) fn add_local_terminal_with_params(
+    pub(in crate::window::main_window) fn add_local_terminal_with_params(
         &mut self,
         backend_type: TerminalType,
         env: HashMap<String, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let panel = self.build_terminal_panel(PanelKind::Local, backend_type, env, window, cx);
+        let launch_state = TerminalLaunchState::Local {
+            backend_type,
+            env: env.clone(),
+        };
+        let panel = self.build_terminal_panel(
+            PanelKind::Local,
+            backend_type,
+            env,
+            Some(launch_state),
+            window,
+            cx,
+        );
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
                 Arc::new(panel) as Arc<dyn PanelView>,
@@ -177,7 +197,19 @@ impl TermuaWindow {
             }
         };
 
-        let panel = self.build_serial_panel_from_builder(builder, params.name, opts, window, cx);
+        let launch_state = TerminalLaunchState::Serial {
+            backend_type,
+            params: params.clone(),
+            session_id,
+        };
+        let panel = self.build_serial_panel_from_builder(
+            builder,
+            params.name,
+            opts,
+            Some(launch_state),
+            window,
+            cx,
+        );
         self.dock_area.update(cx, |dock, cx| {
             dock.add_panel(
                 Arc::new(panel) as Arc<dyn PanelView>,
@@ -384,6 +416,7 @@ impl TermuaWindow {
         kind: PanelKind,
         tab_label: SharedString,
         tab_tooltip: Option<SharedString>,
+        launch_state: Option<TerminalLaunchState>,
         terminal: gpui::Entity<gpui_term::Terminal>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -412,7 +445,16 @@ impl TermuaWindow {
         let focus: FocusHandle = terminal_view.read(cx).focus_handle.clone();
         window.focus(&focus, cx);
 
-        cx.new(|_| TerminalPanel::new(id, kind, tab_label, tab_tooltip, terminal_view))
+        cx.new(|_| {
+            TerminalPanel::new_with_launch_state(
+                id,
+                kind,
+                tab_label,
+                tab_tooltip,
+                launch_state,
+                terminal_view,
+            )
+        })
     }
 
     pub(super) fn build_ssh_panel_from_builder(
@@ -420,6 +462,7 @@ impl TermuaWindow {
         builder: TerminalBuilder,
         name: String,
         opts: SshOptions,
+        launch_state: Option<TerminalLaunchState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
@@ -435,6 +478,7 @@ impl TermuaWindow {
             PanelKind::Ssh,
             tab_label,
             Some(tab_tooltip),
+            launch_state,
             terminal,
             window,
             cx,
@@ -446,6 +490,7 @@ impl TermuaWindow {
         builder: TerminalBuilder,
         name: String,
         opts: SerialOptions,
+        launch_state: Option<TerminalLaunchState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
@@ -461,6 +506,7 @@ impl TermuaWindow {
             PanelKind::Serial,
             tab_label,
             Some(tab_tooltip),
+            launch_state,
             terminal,
             window,
             cx,
@@ -472,6 +518,7 @@ impl TermuaWindow {
         kind: PanelKind,
         backend_type: TerminalType,
         env: HashMap<String, String>,
+        launch_state: Option<TerminalLaunchState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
@@ -494,7 +541,104 @@ impl TermuaWindow {
                 .expect("local terminal builder should succeed")
                 .subscribe(cx)
         });
-        self.build_wired_terminal_panel(id, kind, tab_label, None, terminal, window, cx)
+        self.build_wired_terminal_panel(
+            id,
+            kind,
+            tab_label,
+            None,
+            launch_state,
+            terminal,
+            window,
+            cx,
+        )
+    }
+
+    pub(in crate::window::main_window) fn wire_restored_terminal_panels(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let panels = self
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .collect::<Vec<_>>();
+
+        for panel in panels {
+            let Ok(panel) = panel.view().downcast::<TerminalPanel>() else {
+                continue;
+            };
+            let (id, tab_label, terminal_view) = {
+                let panel = panel.read(cx);
+                (panel.id(), panel.tab_label(), panel.terminal_view())
+            };
+            self.next_terminal_id = self.next_terminal_id.max(id.saturating_add(1));
+            let terminal = terminal_view.read(cx).terminal.clone();
+            self.subscribe_terminal_events_for_messages(
+                terminal.clone(),
+                id,
+                tab_label.clone(),
+                window,
+                cx,
+            );
+            self.register_terminal_target_and_focus(
+                id,
+                tab_label,
+                &terminal_view,
+                terminal.downgrade(),
+                window,
+                cx,
+            );
+            self.subscribe_terminal_view_events(&terminal_view, window, cx);
+        }
+    }
+
+    pub(in crate::window::main_window) fn restore_pending_sftp_panels(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let panels = self
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .collect::<Vec<_>>();
+        let terminals = panels
+            .iter()
+            .filter_map(|panel| panel.view().downcast::<TerminalPanel>().ok())
+            .map(|panel| {
+                let panel = panel.read(cx);
+                (panel.id(), panel.terminal_view())
+            })
+            .collect::<HashMap<_, _>>();
+        let sftp_panels = panels
+            .into_iter()
+            .filter_map(|panel| {
+                panel
+                    .view()
+                    .downcast::<crate::panel::sftp_panel::SftpDockPanel>()
+                    .ok()
+            })
+            .collect::<Vec<_>>();
+
+        for panel in sftp_panels {
+            let terminal_id = panel.read(cx).terminal_id();
+            if panel.read(cx).is_connected() {
+                continue;
+            }
+            let Some(terminal_view) = terminals.get(&terminal_id).cloned() else {
+                continue;
+            };
+            if let Err(err) = panel.update(cx, |panel, cx| {
+                panel.connect_to_terminal_view(terminal_view, window, cx)
+            }) {
+                log::warn!("termua: failed to reconnect restored SFTP panel: {err:#}");
+            }
+        }
     }
 
     pub(super) fn open_sftp_for_terminal_view(
@@ -504,6 +648,7 @@ impl TermuaWindow {
         cx: &mut Context<Self>,
     ) {
         let mut tab_label: gpui::SharedString = "SFTP".into();
+        let mut terminal_id = None;
         let tab_panels = self.dock_area.read(cx).visible_tab_panels(cx);
         for tab_panel in tab_panels {
             let Some(active_panel) = tab_panel.read(cx).active_panel(cx) else {
@@ -517,13 +662,25 @@ impl TermuaWindow {
             let terminal_panel = terminal_panel.read(cx);
             if terminal_panel.terminal_view().entity_id() == terminal_view.entity_id() {
                 tab_label = terminal_panel.tab_label();
+                terminal_id = Some(terminal_panel.id());
                 break;
             }
         }
 
+        let Some(terminal_id) = terminal_id else {
+            notification::notify_deferred(
+                notification::MessageKind::Error,
+                "Unable to associate SFTP with its SSH terminal.",
+                window,
+                cx,
+            );
+            return;
+        };
+
         let panel = match crate::panel::sftp_panel::SftpDockPanel::open_for_terminal_view(
             terminal_view,
             tab_label,
+            terminal_id,
             window,
             cx,
         ) {

@@ -1190,6 +1190,17 @@ impl DockArea {
             .collect()
     }
 
+    pub fn all_tab_panels(&self, cx: &App) -> Vec<Entity<TabPanel>> {
+        let mut out = self.center.tab_panels(cx);
+        for dock in [&self.left_dock, &self.right_dock, &self.bottom_dock]
+            .into_iter()
+            .flatten()
+        {
+            out.extend(dock.read(cx).panel.tab_panels(cx));
+        }
+        out
+    }
+
     fn render_items(&self, _window: &mut Window, _cx: &mut Context<Self>) -> AnyElement {
         match &self.center {
             DockItem::Split { view, .. } => view.clone().into_any_element(),
