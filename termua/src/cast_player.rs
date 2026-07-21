@@ -7,6 +7,42 @@ use anyhow::Context;
 
 use crate::env::{CAST_PLAYER_ENV_MODE, CAST_PLAYER_ENV_PATH, CAST_PLAYER_ENV_SPEED};
 
+#[cfg(unix)]
+struct PlaybackTtyGuard {
+    fd: std::os::fd::RawFd,
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl PlaybackTtyGuard {
+    fn disable(fd: std::os::fd::RawFd) -> io::Result<Option<Self>> {
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ENOTTY) {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        }
+        let original = unsafe { original.assume_init() };
+        let mut playback = original;
+        playback.c_lflag &= !(libc::ECHO | libc::ECHONL);
+        if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &playback) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(Some(Self { fd, original }))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PlaybackTtyGuard {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.original) };
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum CastEvent {
     Output { t: f64, text: String },
@@ -77,6 +113,10 @@ pub fn play_cast<R: BufRead, W: Write>(
     if !(opts.speed.is_finite() && opts.speed > 0.0) {
         return Err(anyhow::anyhow!("speed must be > 0"));
     }
+
+    #[cfg(unix)]
+    // Cast output may query the host terminal; do not echo its replies as visible `^[...` text.
+    let _tty_guard = PlaybackTtyGuard::disable(libc::STDIN_FILENO)?;
 
     let mut header = String::new();
     let n = reader.read_line(&mut header)?;
@@ -204,6 +244,50 @@ pub fn try_run_from_env() -> anyhow::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn playback_tty_guard_disables_echo_and_restores_termios() {
+        let mut master = -1;
+        let mut slave = -1;
+        let result = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        assert_eq!(result, 0);
+
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(slave, original.as_mut_ptr()) }, 0);
+        let mut original = unsafe { original.assume_init() };
+        original.c_lflag |= libc::ECHO | libc::ECHONL;
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave, libc::TCSANOW, &original) },
+            0
+        );
+
+        {
+            let _guard = PlaybackTtyGuard::disable(slave).unwrap().unwrap();
+            let mut current = std::mem::MaybeUninit::<libc::termios>::uninit();
+            assert_eq!(unsafe { libc::tcgetattr(slave, current.as_mut_ptr()) }, 0);
+            let current = unsafe { current.assume_init() };
+            assert_eq!(current.c_lflag & (libc::ECHO | libc::ECHONL), 0);
+        }
+
+        let mut restored = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(slave, restored.as_mut_ptr()) }, 0);
+        let restored = unsafe { restored.assume_init() };
+        assert_eq!(restored.c_lflag, original.c_lflag);
+
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+    }
 
     #[test]
     fn play_cast_writes_output_in_order_without_sleep() {

@@ -10,6 +10,8 @@ use std::{
 use gpui::Global;
 use serde::Serialize;
 
+use crate::{Cell, CellFlags, NamedColor, TermColor};
+
 /// Asciinema cast v2 header.
 #[derive(Debug, Clone)]
 pub struct CastHeader {
@@ -75,6 +77,124 @@ impl<W: Write> CastWriter<W> {
 
     pub fn write_resize(&mut self, t: f64, cols: usize, rows: usize) -> io::Result<()> {
         self.write_event(t, "r", format!("{cols}x{rows}"))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct CellStyle {
+    fg: TermColor,
+    bg: TermColor,
+    flags: CellFlags,
+}
+
+impl From<&Cell> for CellStyle {
+    fn from(cell: &Cell) -> Self {
+        Self {
+            fg: cell.fg,
+            bg: cell.bg,
+            flags: cell.flags,
+        }
+    }
+}
+
+pub(crate) fn serialize_pre_cursor_cells(cells: &[Cell], cursor_style: &Cell) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut active_style = None;
+    for cell in cells {
+        if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+            continue;
+        }
+
+        let style = CellStyle::from(cell);
+        if active_style != Some(style) {
+            write_style(&mut output, style);
+            active_style = Some(style);
+        }
+        push_char(&mut output, cell.c);
+        if let Some(zerowidth) = cell.zerowidth() {
+            for character in zerowidth {
+                push_char(&mut output, *character);
+            }
+        }
+    }
+
+    let cursor_style = CellStyle::from(cursor_style);
+    if active_style != Some(cursor_style) {
+        write_style(&mut output, cursor_style);
+    }
+    output
+}
+
+fn push_char(output: &mut Vec<u8>, character: char) {
+    let mut buf = [0; 4];
+    output.extend_from_slice(character.encode_utf8(&mut buf).as_bytes());
+}
+
+fn write_style(output: &mut Vec<u8>, style: CellStyle) {
+    let mut params = vec!["0".to_string()];
+    if style.flags.contains(CellFlags::BOLD) {
+        params.push("1".to_string());
+    }
+    if style.flags.contains(CellFlags::DIM) {
+        params.push("2".to_string());
+    }
+    if style.flags.contains(CellFlags::ITALIC) {
+        params.push("3".to_string());
+    }
+    if style.flags.contains(CellFlags::DOUBLE_UNDERLINE) {
+        params.push("4:2".to_string());
+    } else if style.flags.contains(CellFlags::CURLY_UNDERLINE) {
+        params.push("4:3".to_string());
+    } else if style.flags.contains(CellFlags::DOTTED_UNDERLINE) {
+        params.push("4:4".to_string());
+    } else if style.flags.contains(CellFlags::DASHED_UNDERLINE) {
+        params.push("4:5".to_string());
+    } else if style.flags.contains(CellFlags::UNDERLINE) {
+        params.push("4".to_string());
+    }
+    if style.flags.contains(CellFlags::INVERSE) {
+        params.push("7".to_string());
+    }
+    if style.flags.contains(CellFlags::STRIKEOUT) {
+        params.push("9".to_string());
+    }
+    push_color(&mut params, style.fg, false);
+    push_color(&mut params, style.bg, true);
+
+    output.extend_from_slice(b"\x1b[");
+    output.extend_from_slice(params.join(";").as_bytes());
+    output.push(b'm');
+}
+
+fn push_color(params: &mut Vec<String>, color: TermColor, background: bool) {
+    let base = if background { 48 } else { 38 };
+    match color {
+        TermColor::Rgb(r, g, b) => params.push(format!("{base};2;{r};{g};{b}")),
+        TermColor::Indexed(index) => params.push(format!("{base};5;{index}")),
+        TermColor::Named(named) => params.push(named_color_code(named, background).to_string()),
+    }
+}
+
+fn named_color_code(color: NamedColor, background: bool) -> u8 {
+    let offset = u8::from(background) * 10;
+    match color {
+        NamedColor::Black => 30 + offset,
+        NamedColor::Red => 31 + offset,
+        NamedColor::Green => 32 + offset,
+        NamedColor::Yellow => 33 + offset,
+        NamedColor::Blue => 34 + offset,
+        NamedColor::Magenta => 35 + offset,
+        NamedColor::Cyan => 36 + offset,
+        NamedColor::White => 37 + offset,
+        NamedColor::BrightBlack => 90 + offset,
+        NamedColor::BrightRed => 91 + offset,
+        NamedColor::BrightGreen => 92 + offset,
+        NamedColor::BrightYellow => 93 + offset,
+        NamedColor::BrightBlue => 94 + offset,
+        NamedColor::BrightMagenta => 95 + offset,
+        NamedColor::BrightCyan => 96 + offset,
+        NamedColor::BrightWhite => 97 + offset,
+        NamedColor::Foreground | NamedColor::Background | NamedColor::Cursor => 39 + offset,
     }
 }
 
