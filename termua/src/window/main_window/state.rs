@@ -21,11 +21,67 @@ use crate::{
     footbar::FootbarView,
     globals::{ensure_ctx_global, ensure_ctx_global_with},
     lock_screen, notification,
-    panel::{RightSidebarView, SessionsSidebarEvent, SessionsSidebarView},
+    panel::{
+        PanelKind, RightSidebarView, SessionsSidebarEvent, SessionsSidebarView, TerminalLaunchState,
+    },
     right_sidebar,
     settings::{ThemeMode, set_theme_mode, theme_mode},
-    ssh::SshTerminalBuilderFn,
+    ssh::{SshTerminalBuilderFn, SshTerminalFactory},
 };
+
+type RestoredTerminalBuilderFn = Arc<
+    dyn Fn(&TerminalLaunchState, usize) -> anyhow::Result<(PanelKind, Box<dyn SshTerminalFactory>)>
+        + Send
+        + Sync,
+>;
+
+fn default_restored_terminal_builder(
+    launch: &TerminalLaunchState,
+    id: usize,
+) -> anyhow::Result<(PanelKind, Box<dyn SshTerminalFactory>)> {
+    let (kind, builder) = match launch {
+        TerminalLaunchState::Local { backend_type, env } => (
+            PanelKind::Local,
+            TerminalBuilder::new(
+                *backend_type,
+                env.clone(),
+                CursorShape::default(),
+                None,
+                id as u64,
+            )?,
+        ),
+        TerminalLaunchState::Serial {
+            backend_type,
+            params,
+            ..
+        } => (
+            PanelKind::Serial,
+            TerminalBuilder::new_with_pty(
+                *backend_type,
+                PtySource::Serial {
+                    opts: params.to_options(),
+                },
+                CursorShape::default(),
+                None,
+            )?,
+        ),
+        TerminalLaunchState::Recorder {
+            cast_path,
+            playback_speed,
+        } => (
+            PanelKind::Recorder,
+            TerminalBuilder::new(
+                TerminalType::WezTerm,
+                crate::env::cast_player_child_env(cast_path, *playback_speed),
+                CursorShape::default(),
+                None,
+                id as u64,
+            )?,
+        ),
+        TerminalLaunchState::Ssh { .. } => anyhow::bail!("SSH terminals reconnect separately"),
+    };
+    Ok((kind, Box::new(builder)))
+}
 pub(crate) struct TermuaWindow {
     pub(crate) dock_area: gpui::Entity<DockArea>,
     pub(crate) sessions_sidebar: gpui::Entity<SessionsSidebarView>,
@@ -176,6 +232,20 @@ impl TermuaWindow {
         ssh_terminal_builder: SshTerminalBuilderFn,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::new_with_terminal_builders(
+            window,
+            ssh_terminal_builder,
+            Arc::new(default_restored_terminal_builder),
+            cx,
+        )
+    }
+
+    pub(crate) fn new_with_terminal_builders(
+        window: &mut Window,
+        ssh_terminal_builder: SshTerminalBuilderFn,
+        restored_terminal_builder: RestoredTerminalBuilderFn,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self::ensure_globals(cx);
 
         let dock_area =
@@ -293,6 +363,7 @@ impl TermuaWindow {
 
         let terminal_context_menu_provider = this.terminal_context_menu_provider.clone();
         register_panel(cx, crate::panel::TERMINAL_PANEL_NAME, {
+            let restored_terminal_builder = restored_terminal_builder.clone();
             move |_, _, info, window, cx| {
                 let panel_state = match info {
                     gpui_dock::PanelInfo::Panel(value) => {
@@ -327,41 +398,7 @@ impl TermuaWindow {
                 };
 
                 let id = panel_state.id;
-                let builder = match panel_state.launch.clone() {
-                    crate::panel::TerminalLaunchState::Local { backend_type, env } => {
-                        TerminalBuilder::new(
-                            backend_type,
-                            env,
-                            CursorShape::default(),
-                            None,
-                            id as u64,
-                        )
-                        .map(|builder| (crate::panel::PanelKind::Local, builder))
-                    }
-                    crate::panel::TerminalLaunchState::Serial {
-                        backend_type,
-                        params,
-                        ..
-                    } => TerminalBuilder::new_with_pty(
-                        backend_type,
-                        PtySource::Serial {
-                            opts: params.to_options(),
-                        },
-                        CursorShape::default(),
-                        None,
-                    )
-                    .map(|builder| (crate::panel::PanelKind::Serial, builder)),
-                    crate::panel::TerminalLaunchState::Recorder {
-                        cast_path,
-                        playback_speed,
-                    } => TerminalBuilder::new(
-                        TerminalType::WezTerm,
-                        crate::env::cast_player_child_env(&cast_path, playback_speed),
-                        CursorShape::default(),
-                        None,
-                        id as u64,
-                    )
-                    .map(|builder| (crate::panel::PanelKind::Recorder, builder)),
+                let builder = match &panel_state.launch {
                     crate::panel::TerminalLaunchState::Ssh { .. } => {
                         return Box::new(cx.new(|cx| {
                             crate::panel::SshErrorPanel::restoring(
@@ -371,6 +408,7 @@ impl TermuaWindow {
                             )
                         }));
                     }
+                    launch => restored_terminal_builder(launch, id),
                 };
                 let (kind, builder) = match builder {
                     Ok(builder) => builder,
@@ -384,7 +422,7 @@ impl TermuaWindow {
                         }));
                     }
                 };
-                let terminal = cx.new(move |cx| builder.subscribe(cx));
+                let terminal = cx.new(move |cx| builder.build(cx));
                 let terminal_view = if kind == crate::panel::PanelKind::Recorder {
                     cx.new(|cx| TerminalView::new_with_context_menu(terminal, window, cx, false))
                 } else {

@@ -4,7 +4,7 @@ use std::{
     ops::RangeInclusive,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -46,6 +46,16 @@ fn add_fake_local_terminal(
     window: &mut Window,
     cx: &mut Context<TermuaWindow>,
 ) {
+    add_fake_local_terminal_with_launch(window_view, backend, None, window, cx);
+}
+
+fn add_fake_local_terminal_with_launch(
+    window_view: &mut TermuaWindow,
+    backend: TerminalType,
+    launch_state: Option<crate::panel::TerminalLaunchState>,
+    window: &mut Window,
+    cx: &mut Context<TermuaWindow>,
+) {
     let id = window_view.next_terminal_id;
     window_view.next_terminal_id += 1;
     let terminal = cx.new(|_| {
@@ -59,7 +69,7 @@ fn add_fake_local_terminal(
         crate::panel::PanelKind::Local,
         format!("terminal {id}").into(),
         None,
-        None,
+        launch_state,
         terminal,
         window,
         cx,
@@ -72,6 +82,56 @@ fn add_fake_local_terminal(
             window,
             cx,
         );
+    });
+}
+
+#[gpui::test]
+fn sftp_panel_opens_in_center_workspace_instead_of_bottom_dock(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx);
+        });
+
+        let sftp = cx.new(|cx| {
+            crate::panel::sftp_panel::SftpDockPanel::restoring(
+                crate::panel::sftp_panel::SftpPanelState {
+                    version: 1,
+                    tab_label: "SFTP test".to_string(),
+                    terminal_id: 1,
+                    current_dir: None,
+                },
+                cx,
+            )
+        });
+
+        let panel = Arc::new(sftp) as Arc<dyn PanelView>;
+        view.update(cx, |this, cx| {
+            this.add_sftp_panel(panel.clone(), window, cx);
+        });
+
+        let dock = view.read(cx).dock_area.read(cx);
+        assert!(dock.bottom_dock().is_none());
+        assert!(dock.center().find_panel(panel.clone(), cx).is_some());
+
+        let shared_tabs = dock
+            .visible_tab_panels(cx)
+            .into_iter()
+            .find(|tabs| tabs.read(cx).panels().iter().any(|item| item == &panel))
+            .expect("SFTP panel should be in a visible center tab group");
+        assert!(shared_tabs.read(cx).panels().iter().any(|item| {
+            item.view()
+                .downcast::<crate::panel::TerminalPanel>()
+                .is_ok()
+        }));
     });
 }
 
@@ -248,12 +308,52 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
         app.set_global(TermuaAppState::default());
     });
 
-    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    let restore_attempts = Arc::new(AtomicUsize::new(0));
+    let restored_terminal_builder = {
+        let restore_attempts = restore_attempts.clone();
+        Arc::new(
+            move |launch: &crate::panel::TerminalLaunchState, _id: usize| {
+                restore_attempts.fetch_add(1, Ordering::SeqCst);
+                let crate::panel::TerminalLaunchState::Local { backend_type, .. } = launch else {
+                    anyhow::bail!("expected local terminal launch state");
+                };
+                Ok((
+                    crate::panel::PanelKind::Local,
+                    Box::new(FakeSshTerminalFactory {
+                        backend: *backend_type,
+                        recording_active: Arc::new(AtomicBool::new(false)),
+                    }) as Box<dyn SshTerminalFactory>,
+                ))
+            },
+        )
+    };
+    let ssh_terminal_builder: SshTerminalBuilderFn = Arc::new(|backend, _env, _opts| {
+        Ok(Box::new(FakeSshTerminalFactory {
+            backend,
+            recording_active: Arc::new(AtomicBool::new(false)),
+        }) as Box<dyn SshTerminalFactory>)
+    });
+
+    let first_restore_builder = restored_terminal_builder.clone();
+    let first_ssh_builder = ssh_terminal_builder.clone();
+    let (first, first_cx) = cx.add_window_view(move |window, cx| {
+        TermuaWindow::new_with_terminal_builders(
+            window,
+            first_ssh_builder,
+            first_restore_builder,
+            cx,
+        )
+    });
     first_cx.update(|window, cx| {
         first.update(cx, |this, cx| {
-            this.add_local_terminal_with_params(
+            let env = HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]);
+            add_fake_local_terminal_with_launch(
+                this,
                 TerminalType::WezTerm,
-                HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]),
+                Some(crate::panel::TerminalLaunchState::Local {
+                    backend_type: TerminalType::WezTerm,
+                    env,
+                }),
                 window,
                 cx,
             );
@@ -265,7 +365,14 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
         });
     });
 
-    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    let (restored, restored_cx) = cx.add_window_view(move |window, cx| {
+        TermuaWindow::new_with_terminal_builders(
+            window,
+            ssh_terminal_builder,
+            restored_terminal_builder,
+            cx,
+        )
+    });
     restored_cx.update(|_window, cx| {
         let panel = restored
             .read(cx)
@@ -283,6 +390,7 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             "saved terminal panel should be rebuilt by its registered factory"
         );
     });
+    assert_eq!(restore_attempts.load(Ordering::SeqCst), 1);
 
     std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
 }

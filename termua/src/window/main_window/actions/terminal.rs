@@ -703,13 +703,19 @@ impl TermuaWindow {
             }
         };
 
-        self.dock_area.update(cx, |dock, cx| {
-            dock.add_panel(panel, DockPlacement::Bottom, None, window, cx);
-            if !dock.is_dock_open(DockPlacement::Bottom, cx) {
-                dock.toggle_dock(DockPlacement::Bottom, window, cx);
-            }
-        });
+        self.add_sftp_panel(panel, window, cx);
         cx.notify();
+    }
+
+    pub(in crate::window::main_window) fn add_sftp_panel(
+        &mut self,
+        panel: Arc<dyn PanelView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dock_area.update(cx, |dock, cx| {
+            dock.add_panel(panel, DockPlacement::Center, None, window, cx);
+        });
     }
 
     fn close_exited_terminal_panel(
