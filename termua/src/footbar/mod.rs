@@ -376,6 +376,14 @@ mod tests {
         assert_eq!(state.backend(), None);
     }
 
+    #[gpui::test]
+    fn blur_without_focused_terminal_state_is_ignored(cx: &mut gpui::TestAppContext) {
+        let entity = cx.new(|cx| {
+            blur_terminal_backend(1, cx);
+        });
+        entity.update(cx, |_, cx| blur_terminal_backend(1, cx));
+    }
+
     #[test]
     fn footbar_backend_icons_match_terminal_types() {
         assert_eq!(

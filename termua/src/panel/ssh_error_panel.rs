@@ -183,13 +183,25 @@ impl Render for SshErrorPanel {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, path::PathBuf};
+
     use gpui::AppContext as _;
-    use gpui_dock::Panel as _;
+    use gpui_dock::{Panel as _, PanelInfo};
 
     use super::*;
     use crate::panel::{
         PanelKind, TerminalLaunchState, terminal_panel::tab_icon_for_terminal_panel,
     };
+
+    fn terminal_state(launch: TerminalLaunchState) -> TerminalPanelState {
+        TerminalPanelState {
+            version: 1,
+            id: 7,
+            tab_label: "saved terminal".to_string(),
+            tab_tooltip: Some("saved tooltip".to_string()),
+            launch,
+        }
+    }
 
     #[gpui::test]
     fn restoring_ssh_panel_uses_ssh_terminal_icon(cx: &mut gpui::TestAppContext) {
@@ -214,5 +226,114 @@ mod tests {
             panel.read_with(cx, |panel, app| panel.tab_icon(app)),
             Some(tab_icon_for_terminal_panel(PanelKind::Ssh))
         );
+    }
+
+    #[gpui::test]
+    fn restoring_panels_use_their_terminal_icons(cx: &mut gpui::TestAppContext) {
+        let cases = [
+            (
+                TerminalLaunchState::Local {
+                    backend_type: gpui_term::TerminalType::Alacritty,
+                    env: HashMap::new(),
+                },
+                PanelKind::Local,
+            ),
+            (
+                TerminalLaunchState::Serial {
+                    backend_type: gpui_term::TerminalType::Alacritty,
+                    params: crate::SerialParams {
+                        name: "serial".to_string(),
+                        port: "test".to_string(),
+                        baud: 9600,
+                        data_bits: 8,
+                        parity: crate::store::SerialParity::None,
+                        stop_bits: crate::store::SerialStopBits::One,
+                        flow_control: crate::store::SerialFlowControl::None,
+                    },
+                    session_id: None,
+                },
+                PanelKind::Serial,
+            ),
+            (
+                TerminalLaunchState::Recorder {
+                    cast_path: PathBuf::from("recording.cast"),
+                    playback_speed: 1.0,
+                },
+                PanelKind::Recorder,
+            ),
+        ];
+
+        for (launch, kind) in cases {
+            let panel = cx.new(|cx| {
+                SshErrorPanel::restoring(terminal_state(launch), "Restoring...".into(), cx)
+            });
+            assert_eq!(
+                panel.read_with(cx, |panel, app| panel.tab_icon(app)),
+                Some(tab_icon_for_terminal_panel(kind))
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn setting_message_changes_restoring_panel_to_error(cx: &mut gpui::TestAppContext) {
+        let panel = cx.new(|cx| {
+            SshErrorPanel::restoring(
+                terminal_state(TerminalLaunchState::Ssh {
+                    backend_type: gpui_term::TerminalType::WezTerm,
+                    session_id: Some(1),
+                }),
+                "Restoring...".into(),
+                cx,
+            )
+        });
+
+        panel.update(cx, |panel, cx| panel.set_message("failed", cx));
+
+        assert_eq!(
+            panel.read_with(cx, |panel, app| panel.tab_icon(app)),
+            Some(gpui_dock::TabIcon::Monochrome {
+                path: TermuaIcon::Bug.into(),
+                color: Some(gpui::red()),
+            })
+        );
+    }
+
+    #[gpui::test]
+    fn dump_preserves_restoring_terminal_state(cx: &mut gpui::TestAppContext) {
+        let state = terminal_state(TerminalLaunchState::Ssh {
+            backend_type: gpui_term::TerminalType::WezTerm,
+            session_id: Some(12),
+        });
+        let panel = cx.new(|cx| SshErrorPanel::restoring(state.clone(), "Restoring...".into(), cx));
+
+        let dumped = panel.read_with(cx, |panel, app| panel.dump(app));
+
+        assert_eq!(dumped.panel_name, super::super::TERMINAL_PANEL_NAME);
+        let PanelInfo::Panel(value) = dumped.info else {
+            panic!("expected terminal panel state");
+        };
+        assert_eq!(
+            serde_json::from_value::<TerminalPanelState>(value).unwrap(),
+            state
+        );
+    }
+
+    #[gpui::test]
+    fn new_error_panel_dumps_its_own_panel_state(cx: &mut gpui::TestAppContext) {
+        let panel = cx.new(|cx| {
+            SshErrorPanel::new(
+                3,
+                "failed".into(),
+                Some("details".into()),
+                "connection failed".into(),
+                cx,
+            )
+        });
+
+        let dumped = panel.read_with(cx, |panel, app| panel.dump(app));
+
+        assert_eq!(dumped.panel_name, super::super::SSH_ERROR_PANEL_NAME);
+        assert_eq!(panel.read_with(cx, |panel, _| panel.terminal_state()), None);
+        assert!(panel.read_with(cx, |panel, _| panel.parent_tab()).is_none());
     }
 }

@@ -75,6 +75,45 @@ fn add_fake_local_terminal(
     });
 }
 
+fn update_first_panel_state(
+    value: &mut serde_json::Value,
+    panel_name: &str,
+    update: &mut impl FnMut(&mut serde_json::Value),
+) -> bool {
+    if value["panel_name"] == panel_name {
+        update(value);
+        return true;
+    }
+    match value {
+        serde_json::Value::Array(values) => values
+            .iter_mut()
+            .any(|value| update_first_panel_state(value, panel_name, update)),
+        serde_json::Value::Object(values) => values
+            .values_mut()
+            .any(|value| update_first_panel_state(value, panel_name, update)),
+        _ => false,
+    }
+}
+
+fn save_workspace_with_modified_fake_terminal(
+    view: &gpui::Entity<TermuaWindow>,
+    cx: &mut gpui::App,
+    mut update: impl FnMut(&mut serde_json::Value),
+) {
+    let state = view.read(cx).dock_area.read(cx).dump(cx);
+    let mut value = serde_json::to_value(state).expect("serialize workspace state");
+    assert!(update_first_panel_state(
+        &mut value,
+        crate::panel::TERMINAL_PANEL_NAME,
+        &mut update,
+    ));
+    crate::workspace::save_to_path(
+        &crate::workspace::state_path(),
+        serde_json::from_value(value).expect("deserialize modified workspace state"),
+    )
+    .expect("save modified workspace state");
+}
+
 #[gpui::test]
 fn main_window_restores_saved_dock_layout(cx: &mut gpui::TestAppContext) {
     let settings_path = unique_workspace_settings_path("restore-layout");
@@ -245,6 +284,121 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
         );
     });
 
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_unsupported_saved_terminal_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("unsupported-terminal-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["info"]["panel"]["version"] = serde_json::json!(usize::MAX);
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_malformed_saved_terminal_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("malformed-terminal-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::WezTerm, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["info"]["panel"] = serde_json::json!({ "invalid": true });
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_malformed_saved_sftp_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("malformed-sftp-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["panel_name"] = serde_json::json!(crate::panel::SFTP_PANEL_NAME);
+            panel["info"]["panel"] = serde_json::json!({ "invalid": true });
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
     std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
 }
 

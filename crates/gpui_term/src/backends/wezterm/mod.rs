@@ -2855,6 +2855,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn line_mapping_marks_wide_spacers_and_wrapped_last_cell() {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows: 2,
+                cols: 3,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 0 }),
+            "termua",
+            "0",
+            Box::new(std::io::sink()),
+        );
+        term.advance_bytes("界xy".as_bytes());
+
+        let line = term.screen().lines_in_phys_range(0..1).remove(0);
+        let cells = WezTermBackend::map_line_cells(&line, 3);
+
+        assert_eq!(cells.len(), 3);
+        assert_eq!(cells[0].c, '界');
+        assert!(cells[1].flags.contains(crate::CellFlags::WIDE_CHAR_SPACER));
+        assert!(cells[2].flags.contains(crate::CellFlags::WRAPLINE));
+    }
+
+    #[test]
+    fn command_prefix_includes_previous_wrapped_rows() {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows: 2,
+                cols: 3,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 0 }),
+            "termua",
+            "0",
+            Box::new(std::io::sink()),
+        );
+        term.advance_bytes(b"abcd");
+
+        let prefix = String::from_utf8(WezTermBackend::command_prefix(&term)).unwrap();
+
+        assert_eq!(prefix.replace("\x1b[0;39;49m", ""), "abcd");
+    }
+
     #[gpui::test]
     fn pty_exit_stops_cast_recording(cx: &mut gpui::TestAppContext) {
         let cast_slot = Arc::new(Mutex::new(None));

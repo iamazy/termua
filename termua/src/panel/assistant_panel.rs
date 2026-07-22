@@ -1209,6 +1209,30 @@ mod tests {
         assert!(!AssistantPanelView::send_button_disabled(true, false, ""));
     }
 
+    #[gpui::test]
+    fn persisted_state_omits_pending_user_message(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| init_test_app(app));
+        let assistant_slot = Rc::new(RefCell::new(None));
+        let slot = assistant_slot.clone();
+        let (_, window_cx) = cx.add_window_view(move |window, cx| {
+            let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
+            *slot.borrow_mut() = Some(assistant.clone());
+            gpui_component::Root::new(assistant, window, cx)
+        });
+        let assistant = assistant_slot.borrow().clone().unwrap();
+
+        window_cx.update(|_, app| {
+            let state = app.global_mut::<AssistantState>();
+            state.push(AssistantRole::Assistant, "completed");
+            state.push(AssistantRole::User, "pending");
+            state.in_flight = true;
+        });
+
+        let persisted = window_cx.update(|_, app| assistant.read(app).persisted_state(app));
+        assert_eq!(persisted.messages.len(), 1);
+        assert_eq!(persisted.messages[0].content, "completed");
+    }
+
     #[test]
     fn scroll_to_bottom_retry_continues_while_max_offset_grows() {
         let state = ScrollToBottomRetryState {

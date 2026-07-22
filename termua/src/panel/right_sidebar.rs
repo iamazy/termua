@@ -199,4 +199,39 @@ mod tests {
             "expected right sidebar not to render the full tab bar"
         );
     }
+
+    #[gpui::test]
+    fn right_sidebar_ignores_unsupported_persisted_state(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            init_test_app(app);
+            app.set_global(crate::right_sidebar::RightSidebarState {
+                active_tab: crate::right_sidebar::RightSidebarTab::Assistant,
+                ..Default::default()
+            });
+        });
+
+        let (sidebar, window_cx) =
+            cx.add_window_view(|window, cx| RightSidebarView::new(window, cx));
+        window_cx.update(|window, cx| {
+            sidebar.update(cx, |sidebar, cx| {
+                sidebar.restore_persisted_state(
+                    RightSidebarPanelState {
+                        version: usize::MAX,
+                        active_tab: crate::right_sidebar::RightSidebarTab::Notifications,
+                        assistant: crate::panel::assistant_panel::AssistantPanelState {
+                            messages: Vec::new(),
+                            draft: "ignored".to_string(),
+                        },
+                    },
+                    window,
+                    cx,
+                );
+            });
+            assert_eq!(
+                cx.global::<crate::right_sidebar::RightSidebarState>()
+                    .active_tab,
+                crate::right_sidebar::RightSidebarTab::Assistant
+            );
+        });
+    }
 }

@@ -253,6 +253,9 @@ impl Render for SftpDockPanel {
 
 #[cfg(test)]
 mod tests {
+    use gpui::AppContext as _;
+    use gpui_dock::{Panel as _, PanelInfo};
+
     use super::*;
 
     #[gpui::test]
@@ -288,6 +291,46 @@ mod tests {
         assert_eq!(restored, state);
     }
 
+    #[gpui::test]
+    fn restoring_sftp_panel_exposes_metadata_and_dumps_directory(cx: &mut gpui::TestAppContext) {
+        let panel = cx.new(|cx| {
+            SftpDockPanel::restoring(
+                SftpPanelState {
+                    version: 1,
+                    tab_label: "prod".to_string(),
+                    terminal_id: 42,
+                    current_dir: Some("/srv/app".to_string()),
+                },
+                cx,
+            )
+        });
+
+        assert_eq!(panel.read_with(cx, |panel, _| panel.terminal_id()), 42);
+        assert!(!panel.read_with(cx, |panel, _| panel.is_connected()));
+        assert_eq!(
+            panel.read_with(cx, |panel, app| panel.tab_name(app)),
+            Some("prod".into())
+        );
+        assert_eq!(
+            panel.read_with(cx, |panel, _| panel.panel_name()),
+            super::super::SFTP_PANEL_NAME
+        );
+
+        let dumped = panel.read_with(cx, |panel, app| panel.dump(app));
+        let PanelInfo::Panel(value) = dumped.info else {
+            panic!("expected sftp panel state");
+        };
+        assert_eq!(
+            serde_json::from_value::<SftpPanelState>(value).unwrap(),
+            SftpPanelState {
+                version: 1,
+                tab_label: "prod".to_string(),
+                terminal_id: 42,
+                current_dir: Some("/srv/app".to_string()),
+            }
+        );
+    }
+
     #[test]
     fn sftp_toast_event_message_includes_detail_for_message_center() {
         let event = SftpEvent::Toast {
@@ -303,5 +346,31 @@ mod tests {
         assert!(message.contains("a.txt"), "message={message:?}");
         assert!(message.contains("/from/a.txt"), "message={message:?}");
         assert!(message.contains("/to/a.txt"), "message={message:?}");
+    }
+
+    #[test]
+    fn sftp_toast_event_message_maps_levels_and_ignores_blank_detail() {
+        let cases = [
+            (
+                gpui::PromptLevel::Warning,
+                notification::MessageKind::Warning,
+            ),
+            (
+                gpui::PromptLevel::Critical,
+                notification::MessageKind::Error,
+            ),
+        ];
+
+        for (level, expected_kind) in cases {
+            let event = SftpEvent::Toast {
+                level,
+                title: "Transfer failed".to_string(),
+                detail: Some("   ".to_string()),
+            };
+            assert_eq!(
+                sftp_event_message(&event),
+                Some((expected_kind, "Transfer failed".to_string()))
+            );
+        }
     }
 }

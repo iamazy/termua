@@ -1757,6 +1757,7 @@ mod selection_tests {
         event_loop::EventLoop,
         index::{Column, Line, Point as AlacPoint},
         sync::FairMutex,
+        term::cell::Flags,
         tty::{ChildEvent, EventedPty, EventedReadWrite},
         vte::ansi::Color as AlacColor,
     };
@@ -1950,6 +1951,28 @@ mod selection_tests {
             first_output.starts_with("\x1b[0;38;5;4;49m$ \x1b[0;39;49m"),
             "expected colored command prefix, got {first_output:?}"
         );
+    }
+
+    #[test]
+    fn command_prefix_includes_previous_wrapped_rows() {
+        let backend = test_backend();
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(40.0), px(20.0)));
+        let terminal_bounds = TerminalBounds::new(px(10.0), px(10.0), bounds);
+        let mut term = backend.term.lock_unfair();
+        term.resize(terminal_bounds);
+        for (column, character) in "abcd".chars().enumerate() {
+            term.grid_mut()[Line(0)][Column(column)].c = character;
+        }
+        term.grid_mut()[Line(0)][Column(3)]
+            .flags
+            .insert(Flags::WRAPLINE);
+        term.grid_mut()[Line(1)][Column(0)].c = 'e';
+        term.grid_mut()[Line(1)][Column(1)].c = 'f';
+        term.grid_mut().cursor.point = AlacPoint::new(Line(1), Column(2));
+
+        let prefix = String::from_utf8(super::command_prefix(&term)).unwrap();
+
+        assert_eq!(prefix.replace("\x1b[0;39;49m", ""), "abcdef");
     }
 
     #[test]

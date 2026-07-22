@@ -362,6 +362,113 @@ mod tests {
         }
     }
 
+    fn styled_cell(c: char, fg: TermColor, bg: TermColor, flags: CellFlags) -> Cell {
+        Cell {
+            c,
+            fg,
+            bg,
+            flags,
+            ..Cell::default()
+        }
+    }
+
+    #[test]
+    fn pre_cursor_serialization_preserves_text_and_skips_wide_spacers() {
+        let mut combined = Cell {
+            c: 'e',
+            zerowidth: vec!['\u{301}'],
+            ..Cell::default()
+        };
+        combined.fg = TermColor::Indexed(7);
+        let spacer = Cell {
+            c: 'x',
+            flags: CellFlags::WIDE_CHAR_SPACER,
+            ..Cell::default()
+        };
+        let cursor = Cell::default();
+
+        assert_eq!(
+            serialize_pre_cursor_cells(&[combined, spacer], &cursor),
+            b"\x1b[0;38;5;7;49me\xcc\x81\x1b[0;39;49m"
+        );
+    }
+
+    #[test]
+    fn pre_cursor_serialization_emits_all_text_styles_and_rgb_colors() {
+        let flags = CellFlags::BOLD
+            | CellFlags::DIM
+            | CellFlags::ITALIC
+            | CellFlags::DOUBLE_UNDERLINE
+            | CellFlags::INVERSE
+            | CellFlags::STRIKEOUT;
+        let cell = styled_cell('x', TermColor::Rgb(1, 2, 3), TermColor::Rgb(4, 5, 6), flags);
+
+        assert_eq!(
+            serialize_pre_cursor_cells(std::slice::from_ref(&cell), &cell),
+            b"\x1b[0;1;2;3;4:2;7;9;38;2;1;2;3;48;2;4;5;6mx"
+        );
+    }
+
+    #[test]
+    fn pre_cursor_serialization_emits_each_underline_variant() {
+        let variants = [
+            (CellFlags::CURLY_UNDERLINE, "4:3"),
+            (CellFlags::DOTTED_UNDERLINE, "4:4"),
+            (CellFlags::DASHED_UNDERLINE, "4:5"),
+            (CellFlags::UNDERLINE, "4"),
+        ];
+
+        for (flags, code) in variants {
+            let cell = styled_cell(
+                'x',
+                TermColor::Named(NamedColor::Foreground),
+                TermColor::Named(NamedColor::Background),
+                flags,
+            );
+            assert_eq!(
+                String::from_utf8(serialize_pre_cursor_cells(
+                    std::slice::from_ref(&cell),
+                    &cell
+                ))
+                .unwrap(),
+                format!("\x1b[0;{code};39;49mx")
+            );
+        }
+    }
+
+    #[test]
+    fn named_color_codes_cover_normal_bright_and_default_colors() {
+        let colors = [
+            NamedColor::Black,
+            NamedColor::Red,
+            NamedColor::Green,
+            NamedColor::Yellow,
+            NamedColor::Blue,
+            NamedColor::Magenta,
+            NamedColor::Cyan,
+            NamedColor::White,
+            NamedColor::BrightBlack,
+            NamedColor::BrightRed,
+            NamedColor::BrightGreen,
+            NamedColor::BrightYellow,
+            NamedColor::BrightBlue,
+            NamedColor::BrightMagenta,
+            NamedColor::BrightCyan,
+            NamedColor::BrightWhite,
+            NamedColor::Foreground,
+            NamedColor::Background,
+            NamedColor::Cursor,
+        ];
+        let foreground = [
+            30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97, 39, 39, 39,
+        ];
+
+        for (index, color) in colors.into_iter().enumerate() {
+            assert_eq!(named_color_code(color, false), foreground[index]);
+            assert_eq!(named_color_code(color, true), foreground[index] + 10);
+        }
+    }
+
     #[test]
     fn cast_writer_emits_header_then_events() {
         let mut buf = Vec::<u8>::new();
