@@ -15,6 +15,7 @@ use gpui::{
     SharedString, Styled, Window, div,
 };
 use gpui_component::input::InputState;
+use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, SshOptions, Terminal, TerminalBackend,
     TerminalBounds, TerminalType, TerminalView, UserInput as TerminalUserInput,
@@ -37,6 +38,41 @@ fn unique_workspace_settings_path(label: &str) -> std::path::PathBuf {
     std::env::temp_dir()
         .join(format!("termua-main-window-{label}-{nanos}"))
         .join("settings.json")
+}
+
+fn add_fake_local_terminal(
+    window_view: &mut TermuaWindow,
+    backend: TerminalType,
+    window: &mut Window,
+    cx: &mut Context<TermuaWindow>,
+) {
+    let id = window_view.next_terminal_id;
+    window_view.next_terminal_id += 1;
+    let terminal = cx.new(|_| {
+        Terminal::new(
+            backend,
+            Box::new(FakeBackend::new(Arc::new(AtomicBool::new(false)))),
+        )
+    });
+    let panel = window_view.build_wired_terminal_panel(
+        id,
+        crate::panel::PanelKind::Local,
+        format!("terminal {id}").into(),
+        None,
+        None,
+        terminal,
+        window,
+        cx,
+    );
+    window_view.dock_area.update(cx, |dock, cx| {
+        dock.add_panel(
+            Arc::new(panel) as Arc<dyn PanelView>,
+            DockPlacement::Center,
+            None,
+            window,
+            cx,
+        );
+    });
 }
 
 #[gpui::test]
@@ -236,12 +272,7 @@ fn footbar_backend_tracks_opened_terminal(cx: &mut gpui::TestAppContext) {
     window_cx.run_until_parked();
     window_cx.update(|window, cx| {
         view.update(cx, |this, cx| {
-            this.add_local_terminal_with_params(
-                TerminalType::Alacritty,
-                HashMap::new(),
-                window,
-                cx,
-            );
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx);
         });
     });
     window_cx.run_until_parked();
@@ -271,7 +302,7 @@ fn footbar_backend_tracks_opened_terminal(cx: &mut gpui::TestAppContext) {
 
     window_cx.update(|window, cx| {
         view.update(cx, |this, cx| {
-            this.add_local_terminal_with_params(TerminalType::WezTerm, HashMap::new(), window, cx);
+            add_fake_local_terminal(this, TerminalType::WezTerm, window, cx);
         });
     });
     window_cx.run_until_parked();

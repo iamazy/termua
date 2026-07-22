@@ -416,7 +416,7 @@ impl TermuaWindow {
         })
     }
 
-    fn build_wired_terminal_panel(
+    pub(in crate::window::main_window) fn build_wired_terminal_panel(
         &mut self,
         id: usize,
         kind: PanelKind,

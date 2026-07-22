@@ -16,14 +16,13 @@ struct PlaybackTtyGuard {
 #[cfg(unix)]
 impl PlaybackTtyGuard {
     fn disable(fd: std::os::fd::RawFd) -> io::Result<Option<Self>> {
+        if unsafe { libc::isatty(fd) } == 0 {
+            return Ok(None);
+        }
+
         let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
         if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
-            let error = io::Error::last_os_error();
-            return if error.raw_os_error() == Some(libc::ENOTTY) {
-                Ok(None)
-            } else {
-                Err(error)
-            };
+            return Err(io::Error::last_os_error());
         }
         let original = unsafe { original.assume_init() };
         let mut playback = original;
@@ -244,6 +243,19 @@ pub fn try_run_from_env() -> anyhow::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn playback_tty_guard_ignores_non_tty() {
+        use std::os::fd::AsRawFd as _;
+
+        let dev_null = std::fs::File::open("/dev/null").unwrap();
+        assert!(
+            PlaybackTtyGuard::disable(dev_null.as_raw_fd())
+                .unwrap()
+                .is_none()
+        );
+    }
 
     #[cfg(unix)]
     #[test]
