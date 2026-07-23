@@ -50,6 +50,27 @@ fn sftp_event_message(event: &SftpEvent) -> Option<(notification::MessageKind, S
 }
 
 impl SftpDockPanel {
+    fn subscribe_footbar_status(
+        sftp_view: &gpui::Entity<SftpView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> [Subscription; 2] {
+        let status_sub = cx.observe_in(sftp_view, window, |_this, view, _window, cx| {
+            let status = view.read(cx).status(cx);
+            crate::footbar::update_sftp_status(cx.entity_id(), status, cx);
+        });
+        let sftp_focus = sftp_view.read(cx).focus_handle(cx);
+        let focus_in_sub = cx.on_focus_in(&sftp_focus, window, {
+            let sftp_view = sftp_view.clone();
+            move |_this, _window, cx| {
+                let status = sftp_view.read(cx).status(cx);
+                crate::footbar::focus_sftp_status(cx.entity_id(), status, cx);
+            }
+        });
+
+        [status_sub, focus_in_sub]
+    }
+
     pub fn open_for_terminal_view<T: 'static>(
         terminal_view: gpui::Entity<TerminalView>,
         tab_label: gpui::SharedString,
@@ -63,7 +84,7 @@ impl SftpDockPanel {
 
         let terminal: gpui::Entity<Terminal> = terminal_view.read(cx).terminal.clone();
 
-        let panel = cx.new(|cx| {
+        let panel = cx.new(|cx: &mut Context<Self>| {
             let focus_handle = cx.focus_handle();
             let sftp_view = cx.new(|cx| SftpView::new(sftp, window, cx));
 
@@ -83,6 +104,10 @@ impl SftpDockPanel {
                     notification::record(kind, message, cx);
                 }
             });
+            let footbar_subs = Self::subscribe_footbar_status(&sftp_view, window, cx);
+
+            let mut subscriptions = vec![terminal_sub, toast_sub];
+            subscriptions.extend(footbar_subs);
 
             Self {
                 tab_label,
@@ -90,7 +115,7 @@ impl SftpDockPanel {
                 focus_handle,
                 sftp_view: Some(sftp_view),
                 restored_current_dir: None,
-                _subscriptions: vec![terminal_sub, toast_sub],
+                _subscriptions: subscriptions,
             }
         });
 
@@ -150,6 +175,8 @@ impl SftpDockPanel {
                 notification::record(kind, message, cx);
             },
         ));
+        self._subscriptions
+            .extend(Self::subscribe_footbar_status(&sftp_view, window, cx));
         self.sftp_view = Some(sftp_view);
         cx.notify();
         Ok(())
@@ -190,10 +217,18 @@ impl Panel for SftpDockPanel {
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
         if active {
             if let Some(sftp_view) = &self.sftp_view {
+                let status = sftp_view.read(cx).status(cx);
+                crate::footbar::focus_sftp_status(cx.entity_id(), status, cx);
                 let focus = sftp_view.read(cx).focus_handle(cx);
                 window.focus(&focus, cx);
             }
+        } else {
+            crate::footbar::blur_sftp_status(cx.entity_id(), cx);
         }
+    }
+
+    fn on_removed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        crate::footbar::blur_sftp_status(cx.entity_id(), cx);
     }
 
     fn dump(&self, cx: &App) -> PanelState {

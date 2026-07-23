@@ -522,6 +522,15 @@ impl Panel for TerminalPanel {
         Some(tab_icon_for_terminal_panel(self.kind))
     }
 
+    fn set_active(&mut self, active: bool, _window: &mut Window, cx: &mut Context<Self>) {
+        if active {
+            let backend = self.terminal_view.read(cx).terminal.read(cx).backend_type();
+            crate::footbar::focus_terminal_backend(self.id, backend, cx);
+        } else {
+            crate::footbar::blur_terminal_backend(self.id, cx);
+        }
+    }
+
     fn on_removed(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
         // This may run during tab drag/drop (detach/attach), so it must not terminate the session.
         log::debug!("termua: TerminalPanel on_removed (id={})", self.id);

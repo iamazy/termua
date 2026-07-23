@@ -344,10 +344,7 @@ impl TermuaWindow {
             crate::assistant::set_focused_terminal(cx, Some(id), Some(focused_terminal.clone()));
             crate::footbar::focus_terminal_backend(id, backend, cx);
         });
-        let blur_sub = cx.on_focus_out(&focus_handle, window, move |_, _event, _window, cx| {
-            crate::footbar::blur_terminal_backend(id, cx);
-        });
-        self._subscriptions.extend([sub, blur_sub]);
+        self._subscriptions.push(sub);
     }
 
     pub(crate) fn subscribe_terminal_view_events(

@@ -144,6 +144,9 @@ ThemeEditor:
   Hint: "Edit theme colors (preview only)."
 
 Footbar:
+  Sftp:
+    Items: "%{count} items"
+    Selected: "%{count} selected"
   Tooltip:
     Sessions: "Sessions"
     MultiExecute: "Multi Execute"

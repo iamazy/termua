@@ -558,9 +558,21 @@ fn footbar_backend_tracks_opened_terminal(cx: &mut gpui::TestAppContext) {
         .debug_bounds("termua-footbar-issues")
         .expect("issues icon");
     assert!(
-        backend.origin.x > issues.origin.x,
-        "backend icon should be in the right status group"
+        backend.origin.x < issues.origin.x,
+        "backend icon should be before the right-side buttons"
     );
+
+    window_cx.deactivate_window();
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::Alacritty),
+            "app deactivation must not clear the active terminal tab backend"
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
 
     window_cx.update(|window, cx| {
         view.update(cx, |this, cx| {

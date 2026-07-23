@@ -8,6 +8,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
 };
+use gpui_sftp::SftpStatus;
 use gpui_term::TerminalType;
 use gpui_transfer::TransferCenterState;
 use rust_i18n::t;
@@ -52,11 +53,94 @@ impl FocusedTerminalBackendState {
     }
 }
 
+#[derive(Clone, Copy)]
+struct FocusedSftpStatus {
+    panel_id: gpui::EntityId,
+    status: SftpStatus,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FocusedSftpStatusState(Option<FocusedSftpStatus>);
+
+impl gpui::Global for FocusedSftpStatusState {}
+
+impl FocusedSftpStatusState {
+    pub(crate) fn focused(panel_id: gpui::EntityId, status: SftpStatus) -> Self {
+        Self(Some(FocusedSftpStatus { panel_id, status }))
+    }
+
+    fn status(&self) -> Option<SftpStatus> {
+        self.0.map(|focused| focused.status)
+    }
+
+    fn update(&mut self, panel_id: gpui::EntityId, status: SftpStatus) -> bool {
+        let Some(focused) = self
+            .0
+            .as_mut()
+            .filter(|focused| focused.panel_id == panel_id)
+        else {
+            return false;
+        };
+        focused.status = status;
+        true
+    }
+
+    fn blur(&mut self, panel_id: gpui::EntityId) -> bool {
+        if self.0.is_some_and(|focused| focused.panel_id == panel_id) {
+            *self = Self::default();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub(crate) fn focus_sftp_status<T>(
+    panel_id: gpui::EntityId,
+    status: SftpStatus,
+    cx: &mut Context<T>,
+) {
+    clear_terminal_backend(cx);
+    cx.set_global(FocusedSftpStatusState::focused(panel_id, status));
+}
+
+pub(crate) fn update_sftp_status<T>(
+    panel_id: gpui::EntityId,
+    status: SftpStatus,
+    cx: &mut Context<T>,
+) {
+    let Some(mut state) = cx.try_global::<FocusedSftpStatusState>().copied() else {
+        return;
+    };
+    if state.update(panel_id, status) {
+        cx.set_global(state);
+    }
+}
+
+pub(crate) fn blur_sftp_status<T>(panel_id: gpui::EntityId, cx: &mut Context<T>) {
+    let Some(mut state) = cx.try_global::<FocusedSftpStatusState>().copied() else {
+        return;
+    };
+    if state.blur(panel_id) {
+        cx.set_global(state);
+    }
+}
+
+fn clear_sftp_status<T>(cx: &mut Context<T>) {
+    if cx
+        .try_global::<FocusedSftpStatusState>()
+        .is_some_and(|state| state.status().is_some())
+    {
+        cx.set_global(FocusedSftpStatusState::default());
+    }
+}
+
 pub(crate) fn focus_terminal_backend<T>(
     panel_id: usize,
     backend: TerminalType,
     cx: &mut Context<T>,
 ) {
+    clear_sftp_status(cx);
     cx.set_global(FocusedTerminalBackendState::focused(panel_id, backend));
 }
 
@@ -69,12 +153,22 @@ pub(crate) fn blur_terminal_backend<T>(panel_id: usize, cx: &mut Context<T>) {
     }
 }
 
+fn clear_terminal_backend<T>(cx: &mut Context<T>) {
+    if cx
+        .try_global::<FocusedTerminalBackendState>()
+        .is_some_and(|state| state.backend().is_some())
+    {
+        cx.set_global(FocusedTerminalBackendState::default());
+    }
+}
+
 pub(crate) struct FootbarView {
     _observe_app_state: Subscription,
     _observe_messages: Subscription,
     _observe_right_sidebar: Subscription,
     _observe_transfers: Subscription,
     _observe_terminal_backend: Subscription,
+    _observe_sftp_status: Subscription,
     transfers_open: bool,
 }
 
@@ -114,6 +208,7 @@ impl FootbarView {
         ensure_ctx_global::<RightSidebarState, _>(cx);
         ensure_ctx_global::<TransferCenterState, _>(cx);
         ensure_ctx_global::<FocusedTerminalBackendState, _>(cx);
+        ensure_ctx_global::<FocusedSftpStatusState, _>(cx);
 
         // Keep the footbar reactive to global state changes.
         let app_state_sub = cx.observe_global::<TermuaAppState>(|_, cx| cx.notify());
@@ -122,12 +217,14 @@ impl FootbarView {
         let transfers_sub = cx.observe_global::<TransferCenterState>(|_, cx| cx.notify());
         let terminal_backend_sub =
             cx.observe_global::<FocusedTerminalBackendState>(|_, cx| cx.notify());
+        let sftp_status_sub = cx.observe_global::<FocusedSftpStatusState>(|_, cx| cx.notify());
         Self {
             _observe_app_state: app_state_sub,
             _observe_messages: messages_sub,
             _observe_right_sidebar: right_sidebar_sub,
             _observe_transfers: transfers_sub,
             _observe_terminal_backend: terminal_backend_sub,
+            _observe_sftp_status: sftp_status_sub,
             transfers_open: false,
         }
     }
@@ -183,6 +280,9 @@ impl FootbarView {
         h_flex()
             .items_center()
             .gap_1()
+            .when_some(backend, |this, backend| {
+                this.child(Self::render_backend_indicator(backend))
+            })
             .child(
                 Button::new("termua-footbar-issues-link")
                     .xsmall()
@@ -255,11 +355,28 @@ impl FootbarView {
                         }),
                 )
             })
-            .when_some(backend, |this, backend| {
-                this.child(Self::render_backend_indicator(backend))
-            })
             .into_any_element()
     }
+}
+
+fn sftp_status_label_for_locale(status: SftpStatus, locale: &str) -> String {
+    let items = t!("Footbar.Sftp.Items", count = status.items, locale = locale);
+    if status.selected == 0 {
+        items.to_string()
+    } else {
+        format!(
+            "{items} - {}",
+            t!(
+                "Footbar.Sftp.Selected",
+                count = status.selected,
+                locale = locale
+            )
+        )
+    }
+}
+
+fn sftp_status_label(status: SftpStatus) -> String {
+    sftp_status_label_for_locale(status, &rust_i18n::locale())
 }
 
 fn truncate_shared(s: &SharedString, max_chars: usize) -> SharedString {
@@ -314,6 +431,7 @@ impl Render for FootbarView {
         self.sync_transfers_popup_state(&transfers);
 
         let transfers_summary = self.render_transfers_summary(&transfers, cx);
+        let sftp_status = cx.global::<FocusedSftpStatusState>().status();
 
         let backend = cx.global::<FocusedTerminalBackendState>().backend();
         let left_controls = self.render_controls_left(sessions_visible);
@@ -342,8 +460,29 @@ impl Render for FootbarView {
                     .items_center()
                     .justify_between()
                     .child(left_controls)
-                    .child(transfers_summary)
-                    .child(right_controls),
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_center()
+                            .justify_end()
+                            .when_some(sftp_status, |this, status| {
+                                this.child(
+                                    div()
+                                        .debug_selector(|| "termua-footbar-sftp-status".to_string())
+                                        .pr(px(10.0))
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(sftp_status_label(status)),
+                                )
+                            })
+                            .child(transfers_summary)
+                            .child(right_controls),
+                    ),
             )
     }
 }
@@ -374,6 +513,127 @@ mod tests {
 
         assert!(state.blur(2));
         assert_eq!(state.backend(), None);
+    }
+
+    #[gpui::test]
+    fn focusing_terminal_clears_sftp_status(cx: &mut gpui::TestAppContext) {
+        let sftp_panel_id = cx.new(|_| ()).entity_id();
+        let entity = cx.new(|cx| {
+            cx.set_global(FocusedSftpStatusState::focused(
+                sftp_panel_id,
+                SftpStatus::new(4, 1),
+            ));
+            focus_terminal_backend(9, TerminalType::WezTerm, cx);
+        });
+
+        entity.update(cx, |_, cx| {
+            assert_eq!(cx.global::<FocusedSftpStatusState>().status(), None);
+            assert_eq!(
+                cx.global::<FocusedTerminalBackendState>().backend(),
+                Some(TerminalType::WezTerm)
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn focusing_sftp_clears_terminal_backend(cx: &mut gpui::TestAppContext) {
+        let sftp_panel_id = cx.new(|_| ()).entity_id();
+        let entity = cx.new(|cx| {
+            cx.set_global(FocusedTerminalBackendState::focused(
+                9,
+                TerminalType::WezTerm,
+            ));
+            focus_sftp_status(sftp_panel_id, SftpStatus::new(4, 1), cx);
+        });
+
+        entity.update(cx, |_, cx| {
+            assert_eq!(cx.global::<FocusedTerminalBackendState>().backend(), None);
+            assert_eq!(
+                cx.global::<FocusedSftpStatusState>().status(),
+                Some(SftpStatus::new(4, 1))
+            );
+        });
+    }
+
+    #[test]
+    fn sftp_status_label_omits_empty_selection() {
+        assert_eq!(
+            sftp_status_label_for_locale(SftpStatus::new(12, 0), "en"),
+            "12 items"
+        );
+        assert_eq!(
+            sftp_status_label_for_locale(SftpStatus::new(12, 3), "en"),
+            "12 items - 3 selected"
+        );
+        assert_eq!(
+            sftp_status_label_for_locale(SftpStatus::new(12, 3), "zh-CN"),
+            "12 个项目 - 已选择 3 个"
+        );
+    }
+
+    #[gpui::test]
+    fn footbar_sftp_status_is_right_aligned_before_controls(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            app.activate(true);
+            app.set_global(TermuaAppState::default());
+            let panel_id = app.new(|_| ()).entity_id();
+            app.set_global(FocusedSftpStatusState::focused(
+                panel_id,
+                SftpStatus::new(12, 3),
+            ));
+            app.set_global(TransferCenterState::default());
+            app.global_mut::<TransferCenterState>().upsert(
+                TransferTask::new("sftp-status-layout", "test.bin")
+                    .with_kind(TransferKind::Upload)
+                    .with_status(TransferStatus::InProgress)
+                    .with_progress(TransferProgress::Determinate(0.5)),
+            );
+        });
+
+        struct Root {
+            footbar: gpui::Entity<FootbarView>,
+        }
+
+        impl Render for Root {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div().size_full().child(self.footbar.clone())
+            }
+        }
+
+        let (root, cx) = cx.add_window_view(|_window, cx| Root {
+            footbar: cx.new(FootbarView::new),
+        });
+        cx.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(
+                gpui::AvailableSpace::Definite(gpui::px(800.)),
+                gpui::AvailableSpace::Definite(gpui::px(200.)),
+            ),
+            move |_, _| div().size_full().child(root),
+        );
+        cx.run_until_parked();
+
+        let status = cx
+            .debug_bounds("termua-footbar-sftp-status")
+            .expect("expected SFTP status while an SFTP panel is active");
+        let issues = cx
+            .debug_bounds("termua-footbar-issues")
+            .expect("expected right-side controls");
+        let transfers = cx
+            .debug_bounds("termua-footbar-transfers-trigger")
+            .expect("expected transfer progress");
+        assert!(status.origin.x < transfers.origin.x);
+        assert!(transfers.origin.x < issues.origin.x);
+        assert!(status.origin.x > gpui::px(300.));
+
+        cx.update(|_, app| app.set_global(FocusedSftpStatusState::default()));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-sftp-status").is_none());
     }
 
     #[gpui::test]
