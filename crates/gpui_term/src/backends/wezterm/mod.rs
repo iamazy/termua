@@ -1556,10 +1556,13 @@ impl TerminalBackend for WezTermBackend {
         }
     }
     fn select_all(&mut self) {
-        let rows = self.content.terminal_bounds.num_lines().max(1);
-        let last_col = self.content.terminal_bounds.last_column();
-        let top = -(self.content.display_offset as i32);
-        let bottom = top + rows.saturating_sub(1) as i32;
+        let term = self.term.lock();
+        let plan = self.compute_viewport_plan(term.screen());
+        let top = (plan.top_stable as i64 - plan.base_stable as i64)
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let bottom = plan.rows.saturating_sub(1).min(i32::MAX as usize) as i32;
+        let last_col = plan.cols.saturating_sub(1);
+        drop(term);
 
         self.selection.range = Some(crate::SelectionRange {
             start: GridPoint::new(top, 0),
@@ -2551,6 +2554,65 @@ mod tests {
         assert_eq!(
             <WezTermBackend as TerminalBackend>::text_for_lines(&backend, s1, s2).as_deref(),
             Some("two\nthree")
+        );
+    }
+
+    #[test]
+    fn select_all_includes_scrollback_history() {
+        let cast_slot = Arc::new(Mutex::new(None));
+        let writer = SharedWriter {
+            inner: Arc::new(Mutex::new(
+                Box::new(std::io::sink()) as Box<dyn Write + Send>
+            )),
+            cast: Arc::clone(&cast_slot),
+        };
+        let mut wezterm_term = Terminal::new(
+            TerminalSize {
+                rows: 3,
+                cols: 10,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 100 }),
+            "termua",
+            "0",
+            Box::new(writer.clone()),
+        );
+        wezterm_term.advance_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+
+        let mut backend = WezTermBackend {
+            master: Box::new(DummyMasterPty),
+            writer,
+            term: Arc::new(Mutex::new(wezterm_term)),
+            child_killer: Box::new(DummyChildKiller),
+            shutdown: super::ShutdownState::default(),
+            pending_ops: VecDeque::new(),
+            viewport_top_stable: None,
+            last_clicked_line: None,
+            search: super::SearchState::default(),
+            content: TerminalContent {
+                terminal_bounds: crate::TerminalBounds::new(
+                    px(10.0),
+                    px(10.0),
+                    Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(30.0))),
+                ),
+                ..TerminalContent::default()
+            },
+            exited: false,
+            last_mouse_pos: None,
+            selection: super::SelectionState::default(),
+            default_cursor_shape: crate::CursorShape::default(),
+            scroll_px: px(0.0),
+            sftp: None,
+            record: super::RecordState::new(cast_slot),
+        };
+
+        backend.select_all();
+        let selection = backend.selection.range.as_ref().unwrap();
+        assert_eq!(
+            backend.selection_to_string(selection),
+            "one\ntwo\nthree\nfour\nfive"
         );
     }
 

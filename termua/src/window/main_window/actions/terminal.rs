@@ -7,7 +7,7 @@ use gpui_term::{
     TerminalSettings, TerminalType, TerminalView, UserInput as TerminalUserInput,
 };
 
-use super::TermuaWindow;
+use super::{super::state::RecorderContextMenuProvider, TermuaWindow};
 use crate::{
     SerialParams, TermuaAppState,
     env::{build_terminal_env, cast_player_child_env},
@@ -396,7 +396,7 @@ impl TermuaWindow {
         self._subscriptions.push(subscription);
     }
 
-    fn create_terminal_view(
+    pub(in crate::window::main_window) fn create_terminal_view(
         &self,
         kind: PanelKind,
         terminal: gpui::Entity<gpui_term::Terminal>,
@@ -404,7 +404,8 @@ impl TermuaWindow {
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalView> {
         if kind == PanelKind::Recorder {
-            return cx.new(|cx| TerminalView::new_with_context_menu(terminal, window, cx, false));
+            return cx
+                .new(|cx| RecorderContextMenuProvider::new_terminal_view(terminal, window, cx));
         }
 
         let provider = self.terminal_context_menu_provider.clone();

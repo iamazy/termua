@@ -136,6 +136,49 @@ fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
 
 struct TermuaContextMenuProvider;
 
+pub(super) struct RecorderContextMenuProvider;
+
+impl RecorderContextMenuProvider {
+    pub(super) fn new_terminal_view(
+        terminal: gpui::Entity<gpui_term::Terminal>,
+        window: &mut Window,
+        cx: &mut Context<TerminalView>,
+    ) -> TerminalView {
+        TerminalView::new_with_context_menu_provider(
+            terminal,
+            window,
+            cx,
+            true,
+            Some(Arc::new(Self)),
+        )
+    }
+}
+
+impl gpui_term::ContextMenuProvider for RecorderContextMenuProvider {
+    fn context_menu(
+        &self,
+        menu: gpui_component::menu::PopupMenu,
+        _terminal: gpui::Entity<gpui_term::Terminal>,
+        terminal_view: gpui::Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui_component::menu::PopupMenu {
+        let focus = terminal_view.read(cx).focus_handle.clone();
+        window.focus(&focus, cx);
+
+        menu.menu_with_icon(
+            t!("Terminal.ContextMenu.Copy").to_string(),
+            IconName::Copy,
+            Box::new(CopyAction),
+        )
+        .separator()
+        .menu(
+            t!("Terminal.ContextMenu.SelectAll").to_string(),
+            Box::new(SelectAll),
+        )
+    }
+}
+
 impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
     fn context_menu(
         &self,
@@ -424,7 +467,9 @@ impl TermuaWindow {
                 };
                 let terminal = cx.new(move |cx| builder.build(cx));
                 let terminal_view = if kind == crate::panel::PanelKind::Recorder {
-                    cx.new(|cx| TerminalView::new_with_context_menu(terminal, window, cx, false))
+                    cx.new(|cx| {
+                        RecorderContextMenuProvider::new_terminal_view(terminal, window, cx)
+                    })
                 } else {
                     cx.new(|cx| {
                         TerminalView::new_with_context_menu_provider(

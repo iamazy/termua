@@ -375,7 +375,8 @@ mod tests {
         ))
         .unwrap();
         let input = format!(
-            "{{\"version\":2,\"width\":6,\"height\":2,\"timestamp\":0}}\n{genuine_output}\n{fish_probe}\n"
+            "{{\"version\":2,\"width\":6,\"height\":2,\"timestamp\":0}}\n{genuine_output}\\
+             n{fish_probe}\n"
         );
 
         let mut out = Vec::<u8>::new();

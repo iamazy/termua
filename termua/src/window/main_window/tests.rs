@@ -1290,14 +1290,17 @@ fn ssh_connect_clears_sessions_sidebar_connecting_state(cx: &mut gpui::TestAppCo
 }
 
 #[gpui::test]
-fn recorder_terminal_view_disables_context_menu(cx: &mut gpui::TestAppContext) {
+fn recorder_terminal_view_enables_context_menu(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
+        gpui_dock::init(app);
         gpui_term::init(app);
+        app.set_global(TermuaAppState::default());
     });
 
     let cx = cx.add_empty_window();
     cx.update(|window, cx| {
+        let termua = cx.new(|cx| TermuaWindow::new(window, cx));
         let active = Arc::new(AtomicBool::new(false));
         let term = cx.new(|_| {
             Terminal::new(
@@ -1305,10 +1308,84 @@ fn recorder_terminal_view_disables_context_menu(cx: &mut gpui::TestAppContext) {
                 Box::new(FakeBackend::new(Arc::clone(&active))),
             )
         });
-        let terminal_view =
-            cx.new(|cx| TerminalView::new_with_context_menu(term, window, cx, false));
-        assert!(!terminal_view.read(cx).context_menu_enabled());
+        let terminal_view = termua.update(cx, |this, cx| {
+            this.create_terminal_view(crate::panel::PanelKind::Recorder, term, window, cx)
+        });
+        assert!(terminal_view.read(cx).context_menu_enabled());
     });
+}
+
+#[gpui::test]
+fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        gpui_dock::init(app);
+        gpui_term::init(app);
+        crate::menu::bind_menu_shortcuts(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let copy_count = Arc::new(AtomicUsize::new(0));
+    let select_all_count = Arc::new(AtomicUsize::new(0));
+    let copy_count_for_window = Arc::clone(&copy_count);
+    let select_all_count_for_window = Arc::clone(&select_all_count);
+    let terminal_view_slot = Rc::new(RefCell::new(None));
+    let terminal_view_slot_for_window = Rc::clone(&terminal_view_slot);
+    let (_root, window_cx) = cx.add_window_view(move |window, cx| {
+        let termua = cx.new(|cx| TermuaWindow::new(window, cx));
+        let term = cx.new(|_| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::with_action_counts(
+                    Arc::new(AtomicBool::new(false)),
+                    copy_count_for_window,
+                    select_all_count_for_window,
+                )),
+            )
+        });
+        let terminal_view = termua.update(cx, |this, cx| {
+            this.create_terminal_view(crate::panel::PanelKind::Recorder, term, window, cx)
+        });
+        *terminal_view_slot_for_window.borrow_mut() = Some(terminal_view.clone());
+        gpui_component::Root::new(terminal_view, window, cx)
+    });
+    let terminal_view = terminal_view_slot
+        .borrow()
+        .clone()
+        .expect("expected recorder terminal view");
+
+    window_cx.update(|window, cx| {
+        let focus_handle = terminal_view.read(cx).focus_handle.clone();
+        window.focus(&focus_handle, cx);
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|window, cx| {
+        let focus_handle = terminal_view.read(cx).focus_handle.clone();
+        assert!(
+            window
+                .highest_precedence_binding_for_action_in(
+                    &crate::ToggleAssistantSidebar,
+                    &focus_handle,
+                )
+                .is_none(),
+            "assistant shortcut must not compete with terminal shortcuts"
+        );
+    });
+    #[cfg(target_os = "macos")]
+    {
+        window_cx.simulate_keystrokes("cmd-c");
+        window_cx.simulate_keystrokes("cmd-a");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window_cx.simulate_keystrokes("ctrl-shift-c");
+        window_cx.simulate_keystrokes("ctrl-shift-a");
+    }
+
+    assert_eq!(copy_count.load(Ordering::SeqCst), 1);
+    assert_eq!(select_all_count.load(Ordering::SeqCst), 1);
 }
 
 #[gpui::test]
@@ -3356,6 +3433,8 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
 struct FakeBackend {
     content: gpui_term::TerminalContent,
     recording_active: Arc<AtomicBool>,
+    copy_count: Arc<AtomicUsize>,
+    select_all_count: Arc<AtomicUsize>,
     exited: bool,
 }
 
@@ -3382,7 +3461,23 @@ impl FakeBackend {
         Self {
             content: gpui_term::TerminalContent::default(),
             recording_active,
+            copy_count: Arc::new(AtomicUsize::new(0)),
+            select_all_count: Arc::new(AtomicUsize::new(0)),
             exited,
+        }
+    }
+
+    fn with_action_counts(
+        recording_active: Arc<AtomicBool>,
+        copy_count: Arc<AtomicUsize>,
+        select_all_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            content: gpui_term::TerminalContent::default(),
+            recording_active,
+            copy_count,
+            select_all_count,
+            exited: false,
         }
     }
 }
@@ -3436,9 +3531,13 @@ impl TerminalBackend for FakeBackend {
 
     fn select_matches(&mut self, _matches: &[RangeInclusive<gpui_term::GridPoint>]) {}
 
-    fn select_all(&mut self) {}
+    fn select_all(&mut self) {
+        self.select_all_count.fetch_add(1, Ordering::SeqCst);
+    }
 
-    fn copy(&mut self, _keep_selection: Option<bool>, _cx: &mut Context<Terminal>) {}
+    fn copy(&mut self, _keep_selection: Option<bool>, _cx: &mut Context<Terminal>) {
+        self.copy_count.fetch_add(1, Ordering::SeqCst);
+    }
 
     fn clear(&mut self) {}
 
