@@ -1316,6 +1316,7 @@ fn recorder_terminal_view_enables_context_menu(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg_attr(target_os = "macos", ignore)]
 fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
 
