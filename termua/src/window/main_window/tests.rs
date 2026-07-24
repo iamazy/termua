@@ -10,9 +10,9 @@ use std::{
 };
 
 use gpui::{
-    AppContext, AsKeystroke, Bounds, Context, InteractiveElement, IntoElement, Keystroke,
-    Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    ScrollWheelEvent, SharedString, Styled, Window, div,
+    AppContext, Bounds, Context, InteractiveElement, IntoElement, Keystroke, Modifiers,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, ScrollWheelEvent,
+    SharedString, Styled, Window, div,
 };
 use gpui_component::input::InputState;
 use gpui_dock::{DockPlacement, PanelView};
@@ -1363,31 +1363,6 @@ fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::
     window_cx.run_until_parked();
     window_cx.update(|window, cx| {
         let focus_handle = terminal_view.read(cx).focus_handle.clone();
-        let copy_binding = window
-            .highest_precedence_binding_for_action_in(&gpui_term::Copy, &focus_handle)
-            .expect("copy must have a terminal shortcut");
-        let select_all_binding = window
-            .highest_precedence_binding_for_action_in(&gpui_term::SelectAll, &focus_handle)
-            .expect("select all must have a terminal shortcut");
-        let expected_copy = if cfg!(target_os = "macos") {
-            "cmd-c"
-        } else {
-            "ctrl-shift-c"
-        };
-        let expected_select_all = if cfg!(target_os = "macos") {
-            "cmd-a"
-        } else {
-            "ctrl-shift-a"
-        };
-
-        assert_eq!(
-            copy_binding.keystrokes()[0].as_keystroke().unparse(),
-            expected_copy
-        );
-        assert_eq!(
-            select_all_binding.keystrokes()[0].as_keystroke().unparse(),
-            expected_select_all
-        );
         assert!(
             window
                 .highest_precedence_binding_for_action_in(
@@ -1398,8 +1373,16 @@ fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::
             "assistant shortcut must not compete with terminal shortcuts"
         );
     });
-    window_cx.dispatch_action(gpui_term::Copy);
-    window_cx.dispatch_action(gpui_term::SelectAll);
+    #[cfg(target_os = "macos")]
+    {
+        window_cx.simulate_keystrokes("cmd-c");
+        window_cx.simulate_keystrokes("cmd-a");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window_cx.simulate_keystrokes("ctrl-shift-c");
+        window_cx.simulate_keystrokes("ctrl-shift-a");
+    }
 
     assert_eq!(copy_count.load(Ordering::SeqCst), 1);
     assert_eq!(select_all_count.load(Ordering::SeqCst), 1);
