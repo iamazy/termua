@@ -49,7 +49,10 @@ use crate::{
     SelectionRange as ModelSelectionRange, SerialOptions, SshOptions, TermColor, Terminal,
     TerminalBackend, TerminalBounds, TerminalContent, TerminalMode, TerminalShutdownPolicy,
     TerminalType, backends,
-    cast::{CastHeader, CastRecorderSender, CastRecorderState, start_cast_recorder},
+    cast::{
+        CastHeader, CastRecorderSender, CastRecorderState, serialize_pre_cursor_cells,
+        start_cast_recorder,
+    },
     settings::{CursorShape, TerminalSettings},
 };
 
@@ -86,6 +89,33 @@ fn selection_from_lines(start_line: i32, end_line: i32, last_col: usize) -> Sele
     let mut selection = Selection::new(SelectionType::Simple, start, Side::Left);
     selection.update(end, Side::Right);
     selection
+}
+
+fn command_prefix(term: &Term<EventProxy>) -> Vec<u8> {
+    let grid = term.grid();
+    let cursor = grid.cursor.point;
+    let mut first_line = cursor.line;
+    while first_line.0 > 0
+        && grid[Line(first_line.0 - 1)][grid.last_column()]
+            .flags
+            .contains(Flags::WRAPLINE)
+    {
+        first_line = Line(first_line.0 - 1);
+    }
+
+    let mut cells = Vec::new();
+    for line_index in first_line.0..=cursor.line.0 {
+        let line = Line(line_index);
+        let end = if line == cursor.line {
+            cursor.column
+        } else {
+            Column(grid.columns())
+        };
+        cells.extend(grid[line][..end].iter().cloned().map(map_cell));
+    }
+
+    let cursor_style = map_cell(grid.cursor.template.clone());
+    serialize_pre_cursor_cells(&cells, &cursor_style)
 }
 
 fn local_pty_options(env: std::collections::HashMap<String, String>) -> Options {
@@ -1106,8 +1136,15 @@ impl TerminalBackend for AlacrittyBackend {
             env: BTreeMap::new(),
         };
 
+        let prefix = command_prefix(&self.term.lock_unfair());
         let (sender, state) = start_cast_recorder(opts.path, header, opts.include_input)?;
-        *self.record.slot.lock() = Some(sender.clone());
+        {
+            let mut slot = self.record.slot.lock();
+            if !prefix.is_empty() {
+                sender.output(&prefix);
+            }
+            *slot = Some(sender.clone());
+        }
         self.record.sender = Some(sender);
         self.record.state = Some(state);
         Ok(())
@@ -1712,14 +1749,17 @@ mod shell_tests {
 
 #[cfg(test)]
 mod selection_tests {
-    use std::{collections::VecDeque, io, sync::Arc};
+    use std::{collections::VecDeque, io, sync::Arc, time::SystemTime};
 
     use alacritty_terminal::{
         Term,
         event::{OnResize, WindowSize},
         event_loop::EventLoop,
+        index::{Column, Line, Point as AlacPoint},
         sync::FairMutex,
+        term::cell::Flags,
         tty::{ChildEvent, EventedPty, EventedReadWrite},
+        vte::ansi::Color as AlacColor,
     };
     use gpui::{AppContext, Bounds, Modifiers, MouseButton, MouseDownEvent, point, px, size};
     use parking_lot::Mutex;
@@ -1853,6 +1893,86 @@ mod selection_tests {
             exited.load(std::sync::atomic::Ordering::Relaxed),
             "expected alacritty exit to emit CloseTerminal"
         );
+    }
+
+    #[test]
+    fn cast_recording_starts_with_colored_command_prefix() {
+        let mut backend = test_backend();
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(800.0), px(240.0)));
+        backend.content.terminal_bounds = TerminalBounds::new(px(10.0), px(10.0), bounds);
+
+        {
+            let mut term = backend.term.lock_unfair();
+            term.resize(backend.content.terminal_bounds);
+            term.grid_mut()[Line(0)][Column(0)].c = '$';
+            term.grid_mut()[Line(0)][Column(0)].fg = AlacColor::Indexed(4);
+            term.grid_mut()[Line(0)][Column(1)].c = ' ';
+            term.grid_mut()[Line(0)][Column(1)].fg = AlacColor::Indexed(4);
+            term.grid_mut().cursor.point = AlacPoint::new(Line(0), Column(2));
+        }
+        backend.rebuild_snapshot();
+        backend.content.display_offset = 1;
+        backend.content.cursor.point.line = -1;
+        backend.content.cells.clear();
+
+        let path = std::env::temp_dir().join(format!(
+            "termua-prefix-test-{}-{}.cast",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        backend
+            .start_cast_recording(crate::CastRecordingOptions {
+                path: path.clone(),
+                include_input: false,
+            })
+            .unwrap();
+        backend
+            .record
+            .sender
+            .as_ref()
+            .unwrap()
+            .output(b"echo hi\r\n");
+        backend.stop_cast_recording();
+
+        let cast = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+        let first_output = cast
+            .lines()
+            .skip(1)
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|event| event[1] == "o")
+            .and_then(|event| event[2].as_str().map(str::to_owned))
+            .unwrap();
+
+        assert!(
+            first_output.starts_with("\x1b[0;38;5;4;49m$ \x1b[0;39;49m"),
+            "expected colored command prefix, got {first_output:?}"
+        );
+    }
+
+    #[test]
+    fn command_prefix_includes_previous_wrapped_rows() {
+        let backend = test_backend();
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(40.0), px(20.0)));
+        let terminal_bounds = TerminalBounds::new(px(10.0), px(10.0), bounds);
+        let mut term = backend.term.lock_unfair();
+        term.resize(terminal_bounds);
+        for (column, character) in "abcd".chars().enumerate() {
+            term.grid_mut()[Line(0)][Column(column)].c = character;
+        }
+        term.grid_mut()[Line(0)][Column(3)]
+            .flags
+            .insert(Flags::WRAPLINE);
+        term.grid_mut()[Line(1)][Column(0)].c = 'e';
+        term.grid_mut()[Line(1)][Column(1)].c = 'f';
+        term.grid_mut().cursor.point = AlacPoint::new(Line(1), Column(2));
+
+        let prefix = String::from_utf8(super::command_prefix(&term)).unwrap();
+
+        assert_eq!(prefix.replace("\x1b[0;39;49m", ""), "abcdef");
     }
 
     #[test]

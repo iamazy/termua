@@ -5,7 +5,7 @@ use gpui_component::{
     input::InputState,
     tree::{TreeItem, TreeState},
 };
-use gpui_dock::{Panel, PanelEvent};
+use gpui_dock::{Panel, PanelEvent, PanelInfo, PanelState};
 
 use super::tree::SessionTreeSummary;
 use crate::store::Session;
@@ -51,6 +51,12 @@ pub struct SessionsSidebarView {
     pub(super) _subscriptions: Vec<Subscription>,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SessionsSidebarPanelState {
+    pub(crate) version: usize,
+    pub(crate) query: String,
+}
+
 impl EventEmitter<SessionsSidebarEvent> for SessionsSidebarView {}
 impl EventEmitter<PanelEvent> for SessionsSidebarView {}
 
@@ -62,6 +68,18 @@ impl Focusable for SessionsSidebarView {
 
 impl Panel for SessionsSidebarView {
     fn panel_name(&self) -> &'static str {
-        "termua.sessions_sidebar"
+        crate::panel::SESSIONS_SIDEBAR_PANEL_NAME
+    }
+
+    fn dump(&self, _cx: &App) -> PanelState {
+        let mut state = PanelState::new(self);
+        state.info = PanelInfo::panel(
+            serde_json::to_value(SessionsSidebarPanelState {
+                version: 1,
+                query: self.query.clone(),
+            })
+            .expect("sessions sidebar state should serialize"),
+        );
+        state
     }
 }

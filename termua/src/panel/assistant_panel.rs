@@ -29,6 +29,36 @@ use crate::assistant::{
 const PROMPT_KEY_CONTEXT: &str = "termua_assistant_prompt";
 const MAX_SCROLL_TO_BOTTOM_RETRY_ATTEMPTS: u8 = 4;
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct AssistantPanelState {
+    pub(crate) messages: Vec<AssistantPanelMessageState>,
+    pub(crate) draft: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct AssistantPanelMessageState {
+    pub(crate) role: AssistantRole,
+    pub(crate) content: String,
+}
+
+fn persisted_messages(state: &AssistantState) -> Vec<AssistantPanelMessageState> {
+    let mut messages = state.messages.clone();
+    if state.in_flight
+        && messages
+            .last()
+            .is_some_and(|message| message.role == AssistantRole::User)
+    {
+        messages.pop();
+    }
+    messages
+        .into_iter()
+        .map(|message| AssistantPanelMessageState {
+            role: message.role,
+            content: message.content.to_string(),
+        })
+        .collect()
+}
+
 #[derive(gpui::Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = termua, no_json)]
 pub(crate) struct AssistantSend;
@@ -73,6 +103,35 @@ fn set_input_placeholder(
 }
 
 impl AssistantPanelView {
+    pub(crate) fn persisted_state(&self, cx: &App) -> AssistantPanelState {
+        let assistant = cx.global::<AssistantState>();
+        AssistantPanelState {
+            messages: persisted_messages(assistant),
+            draft: self.prompt_input.read(cx).value().to_string(),
+        }
+    }
+
+    pub(crate) fn restore_persisted_state(
+        &mut self,
+        state: AssistantPanelState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let assistant = cx.global_mut::<AssistantState>();
+        assistant.clear();
+        assistant.messages = state
+            .messages
+            .into_iter()
+            .map(|message| AssistantMessage {
+                role: message.role,
+                content: message.content.into(),
+            })
+            .collect();
+        self.prompt_input
+            .update(cx, |input, cx| input.set_value(state.draft, window, cx));
+        cx.notify();
+    }
+
     fn prompt_has_sendable_text(prompt: &str) -> bool {
         !prompt.trim().is_empty()
     }
@@ -1152,6 +1211,18 @@ mod tests {
             false, false, "hello"
         ));
         assert!(!AssistantPanelView::send_button_disabled(true, false, ""));
+    }
+
+    #[test]
+    fn persisted_state_omits_pending_user_message() {
+        let mut state = AssistantState::default();
+        state.push(AssistantRole::Assistant, "completed");
+        state.push(AssistantRole::User, "pending");
+        state.in_flight = true;
+
+        let persisted = persisted_messages(&state);
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].content, "completed");
     }
 
     #[test]

@@ -16,7 +16,7 @@ use gpui::{
 use parking_lot::Mutex;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, PtySystem, native_pty_system};
 use smol::channel::{Receiver, Sender};
-use wezterm_surface::{CursorShape as WezCursorShape, CursorVisibility};
+use wezterm_surface::{CursorShape as WezCursorShape, CursorVisibility, Line as WezLine};
 use wezterm_term::{
     Alert, AlertHandler, Cell as WezCell, CellAttributes, Intensity, PhysRowIndex, Screen,
     StableRowIndex, Terminal, TerminalConfiguration, TerminalSize, Underline,
@@ -32,7 +32,10 @@ use crate::{
     TerminalBackend, TerminalBounds, TerminalContent, TerminalMode, TerminalShutdownPolicy,
     TerminalType,
     backends::{self, ssh},
-    cast::{CastHeader, CastRecorderSender, CastRecorderState, start_cast_recorder},
+    cast::{
+        CastHeader, CastRecorderSender, CastRecorderState, serialize_pre_cursor_cells,
+        start_cast_recorder,
+    },
     serial::{serial2_char_size, serial2_flow_control, serial2_parity, serial2_stop_bits},
     settings::{CursorShape, TerminalSettings},
     terminal::Terminal as WidgetTerminal,
@@ -410,6 +413,99 @@ pub struct WezTermBackend {
 }
 
 impl WezTermBackend {
+    fn map_line_cells(line: &WezLine, cols: usize) -> Vec<Cell> {
+        let row_wrapped = line.last_cell_was_wrapped();
+        let mut source_cells: Vec<Option<(WezCell, usize)>> = vec![None; cols];
+        for cellref in line.visible_cells() {
+            let index = cellref.cell_index();
+            if index < cols {
+                source_cells[index] = Some((cellref.as_cell(), cellref.width()));
+            }
+        }
+
+        let mut cells = Vec::with_capacity(cols);
+        let mut skip = 0usize;
+        let mut wide_spacer_style: Option<(TermColor, TermColor, CellFlags)> = None;
+        for (column, source) in source_cells.iter().enumerate() {
+            if skip > 0 {
+                skip -= 1;
+                let (fg, bg, flags) = wide_spacer_style.unwrap_or((
+                    TermColor::Named(NamedColor::Foreground),
+                    TermColor::Named(NamedColor::Background),
+                    CellFlags::empty(),
+                ));
+                let mut flags = flags | CellFlags::WIDE_CHAR_SPACER;
+                if row_wrapped && column + 1 == cols {
+                    flags |= CellFlags::WRAPLINE;
+                }
+                cells.push(Cell {
+                    c: ' ',
+                    fg,
+                    bg,
+                    flags,
+                    hyperlink: None,
+                    zerowidth: Vec::new(),
+                });
+                if skip == 0 {
+                    wide_spacer_style = None;
+                }
+                continue;
+            }
+
+            let (wez_cell, width) = source.clone().unwrap_or_else(|| (WezCell::blank(), 1));
+            let mut cell = map_cell(&wez_cell);
+            if row_wrapped && column + 1 == cols {
+                cell.flags |= CellFlags::WRAPLINE;
+            }
+            if width > 1 {
+                skip = width.saturating_sub(1);
+                wide_spacer_style = Some((cell.fg, cell.bg, cell.flags));
+            }
+            cells.push(cell);
+        }
+        cells
+    }
+
+    fn command_prefix(term: &Terminal) -> Vec<u8> {
+        let cursor = term.cursor_pos();
+        let screen = term.screen();
+        let cols = term.get_size().cols;
+        if cols == 0 {
+            return Vec::new();
+        }
+
+        let cursor_row = screen.phys_row(cursor.y);
+        let mut first_row = cursor_row;
+        while first_row > 0 {
+            let previous = screen.lines_in_phys_range(first_row - 1..first_row);
+            if !previous.first().is_some_and(WezLine::last_cell_was_wrapped) {
+                break;
+            }
+            first_row -= 1;
+        }
+
+        let lines = screen.lines_in_phys_range(first_row..cursor_row + 1);
+        let mut cells = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let mut line_cells = Self::map_line_cells(line, cols);
+            if index + 1 == lines.len() {
+                line_cells.truncate(cursor.x.min(cols));
+            }
+            cells.extend(line_cells);
+        }
+
+        let pen = term.pen();
+        let cursor_style = Cell {
+            c: ' ',
+            fg: map_color(pen.foreground(), false),
+            bg: map_color(pen.background(), true),
+            flags: map_flags(&pen),
+            hyperlink: None,
+            zerowidth: Vec::new(),
+        };
+        serialize_pre_cursor_cells(&cells, &cursor_style)
+    }
+
     fn map_modifiers(modifiers: &Modifiers) -> KeyModifiers {
         let mut mods = KeyModifiers::default();
         if modifiers.shift {
@@ -844,59 +940,8 @@ impl WezTermBackend {
         let mut cursor_char = ' ';
         let mut cells = Vec::with_capacity(cols * rows);
         for (r, line) in lines.iter().enumerate() {
-            let row_wrapped = line.last_cell_was_wrapped();
-            let mut row_cells: Vec<Option<(WezCell, usize)>> = vec![None; cols];
-            for cellref in line.visible_cells() {
-                let idx = cellref.cell_index();
-                if idx < cols {
-                    row_cells[idx] = Some((cellref.as_cell(), cellref.width()));
-                }
-            }
-
-            let mut skip = 0usize;
-            // When synthesizing spacer cells for wide glyphs, preserve the original cell style
-            // so background runs (e.g. bracketed-paste highlight/inverse) cover the full width.
-            let mut wide_spacer_style: Option<(TermColor, TermColor, CellFlags)> = None;
-            for (c, slot) in row_cells.iter().enumerate() {
+            for (c, mapped) in Self::map_line_cells(line, cols).into_iter().enumerate() {
                 let point = GridPoint::new(r as i32 - plan.display_offset as i32, c);
-
-                if skip > 0 {
-                    skip -= 1;
-                    let (fg, bg, flags) = wide_spacer_style.unwrap_or((
-                        TermColor::Named(NamedColor::Foreground),
-                        TermColor::Named(NamedColor::Background),
-                        CellFlags::empty(),
-                    ));
-                    let mut flags = flags | CellFlags::WIDE_CHAR_SPACER;
-                    if row_wrapped && c + 1 == cols {
-                        flags |= CellFlags::WRAPLINE;
-                    }
-                    cells.push(crate::IndexedCell {
-                        point,
-                        cell: Cell {
-                            c: ' ',
-                            fg,
-                            bg,
-                            flags,
-                            hyperlink: None,
-                            zerowidth: Vec::new(),
-                        },
-                    });
-                    if skip == 0 {
-                        wide_spacer_style = None;
-                    }
-                    continue;
-                }
-
-                let (wcell, width) = slot.clone().unwrap_or_else(|| (WezCell::blank(), 1));
-                let mut mapped = map_cell(&wcell);
-                if row_wrapped && c + 1 == cols {
-                    mapped.flags |= CellFlags::WRAPLINE;
-                }
-                if width > 1 {
-                    skip = width.saturating_sub(1);
-                    wide_spacer_style = Some((mapped.fg, mapped.bg, mapped.flags));
-                }
 
                 if !cursor_hidden && cursor_row == Some(r) && cursor_col == c {
                     cursor_char = mapped.c;
@@ -1511,10 +1556,13 @@ impl TerminalBackend for WezTermBackend {
         }
     }
     fn select_all(&mut self) {
-        let rows = self.content.terminal_bounds.num_lines().max(1);
-        let last_col = self.content.terminal_bounds.last_column();
-        let top = -(self.content.display_offset as i32);
-        let bottom = top + rows.saturating_sub(1) as i32;
+        let term = self.term.lock();
+        let plan = self.compute_viewport_plan(term.screen());
+        let top = (plan.top_stable as i64 - plan.base_stable as i64)
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let bottom = plan.rows.saturating_sub(1).min(i32::MAX as usize) as i32;
+        let last_col = plan.cols.saturating_sub(1);
+        drop(term);
 
         self.selection.range = Some(crate::SelectionRange {
             start: GridPoint::new(top, 0),
@@ -1689,8 +1737,15 @@ impl TerminalBackend for WezTermBackend {
             env: BTreeMap::new(),
         };
 
+        let prefix = Self::command_prefix(&self.term.lock());
         let (sender, state) = start_cast_recorder(opts.path, header, opts.include_input)?;
-        *self.record.slot.lock() = Some(sender.clone());
+        {
+            let mut slot = self.record.slot.lock();
+            if !prefix.is_empty() {
+                sender.output(&prefix);
+            }
+            *slot = Some(sender.clone());
+        }
         self.record.sender = Some(sender);
         self.record.state = Some(state);
         Ok(())
@@ -2503,6 +2558,65 @@ mod tests {
     }
 
     #[test]
+    fn select_all_includes_scrollback_history() {
+        let cast_slot = Arc::new(Mutex::new(None));
+        let writer = SharedWriter {
+            inner: Arc::new(Mutex::new(
+                Box::new(std::io::sink()) as Box<dyn Write + Send>
+            )),
+            cast: Arc::clone(&cast_slot),
+        };
+        let mut wezterm_term = Terminal::new(
+            TerminalSize {
+                rows: 3,
+                cols: 10,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 100 }),
+            "termua",
+            "0",
+            Box::new(writer.clone()),
+        );
+        wezterm_term.advance_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+
+        let mut backend = WezTermBackend {
+            master: Box::new(DummyMasterPty),
+            writer,
+            term: Arc::new(Mutex::new(wezterm_term)),
+            child_killer: Box::new(DummyChildKiller),
+            shutdown: super::ShutdownState::default(),
+            pending_ops: VecDeque::new(),
+            viewport_top_stable: None,
+            last_clicked_line: None,
+            search: super::SearchState::default(),
+            content: TerminalContent {
+                terminal_bounds: crate::TerminalBounds::new(
+                    px(10.0),
+                    px(10.0),
+                    Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(30.0))),
+                ),
+                ..TerminalContent::default()
+            },
+            exited: false,
+            last_mouse_pos: None,
+            selection: super::SelectionState::default(),
+            default_cursor_shape: crate::CursorShape::default(),
+            scroll_px: px(0.0),
+            sftp: None,
+            record: super::RecordState::new(cast_slot),
+        };
+
+        backend.select_all();
+        let selection = backend.selection.range.as_ref().unwrap();
+        assert_eq!(
+            backend.selection_to_string(selection),
+            "one\ntwo\nthree\nfour\nfive"
+        );
+    }
+
+    #[test]
     fn stable_viewport_survives_scrollback_eviction() {
         let rows = 3usize;
         let cols = 10usize;
@@ -2706,6 +2820,149 @@ mod tests {
                 end: crate::GridPoint::new(1, 9),
             })
         );
+    }
+
+    #[test]
+    fn cast_recording_starts_with_colored_command_prefix() {
+        let cast_slot = Arc::new(Mutex::new(None));
+        let writer = SharedWriter {
+            inner: Arc::new(Mutex::new(
+                Box::new(std::io::sink()) as Box<dyn std::io::Write + Send>
+            )),
+            cast: Arc::clone(&cast_slot),
+        };
+        let mut wezterm_term = Terminal::new(
+            TerminalSize {
+                rows: 3,
+                cols: 10,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 0 }),
+            "termua",
+            "0",
+            Box::new(writer.clone()),
+        );
+        wezterm_term.advance_bytes("\x1b[38;5;4m❯ \x1b[0m".as_bytes());
+        let content = TerminalContent {
+            terminal_bounds: crate::TerminalBounds::new(
+                px(10.0),
+                px(10.0),
+                Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(30.0))),
+            ),
+            cursor: crate::Cursor {
+                shape: crate::CursorRenderShape::Hidden,
+                point: crate::GridPoint::new(-1, 2),
+            },
+            display_offset: 1,
+            ..TerminalContent::default()
+        };
+
+        let mut backend = WezTermBackend {
+            master: Box::new(DummyMasterPty),
+            writer,
+            term: Arc::new(Mutex::new(wezterm_term)),
+            child_killer: Box::new(DummyChildKiller),
+            shutdown: super::ShutdownState::default(),
+            pending_ops: VecDeque::new(),
+            viewport_top_stable: None,
+            last_clicked_line: None,
+            search: super::SearchState::default(),
+            content,
+            exited: false,
+            last_mouse_pos: None,
+            selection: super::SelectionState::default(),
+            default_cursor_shape: crate::CursorShape::default(),
+            scroll_px: px(0.0),
+            sftp: None,
+            record: super::RecordState::new(cast_slot),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "termua-wezterm-prefix-test-{}-{}.cast",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        backend
+            .start_cast_recording(CastRecordingOptions {
+                path: path.clone(),
+                include_input: false,
+            })
+            .unwrap();
+        backend
+            .record
+            .sender
+            .as_ref()
+            .unwrap()
+            .output(b"echo hi\r\n");
+        backend.stop_cast_recording();
+
+        let cast = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+        let first_output = cast
+            .lines()
+            .skip(1)
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|event| event[1] == "o")
+            .and_then(|event| event[2].as_str().map(str::to_owned))
+            .unwrap();
+
+        assert!(
+            first_output.starts_with("\x1b[0;38;5;4;49m❯ \x1b[0;39;49m"),
+            "expected colored command prefix, got {first_output:?}"
+        );
+    }
+
+    #[test]
+    fn line_mapping_marks_wide_spacers_and_wrapped_last_cell() {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows: 2,
+                cols: 3,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 0 }),
+            "termua",
+            "0",
+            Box::new(std::io::sink()),
+        );
+        term.advance_bytes("界xy".as_bytes());
+
+        let line = term.screen().lines_in_phys_range(0..1).remove(0);
+        let cells = WezTermBackend::map_line_cells(&line, 3);
+
+        assert_eq!(cells.len(), 3);
+        assert_eq!(cells[0].c, '界');
+        assert!(cells[1].flags.contains(crate::CellFlags::WIDE_CHAR_SPACER));
+        assert!(cells[2].flags.contains(crate::CellFlags::WRAPLINE));
+    }
+
+    #[test]
+    fn command_prefix_includes_previous_wrapped_rows() {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows: 2,
+                cols: 3,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(TestConfig { scrollback: 0 }),
+            "termua",
+            "0",
+            Box::new(std::io::sink()),
+        );
+        term.advance_bytes(b"abcd");
+
+        let prefix = String::from_utf8(WezTermBackend::command_prefix(&term)).unwrap();
+
+        assert_eq!(prefix.replace("\x1b[0;39;49m", ""), "abcd");
     }
 
     #[gpui::test]

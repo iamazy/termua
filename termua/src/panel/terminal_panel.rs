@@ -7,7 +7,7 @@ use gpui::{
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, scroll::ScrollableElement};
-use gpui_dock::{Panel, PanelEvent};
+use gpui_dock::{Panel, PanelEvent, PanelInfo, PanelState};
 use gpui_term::{TerminalMode, TerminalShutdownPolicy, TerminalView};
 
 use crate::notification::{self, MessageKind};
@@ -54,6 +54,37 @@ pub(crate) enum PanelKind {
     Ssh,
     Serial,
     Recorder,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum TerminalLaunchState {
+    Local {
+        backend_type: gpui_term::TerminalType,
+        env: HashMap<String, String>,
+    },
+    Ssh {
+        backend_type: gpui_term::TerminalType,
+        session_id: Option<i64>,
+    },
+    Serial {
+        backend_type: gpui_term::TerminalType,
+        params: crate::SerialParams,
+        session_id: Option<i64>,
+    },
+    Recorder {
+        cast_path: PathBuf,
+        playback_speed: f64,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct TerminalPanelState {
+    pub(crate) version: usize,
+    pub(crate) id: usize,
+    pub(crate) tab_label: String,
+    pub(crate) tab_tooltip: Option<String>,
+    pub(crate) launch: TerminalLaunchState,
 }
 
 pub(crate) fn terminal_panel_tab_name(kind: PanelKind, id: usize) -> SharedString {
@@ -113,11 +144,13 @@ pub(crate) struct TerminalPanel {
     kind: PanelKind,
     tab_label: SharedString,
     tab_tooltip: Option<SharedString>,
+    launch_state: Option<TerminalLaunchState>,
     terminal_view: gpui::Entity<TerminalView>,
     pending_sftp_upload: Option<PendingSftpUpload>,
 }
 
 impl TerminalPanel {
+    #[cfg(test)]
     pub(crate) fn new(
         id: usize,
         kind: PanelKind,
@@ -125,11 +158,23 @@ impl TerminalPanel {
         tab_tooltip: Option<SharedString>,
         terminal_view: gpui::Entity<TerminalView>,
     ) -> Self {
+        Self::new_with_launch_state(id, kind, tab_label, tab_tooltip, None, terminal_view)
+    }
+
+    pub(crate) fn new_with_launch_state(
+        id: usize,
+        kind: PanelKind,
+        tab_label: SharedString,
+        tab_tooltip: Option<SharedString>,
+        launch_state: Option<TerminalLaunchState>,
+        terminal_view: gpui::Entity<TerminalView>,
+    ) -> Self {
         Self {
             id,
             kind,
             tab_label,
             tab_tooltip,
+            launch_state,
             terminal_view,
             pending_sftp_upload: None,
         }
@@ -149,6 +194,11 @@ impl TerminalPanel {
 
     pub(crate) fn tab_label(&self) -> SharedString {
         self.tab_label.clone()
+    }
+
+    pub(crate) fn cleanup_runtime_state<T>(id: usize, cx: &mut Context<T>) {
+        crate::assistant::unregister_terminal_target(cx, id);
+        crate::footbar::blur_terminal_backend(id, cx);
     }
 
     fn terminal_has_sftp(&self, cx: &App) -> bool {
@@ -465,11 +515,20 @@ impl gpui::Focusable for TerminalPanel {
 
 impl Panel for TerminalPanel {
     fn panel_name(&self) -> &'static str {
-        "TerminalPanel"
+        super::TERMINAL_PANEL_NAME
     }
 
     fn tab_icon(&self, _cx: &App) -> Option<gpui_dock::TabIcon> {
         Some(tab_icon_for_terminal_panel(self.kind))
+    }
+
+    fn set_active(&mut self, active: bool, _window: &mut Window, cx: &mut Context<Self>) {
+        if active {
+            let backend = self.terminal_view.read(cx).terminal.read(cx).backend_type();
+            crate::footbar::focus_terminal_backend(self.id, backend, cx);
+        } else {
+            crate::footbar::blur_terminal_backend(self.id, cx);
+        }
     }
 
     fn on_removed(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
@@ -483,7 +542,7 @@ impl Panel for TerminalPanel {
             self.id
         );
 
-        crate::assistant::unregister_terminal_target(cx, self.id);
+        Self::cleanup_runtime_state(self.id, cx);
 
         // Ensure the backend releases its PTY/process resources when the tab is explicitly closed.
         self.terminal_view.update(cx, |terminal_view, cx| {
@@ -511,6 +570,24 @@ impl Panel for TerminalPanel {
 
     fn title(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.tab_name(cx).unwrap_or_else(|| "local".into())
+    }
+
+    fn dump(&self, _cx: &App) -> PanelState {
+        let mut state = PanelState::new(self);
+        let Some(launch) = self.launch_state.clone() else {
+            return state;
+        };
+        let panel_state = TerminalPanelState {
+            version: 1,
+            id: self.id,
+            tab_label: self.tab_label.to_string(),
+            tab_tooltip: self.tab_tooltip.as_ref().map(ToString::to_string),
+            launch,
+        };
+        state.info = PanelInfo::panel(
+            serde_json::to_value(panel_state).expect("terminal panel state should serialize"),
+        );
+        state
     }
 }
 
@@ -582,6 +659,26 @@ mod tests {
             terminal_panel_tab_name(PanelKind::Recorder, 7).as_ref(),
             "recorder 7"
         );
+    }
+
+    #[test]
+    fn terminal_panel_state_round_trips_local_launch_parameters() {
+        let state = TerminalPanelState {
+            version: 1,
+            id: 7,
+            tab_label: "bash".to_string(),
+            tab_tooltip: None,
+            launch: TerminalLaunchState::Local {
+                backend_type: gpui_term::TerminalType::WezTerm,
+                env: HashMap::from([("TERMUA_SHELL".to_string(), "bash".to_string())]),
+            },
+        };
+
+        let json = serde_json::to_value(&state).expect("serialize terminal panel state");
+        let restored: TerminalPanelState =
+            serde_json::from_value(json).expect("deserialize terminal panel state");
+
+        assert_eq!(restored, state);
     }
 
     #[test]

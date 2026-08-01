@@ -42,6 +42,14 @@ impl DockState {
         }
     }
 
+    pub fn panel_state(&self) -> &PanelState {
+        &self.panel
+    }
+
+    pub fn set_panel_state(&mut self, panel: PanelState) {
+        self.panel = panel;
+    }
+
     /// Convert the DockState to Dock
     pub fn to_dock(
         &self,
@@ -49,7 +57,20 @@ impl DockState {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Dock> {
-        let item = self.panel.to_item(dock_area.clone(), window, cx);
+        let item = match &self.panel.info {
+            PanelInfo::Panel(_) => {
+                let view = PanelRegistry::build_panel(
+                    &self.panel.panel_name,
+                    dock_area.clone(),
+                    &self.panel,
+                    &self.panel.info,
+                    window,
+                    cx,
+                );
+                DockItem::panel(view.into())
+            }
+            _ => self.panel.to_item(dock_area.clone(), window, cx),
+        };
         cx.new(|cx| {
             Dock::from_state(
                 dock_area.clone(),

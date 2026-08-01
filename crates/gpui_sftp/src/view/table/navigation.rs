@@ -3,6 +3,10 @@ use rust_i18n::t;
 use super::*;
 
 impl SftpTable {
+    pub(in crate::view) fn status(&self) -> SftpStatus {
+        SftpStatus::new(self.visible.len(), self.selected_ids.len())
+    }
+
     pub(in crate::view) fn new(sftp: wezterm_ssh::Sftp) -> Self {
         let tree = TreeState::new(Entry::new(".", "~", EntryKind::Dir));
         let sort = SortSpec::default();

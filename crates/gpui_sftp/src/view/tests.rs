@@ -574,6 +574,25 @@ fn clear_selection_removes_selected_rows_and_anchor() {
     assert_eq!(d.selection_anchor_id, None);
 }
 
+#[test]
+fn status_counts_visible_items_and_selected_items() {
+    let mut tree = TreeState::new(Entry::new("/", "/", EntryKind::Dir));
+    tree.upsert_children(
+        "/",
+        vec![
+            Entry::new("/a", "a", EntryKind::File),
+            Entry::new("/b", "b", EntryKind::File),
+            Entry::new("/c", "c", EntryKind::Dir),
+        ],
+    );
+    let mut d = delegate_with_tree(tree);
+    d.rebuild_visible();
+    d.selected_ids.insert("/a".to_string());
+    d.selected_ids.insert("/c".to_string());
+
+    assert_eq!(d.status(), SftpStatus::new(3, 2));
+}
+
 #[gpui::test]
 fn begin_blank_table_drag_select_clears_selection_and_starts_drag(cx: &mut gpui::TestAppContext) {
     gpui_component::init(&mut cx.app.borrow_mut());

@@ -25,6 +25,7 @@ mod ssh;
 mod static_suggestions;
 mod theme_manager;
 mod window;
+mod workspace;
 
 pub(crate) use app_state::{PendingCommand, SerialParams, SshParams, TermuaAppState};
 pub(crate) use menu::{

@@ -13,7 +13,7 @@ Rules:
 - When suggesting terminal commands, put them in a single fenced code block (```sh ... ```).
 - Otherwise, reply in plain text. Keep it concise."#;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssistantRole {
     User,
     Assistant,

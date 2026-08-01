@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     io::{self, BufRead, Write},
     time::{Duration, Instant},
 };
@@ -6,6 +7,41 @@ use std::{
 use anyhow::Context;
 
 use crate::env::{CAST_PLAYER_ENV_MODE, CAST_PLAYER_ENV_PATH, CAST_PLAYER_ENV_SPEED};
+
+#[cfg(unix)]
+struct PlaybackTtyGuard {
+    fd: std::os::fd::RawFd,
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl PlaybackTtyGuard {
+    fn disable(fd: std::os::fd::RawFd) -> io::Result<Option<Self>> {
+        if unsafe { libc::isatty(fd) } == 0 {
+            return Ok(None);
+        }
+
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let original = unsafe { original.assume_init() };
+        let mut playback = original;
+        playback.c_lflag &= !(libc::ECHO | libc::ECHONL);
+        if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &playback) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(Some(Self { fd, original }))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PlaybackTtyGuard {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.original) };
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum CastEvent {
@@ -26,6 +62,44 @@ impl Default for PlayOptions {
             speed: 1.0,
             sleep: true,
         }
+    }
+}
+
+// Fish briefly paints this width-dependent sequence while checking whether command output ended
+// with a newline. It is erased in the live terminal, but can survive playback at another width.
+fn strip_fish_newline_probes(text: &str) -> Cow<'_, str> {
+    const PREFIX: &str = "\x1b[2m⏎\x1b[m";
+    const SUFFIX: &str = "\r⏎ \r\x1b[K";
+
+    let mut search_from = 0;
+    let mut last_kept = 0;
+    let mut output = None::<String>;
+
+    while let Some(relative_start) = text[search_from..].find(PREFIX) {
+        let start = search_from + relative_start;
+        let padding_start = start + PREFIX.len();
+        let Some(relative_end) = text[padding_start..].find(SUFFIX) else {
+            break;
+        };
+        let end = padding_start + relative_end;
+        let padding = &text[padding_start..end];
+
+        if !padding.is_empty() && padding.bytes().all(|byte| byte == b' ') {
+            let output = output.get_or_insert_with(|| String::with_capacity(text.len()));
+            output.push_str(&text[last_kept..start]);
+            search_from = end + SUFFIX.len();
+            last_kept = search_from;
+        } else {
+            search_from = padding_start;
+        }
+    }
+
+    match output {
+        Some(mut output) => {
+            output.push_str(&text[last_kept..]);
+            Cow::Owned(output)
+        }
+        None => Cow::Borrowed(text),
     }
 }
 
@@ -78,6 +152,10 @@ pub fn play_cast<R: BufRead, W: Write>(
         return Err(anyhow::anyhow!("speed must be > 0"));
     }
 
+    #[cfg(unix)]
+    // Cast output may query the host terminal; do not echo its replies as visible `^[...` text.
+    let _tty_guard = PlaybackTtyGuard::disable(libc::STDIN_FILENO)?;
+
     let mut header = String::new();
     let n = reader.read_line(&mut header)?;
     if n == 0 {
@@ -127,7 +205,7 @@ pub fn play_cast<R: BufRead, W: Write>(
 
         match ev {
             CastEvent::Output { text, .. } => {
-                writer.write_all(text.as_bytes())?;
+                writer.write_all(strip_fish_newline_probes(&text).as_bytes())?;
                 writer.flush()?;
             }
             CastEvent::Input { .. } => {}
@@ -136,7 +214,7 @@ pub fn play_cast<R: BufRead, W: Write>(
     }
 
     // Playback finished marker.
-    writer.write_all(b"\r\n[Recorder] Playback finished.\r\n")?;
+    writer.write_all(b"\r\n[Recorder] Playback finished.")?;
     writer.flush()?;
 
     // Playback finished: stop cursor blinking and hide it, so the recorder tab looks "frozen".
@@ -205,8 +283,65 @@ pub fn try_run_from_env() -> anyhow::Result<bool> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
-    fn play_cast_writes_output_in_order_without_sleep() {
+    fn playback_tty_guard_ignores_non_tty() {
+        use std::os::fd::AsRawFd as _;
+
+        let dev_null = std::fs::File::open("/dev/null").unwrap();
+        assert!(
+            PlaybackTtyGuard::disable(dev_null.as_raw_fd())
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn playback_tty_guard_disables_echo_and_restores_termios() {
+        let mut master = -1;
+        let mut slave = -1;
+        let result = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(result, 0);
+
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(slave, original.as_mut_ptr()) }, 0);
+        let mut original = unsafe { original.assume_init() };
+        original.c_lflag |= libc::ECHO | libc::ECHONL;
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave, libc::TCSANOW, &original) },
+            0
+        );
+
+        {
+            let _guard = PlaybackTtyGuard::disable(slave).unwrap().unwrap();
+            let mut current = std::mem::MaybeUninit::<libc::termios>::uninit();
+            assert_eq!(unsafe { libc::tcgetattr(slave, current.as_mut_ptr()) }, 0);
+            let current = unsafe { current.assume_init() };
+            assert_eq!(current.c_lflag & (libc::ECHO | libc::ECHONL), 0);
+        }
+
+        let mut restored = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(slave, restored.as_mut_ptr()) }, 0);
+        let restored = unsafe { restored.assume_init() };
+        assert_eq!(restored.c_lflag, original.c_lflag);
+
+        unsafe {
+            libc::close(master);
+            libc::close(slave);
+        }
+    }
+
+    #[test]
+    fn play_cast_does_not_add_blank_line_after_finished_marker() {
         let input = r#"{"version":2,"width":80,"height":24,"timestamp":0}
 [0.0,"o","hi"]
 [0.1,"o"," there"]
@@ -224,8 +359,43 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             format!(
-                "hi there\r\n[Recorder] Playback finished.\r\n{}",
+                "hi there\r\n[Recorder] Playback finished.{}",
                 "\u{1b}[?12l\u{1b}[?25l"
+            )
+        );
+    }
+
+    #[test]
+    fn play_cast_removes_only_complete_fish_newline_probes() {
+        let genuine_output = serde_json::to_string(&(0.0, "o", "user output: ⏎\r\n")).unwrap();
+        let fish_probe = serde_json::to_string(&(
+            0.1,
+            "o",
+            "\x1b]133;D;0\x07\x1b[?25h\x1b[2m⏎\x1b[m     \r⏎ \r\x1b[K",
+        ))
+        .unwrap();
+        let input = format!(
+            "{{\"version\":2,\"width\":6,\"height\":2,\"timestamp\":0}}\n{genuine_output}\n{fish_probe}\n"
+        );
+
+        let mut out = Vec::<u8>::new();
+        play_cast(
+            io::BufReader::new(input.as_bytes()),
+            &mut out,
+            PlayOptions {
+                speed: 1.0,
+                sleep: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            concat!(
+                "user output: ⏎\r\n",
+                "\x1b]133;D;0\x07\x1b[?25h",
+                "\r\n[Recorder] Playback finished.",
+                "\x1b[?12l\x1b[?25l",
             )
         );
     }

@@ -54,7 +54,6 @@ impl FootbarView {
 
         div()
             .flex()
-            .flex_1()
             .min_w_0()
             .items_center()
             .justify_end()

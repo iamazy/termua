@@ -4,7 +4,7 @@ use std::{
     ops::RangeInclusive,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -15,6 +15,7 @@ use gpui::{
     SharedString, Styled, Window, div,
 };
 use gpui_component::input::InputState;
+use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, SshOptions, Terminal, TerminalBackend,
     TerminalBounds, TerminalType, TerminalView, UserInput as TerminalUserInput,
@@ -26,8 +27,721 @@ use crate::{
     SshParams, TermuaAppState, ToggleSessionsSidebar, lock_screen,
     menu::Quit,
     notification,
-    ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn},
+    ssh::{SshHostKeyMismatchDetails, SshTerminalBuilderFn, SshTerminalFactory},
 };
+
+fn unique_workspace_settings_path(label: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
+    std::env::temp_dir()
+        .join(format!("termua-main-window-{label}-{nanos}"))
+        .join("settings.json")
+}
+
+fn add_fake_local_terminal(
+    window_view: &mut TermuaWindow,
+    backend: TerminalType,
+    window: &mut Window,
+    cx: &mut Context<TermuaWindow>,
+) {
+    add_fake_local_terminal_with_launch(window_view, backend, None, window, cx);
+}
+
+fn add_fake_local_terminal_with_launch(
+    window_view: &mut TermuaWindow,
+    backend: TerminalType,
+    launch_state: Option<crate::panel::TerminalLaunchState>,
+    window: &mut Window,
+    cx: &mut Context<TermuaWindow>,
+) {
+    let id = window_view.next_terminal_id;
+    window_view.next_terminal_id += 1;
+    let terminal = cx.new(|_| {
+        Terminal::new(
+            backend,
+            Box::new(FakeBackend::new(Arc::new(AtomicBool::new(false)))),
+        )
+    });
+    let panel = window_view.build_wired_terminal_panel(
+        id,
+        crate::panel::PanelKind::Local,
+        format!("terminal {id}").into(),
+        None,
+        launch_state,
+        terminal,
+        window,
+        cx,
+    );
+    window_view.dock_area.update(cx, |dock, cx| {
+        dock.add_panel(
+            Arc::new(panel) as Arc<dyn PanelView>,
+            DockPlacement::Center,
+            None,
+            window,
+            cx,
+        );
+    });
+}
+
+#[gpui::test]
+fn sftp_panel_opens_in_center_workspace_instead_of_bottom_dock(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx);
+        });
+
+        let sftp = cx.new(|cx| {
+            crate::panel::sftp_panel::SftpDockPanel::restoring(
+                crate::panel::sftp_panel::SftpPanelState {
+                    version: 1,
+                    tab_label: "SFTP test".to_string(),
+                    terminal_id: 1,
+                    current_dir: None,
+                },
+                cx,
+            )
+        });
+
+        let panel = Arc::new(sftp) as Arc<dyn PanelView>;
+        view.update(cx, |this, cx| {
+            this.add_sftp_panel(panel.clone(), window, cx);
+        });
+
+        let dock = view.read(cx).dock_area.read(cx);
+        assert!(dock.bottom_dock().is_none());
+        assert!(dock.center().find_panel(panel.clone(), cx).is_some());
+
+        let shared_tabs = dock
+            .visible_tab_panels(cx)
+            .into_iter()
+            .find(|tabs| tabs.read(cx).panels().iter().any(|item| item == &panel))
+            .expect("SFTP panel should be in a visible center tab group");
+        assert!(shared_tabs.read(cx).panels().iter().any(|item| {
+            item.view()
+                .downcast::<crate::panel::TerminalPanel>()
+                .is_ok()
+        }));
+    });
+}
+
+fn update_first_panel_state(
+    value: &mut serde_json::Value,
+    panel_name: &str,
+    update: &mut impl FnMut(&mut serde_json::Value),
+) -> bool {
+    if value["panel_name"] == panel_name {
+        update(value);
+        return true;
+    }
+    match value {
+        serde_json::Value::Array(values) => values
+            .iter_mut()
+            .any(|value| update_first_panel_state(value, panel_name, update)),
+        serde_json::Value::Object(values) => values
+            .values_mut()
+            .any(|value| update_first_panel_state(value, panel_name, update)),
+        _ => false,
+    }
+}
+
+fn save_workspace_with_modified_fake_terminal(
+    view: &gpui::Entity<TermuaWindow>,
+    cx: &mut gpui::App,
+    mut update: impl FnMut(&mut serde_json::Value),
+) {
+    let state = view.read(cx).dock_area.read(cx).dump(cx);
+    let mut value = serde_json::to_value(state).expect("serialize workspace state");
+    assert!(update_first_panel_state(
+        &mut value,
+        crate::panel::TERMINAL_PANEL_NAME,
+        &mut update,
+    ));
+    crate::workspace::save_to_path(
+        &crate::workspace::state_path(),
+        serde_json::from_value(value).expect("deserialize modified workspace state"),
+    )
+    .expect("save modified workspace state");
+}
+
+#[gpui::test]
+fn main_window_restores_saved_dock_layout(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("restore-layout");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            let dock_area = this.dock_area.clone();
+            dock_area.update(cx, |dock, cx| {
+                dock.set_version(crate::workspace::STATE_VERSION, window, cx);
+                if dock.is_dock_open(gpui_dock::DockPlacement::Left, cx) {
+                    dock.toggle_dock(gpui_dock::DockPlacement::Left, window, cx);
+                }
+                crate::workspace::save_to_path(&crate::workspace::state_path(), dock.dump(cx))
+                    .expect("save workspace layout");
+            });
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_window, cx| {
+        let is_left_open = restored
+            .read(cx)
+            .dock_area
+            .read(cx)
+            .is_dock_open(gpui_dock::DockPlacement::Left, cx);
+        assert!(!is_left_open, "saved left dock should remain closed");
+    });
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_unwraps_fixed_sidebars_from_saved_tab_panels(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("unwrap-fixed-sidebars");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|_window, cx| {
+        let state = first.read(cx).dock_area.read(cx).dump(cx);
+        let mut value = serde_json::to_value(state).expect("serialize workspace state");
+        for dock_name in ["left_dock", "right_dock"] {
+            let panel = value[dock_name]["panel"].take();
+            value[dock_name]["panel"] = serde_json::json!({
+                "panel_name": "TabPanel",
+                "children": [panel],
+                "info": { "tabs": { "active_index": 0 } }
+            });
+        }
+        let state = serde_json::from_value(value).expect("deserialize wrapped workspace state");
+        crate::workspace::save_to_path(&crate::workspace::state_path(), state)
+            .expect("save wrapped workspace state");
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_window, cx| {
+        let dock_area = restored.read(cx).dock_area.read(cx);
+        assert!(matches!(
+            dock_area.left_dock().expect("left dock").read(cx).panel(),
+            gpui_dock::DockItem::Panel { .. }
+        ));
+        assert!(matches!(
+            dock_area.right_dock().expect("right dock").read(cx).panel(),
+            gpui_dock::DockItem::Panel { .. }
+        ));
+    });
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_saves_dock_layout_after_change(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("save-layout");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.dock_area.update(cx, |dock, cx| {
+                dock.toggle_dock(gpui_dock::DockPlacement::Left, window, cx);
+            });
+        });
+    });
+
+    window_cx.run_until_parked();
+    window_cx
+        .executor()
+        .advance_clock(Duration::from_millis(20));
+    window_cx.run_until_parked();
+
+    let saved = crate::workspace::load_from_path(&crate::workspace::state_path())
+        .expect("layout change should save workspace state");
+    assert_eq!(saved.version, Some(crate::workspace::STATE_VERSION));
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("restore-local-terminal");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let restore_attempts = Arc::new(AtomicUsize::new(0));
+    let restored_terminal_builder = {
+        let restore_attempts = restore_attempts.clone();
+        Arc::new(
+            move |launch: &crate::panel::TerminalLaunchState, _id: usize| {
+                restore_attempts.fetch_add(1, Ordering::SeqCst);
+                let crate::panel::TerminalLaunchState::Local { backend_type, .. } = launch else {
+                    anyhow::bail!("expected local terminal launch state");
+                };
+                Ok((
+                    crate::panel::PanelKind::Local,
+                    Box::new(FakeSshTerminalFactory {
+                        backend: *backend_type,
+                        recording_active: Arc::new(AtomicBool::new(false)),
+                    }) as Box<dyn SshTerminalFactory>,
+                ))
+            },
+        )
+    };
+    let ssh_terminal_builder: SshTerminalBuilderFn = Arc::new(|backend, _env, _opts| {
+        Ok(Box::new(FakeSshTerminalFactory {
+            backend,
+            recording_active: Arc::new(AtomicBool::new(false)),
+        }) as Box<dyn SshTerminalFactory>)
+    });
+
+    let first_restore_builder = restored_terminal_builder.clone();
+    let first_ssh_builder = ssh_terminal_builder.clone();
+    let (first, first_cx) = cx.add_window_view(move |window, cx| {
+        TermuaWindow::new_with_terminal_builders(
+            window,
+            first_ssh_builder,
+            first_restore_builder,
+            cx,
+        )
+    });
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            let env = HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]);
+            add_fake_local_terminal_with_launch(
+                this,
+                TerminalType::WezTerm,
+                Some(crate::panel::TerminalLaunchState::Local {
+                    backend_type: TerminalType::WezTerm,
+                    env,
+                }),
+                window,
+                cx,
+            );
+            crate::workspace::save_to_path(
+                &crate::workspace::state_path(),
+                this.dock_area.read(cx).dump(cx),
+            )
+            .expect("save local terminal layout");
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(move |window, cx| {
+        TermuaWindow::new_with_terminal_builders(
+            window,
+            ssh_terminal_builder,
+            restored_terminal_builder,
+            cx,
+        )
+    });
+    restored_cx.update(|_window, cx| {
+        let panel = restored
+            .read(cx)
+            .dock_area
+            .read(cx)
+            .visible_tab_panels(cx)
+            .into_iter()
+            .find_map(|tabs| tabs.read(cx).active_panel(cx))
+            .expect("restored terminal tab");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::TerminalPanel>()
+                .is_ok(),
+            "saved terminal panel should be rebuilt by its registered factory"
+        );
+    });
+    assert_eq!(restore_attempts.load(Ordering::SeqCst), 1);
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_unsupported_saved_terminal_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("unsupported-terminal-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["info"]["panel"]["version"] = serde_json::json!(usize::MAX);
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_malformed_saved_terminal_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("malformed-terminal-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::WezTerm, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["info"]["panel"] = serde_json::json!({ "invalid": true });
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_reports_malformed_saved_sftp_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("malformed-sftp-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx)
+        });
+        save_workspace_with_modified_fake_terminal(&first, cx, |panel| {
+            panel["panel_name"] = serde_json::json!(crate::panel::SFTP_PANEL_NAME);
+            panel["info"]["panel"] = serde_json::json!({ "invalid": true });
+        });
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_, cx| {
+        let panel = restored.read(cx).dock_area.read(cx).visible_tab_panels(cx)[0]
+            .read(cx)
+            .active_panel(cx)
+            .expect("restored error panel");
+        assert!(
+            panel
+                .view()
+                .downcast::<crate::panel::SshErrorPanel>()
+                .is_ok()
+        );
+    });
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn footbar_backend_tracks_opened_terminal(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.activate(true);
+    });
+
+    let (view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    let root = view.clone();
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    window_cx.run_until_parked();
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::Alacritty, window, cx);
+        });
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::Alacritty)
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
+    assert!(
+        window_cx
+            .debug_bounds("termua-footbar-backend-image")
+            .is_some()
+    );
+    let backend = window_cx
+        .debug_bounds("termua-footbar-backend")
+        .expect("backend icon");
+    let issues = window_cx
+        .debug_bounds("termua-footbar-issues")
+        .expect("issues icon");
+    assert!(
+        backend.origin.x < issues.origin.x,
+        "backend icon should be before the right-side buttons"
+    );
+
+    window_cx.deactivate_window();
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::Alacritty),
+            "app deactivation must not clear the active terminal tab backend"
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
+
+    window_cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            add_fake_local_terminal(this, TerminalType::WezTerm, window, cx);
+        });
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::WezTerm)
+        );
+    });
+    assert!(window_cx.debug_bounds("termua-footbar-backend").is_some());
+    assert!(
+        window_cx
+            .debug_bounds("termua-footbar-backend-image")
+            .is_some()
+    );
+}
+
+#[gpui::test]
+fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let settings_path = unique_workspace_settings_path("restore-ssh-terminal");
+    let _settings_guard = crate::settings::override_settings_json_path(settings_path);
+    let db_path = crate::store::tests::unique_test_db_path("restore-ssh-terminal");
+    let _db_guard = crate::store::tests::override_termua_db_path(db_path);
+    let session_id = crate::store::save_ssh_session_config(
+        "ssh",
+        "prod",
+        crate::settings::TerminalBackend::Wezterm,
+        "example.com",
+        22,
+        "xterm-256color",
+        "UTF-8",
+    )
+    .expect("save ssh session");
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let builder: SshTerminalBuilderFn = {
+        let attempts = attempts.clone();
+        Arc::new(move |backend, _env, _opts| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(FakeSshTerminalFactory {
+                backend,
+                recording_active: Arc::new(AtomicBool::new(false)),
+            }) as Box<dyn SshTerminalFactory>)
+        })
+    };
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| {
+        TermuaWindow::new_with_ssh_terminal_builder(window, builder.clone(), cx)
+    });
+    first_cx.update(|window, cx| {
+        first.update(cx, |this, cx| {
+            this.open_session_by_id(session_id, window, cx);
+        });
+    });
+    for _ in 0..20 {
+        first_cx.run_until_parked();
+        if attempts.load(Ordering::SeqCst) >= 1 {
+            break;
+        }
+    }
+    first_cx.run_until_parked();
+    first_cx.update(|_window, cx| {
+        crate::workspace::save_to_path(
+            &crate::workspace::state_path(),
+            first.read(cx).dock_area.read(cx).dump(cx),
+        )
+        .expect("save ssh terminal layout");
+    });
+
+    let (restored, restored_cx) = cx.add_window_view(|window, cx| {
+        TermuaWindow::new_with_ssh_terminal_builder(window, builder, cx)
+    });
+    for _ in 0..30 {
+        restored_cx.run_until_parked();
+        let restored_ssh = restored_cx.update(|_window, cx| {
+            restored
+                .read(cx)
+                .dock_area
+                .read(cx)
+                .visible_tab_panels(cx)
+                .into_iter()
+                .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+                .filter_map(|panel| panel.view().downcast::<crate::panel::TerminalPanel>().ok())
+                .any(|panel| panel.read(cx).kind() == crate::panel::PanelKind::Ssh)
+        });
+        if restored_ssh {
+            break;
+        }
+    }
+
+    assert!(attempts.load(Ordering::SeqCst) >= 2);
+    let restored_ssh = restored_cx.update(|_window, cx| {
+        restored
+            .read(cx)
+            .dock_area
+            .read(cx)
+            .visible_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| panel.view().downcast::<crate::panel::TerminalPanel>().ok())
+            .any(|panel| panel.read(cx).kind() == crate::panel::PanelKind::Ssh)
+    });
+    assert!(
+        restored_ssh,
+        "saved SSH tab should reconnect as a terminal panel"
+    );
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
+fn main_window_restores_right_sidebar_stable_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("restore-right-sidebar");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (first, first_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    first_cx.update(|_window, cx| {
+        cx.global_mut::<crate::right_sidebar::RightSidebarState>()
+            .active_tab = crate::right_sidebar::RightSidebarTab::Assistant;
+        cx.global_mut::<crate::assistant::AssistantState>()
+            .push(crate::assistant::AssistantRole::User, "remember this");
+        crate::workspace::save_to_path(
+            &crate::workspace::state_path(),
+            first.read(cx).dock_area.read(cx).dump(cx),
+        )
+        .expect("save right sidebar state");
+
+        cx.global_mut::<crate::right_sidebar::RightSidebarState>()
+            .active_tab = crate::right_sidebar::RightSidebarTab::Notifications;
+        cx.global_mut::<crate::assistant::AssistantState>().clear();
+    });
+
+    let (_restored, restored_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    restored_cx.update(|_window, cx| {
+        assert_eq!(
+            cx.global::<crate::right_sidebar::RightSidebarState>()
+                .active_tab,
+            crate::right_sidebar::RightSidebarTab::Assistant
+        );
+        let messages = &cx.global::<crate::assistant::AssistantState>().messages;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content.as_ref(), "remember this");
+    });
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
 
 #[test]
 fn terminal_context_menu_labels_follow_the_active_locale() {
@@ -576,14 +1290,17 @@ fn ssh_connect_clears_sessions_sidebar_connecting_state(cx: &mut gpui::TestAppCo
 }
 
 #[gpui::test]
-fn recorder_terminal_view_disables_context_menu(cx: &mut gpui::TestAppContext) {
+fn recorder_terminal_view_enables_context_menu(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
+        gpui_dock::init(app);
         gpui_term::init(app);
+        app.set_global(TermuaAppState::default());
     });
 
     let cx = cx.add_empty_window();
     cx.update(|window, cx| {
+        let termua = cx.new(|cx| TermuaWindow::new(window, cx));
         let active = Arc::new(AtomicBool::new(false));
         let term = cx.new(|_| {
             Terminal::new(
@@ -591,10 +1308,85 @@ fn recorder_terminal_view_disables_context_menu(cx: &mut gpui::TestAppContext) {
                 Box::new(FakeBackend::new(Arc::clone(&active))),
             )
         });
-        let terminal_view =
-            cx.new(|cx| TerminalView::new_with_context_menu(term, window, cx, false));
-        assert!(!terminal_view.read(cx).context_menu_enabled());
+        let terminal_view = termua.update(cx, |this, cx| {
+            this.create_terminal_view(crate::panel::PanelKind::Recorder, term, window, cx)
+        });
+        assert!(terminal_view.read(cx).context_menu_enabled());
     });
+}
+
+#[gpui::test]
+#[cfg_attr(target_os = "macos", ignore)]
+fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        gpui_dock::init(app);
+        gpui_term::init(app);
+        crate::menu::bind_menu_shortcuts(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let copy_count = Arc::new(AtomicUsize::new(0));
+    let select_all_count = Arc::new(AtomicUsize::new(0));
+    let copy_count_for_window = Arc::clone(&copy_count);
+    let select_all_count_for_window = Arc::clone(&select_all_count);
+    let terminal_view_slot = Rc::new(RefCell::new(None));
+    let terminal_view_slot_for_window = Rc::clone(&terminal_view_slot);
+    let (_root, window_cx) = cx.add_window_view(move |window, cx| {
+        let termua = cx.new(|cx| TermuaWindow::new(window, cx));
+        let term = cx.new(|_| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::with_action_counts(
+                    Arc::new(AtomicBool::new(false)),
+                    copy_count_for_window,
+                    select_all_count_for_window,
+                )),
+            )
+        });
+        let terminal_view = termua.update(cx, |this, cx| {
+            this.create_terminal_view(crate::panel::PanelKind::Recorder, term, window, cx)
+        });
+        *terminal_view_slot_for_window.borrow_mut() = Some(terminal_view.clone());
+        gpui_component::Root::new(terminal_view, window, cx)
+    });
+    let terminal_view = terminal_view_slot
+        .borrow()
+        .clone()
+        .expect("expected recorder terminal view");
+
+    window_cx.update(|window, cx| {
+        let focus_handle = terminal_view.read(cx).focus_handle.clone();
+        window.focus(&focus_handle, cx);
+    });
+    window_cx.run_until_parked();
+    window_cx.update(|window, cx| {
+        let focus_handle = terminal_view.read(cx).focus_handle.clone();
+        assert!(
+            window
+                .highest_precedence_binding_for_action_in(
+                    &crate::ToggleAssistantSidebar,
+                    &focus_handle,
+                )
+                .is_none(),
+            "assistant shortcut must not compete with terminal shortcuts"
+        );
+    });
+    #[cfg(target_os = "macos")]
+    {
+        window_cx.simulate_keystrokes("cmd-c");
+        window_cx.simulate_keystrokes("cmd-a");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window_cx.simulate_keystrokes("ctrl-shift-c");
+        window_cx.simulate_keystrokes("ctrl-shift-a");
+    }
+
+    assert_eq!(copy_count.load(Ordering::SeqCst), 1);
+    assert_eq!(select_all_count.load(Ordering::SeqCst), 1);
 }
 
 #[gpui::test]
@@ -812,6 +1604,10 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
     );
 
     window_cx.update(|_window, app| {
+        app.set_global(crate::footbar::FocusedTerminalBackendState::focused(
+            42,
+            TerminalType::WezTerm,
+        ));
         terminal.update(app, |_terminal, cx| {
             cx.emit(TerminalEvent::CloseTerminal);
         });
@@ -838,6 +1634,14 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
         terminal_tabs_after, 0,
         "expected close event on local terminal to remove the terminal tab"
     );
+    window_cx.update(|_, app| {
+        assert_eq!(
+            app.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            None,
+            "closing the focused terminal should hide its backend icon"
+        );
+    });
 }
 
 #[cfg_attr(target_os = "macos", ignore)]
@@ -2630,7 +3434,23 @@ fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestApp
 struct FakeBackend {
     content: gpui_term::TerminalContent,
     recording_active: Arc<AtomicBool>,
+    copy_count: Arc<AtomicUsize>,
+    select_all_count: Arc<AtomicUsize>,
     exited: bool,
+}
+
+struct FakeSshTerminalFactory {
+    backend: TerminalType,
+    recording_active: Arc<AtomicBool>,
+}
+
+impl SshTerminalFactory for FakeSshTerminalFactory {
+    fn build(self: Box<Self>, _cx: &mut Context<Terminal>) -> Terminal {
+        Terminal::new(
+            self.backend,
+            Box::new(FakeBackend::new(self.recording_active)),
+        )
+    }
 }
 
 impl FakeBackend {
@@ -2642,7 +3462,23 @@ impl FakeBackend {
         Self {
             content: gpui_term::TerminalContent::default(),
             recording_active,
+            copy_count: Arc::new(AtomicUsize::new(0)),
+            select_all_count: Arc::new(AtomicUsize::new(0)),
             exited,
+        }
+    }
+
+    fn with_action_counts(
+        recording_active: Arc<AtomicBool>,
+        copy_count: Arc<AtomicUsize>,
+        select_all_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            content: gpui_term::TerminalContent::default(),
+            recording_active,
+            copy_count,
+            select_all_count,
+            exited: false,
         }
     }
 }
@@ -2696,9 +3532,13 @@ impl TerminalBackend for FakeBackend {
 
     fn select_matches(&mut self, _matches: &[RangeInclusive<gpui_term::GridPoint>]) {}
 
-    fn select_all(&mut self) {}
+    fn select_all(&mut self) {
+        self.select_all_count.fetch_add(1, Ordering::SeqCst);
+    }
 
-    fn copy(&mut self, _keep_selection: Option<bool>, _cx: &mut Context<Terminal>) {}
+    fn copy(&mut self, _keep_selection: Option<bool>, _cx: &mut Context<Terminal>) {
+        self.copy_count.fetch_add(1, Ordering::SeqCst);
+    }
 
     fn clear(&mut self) {}
 

@@ -171,6 +171,18 @@ pub enum SftpEvent {
     },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SftpStatus {
+    pub items: usize,
+    pub selected: usize,
+}
+
+impl SftpStatus {
+    pub const fn new(items: usize, selected: usize) -> Self {
+        Self { items, selected }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ContextMenuTarget {
     Background,
@@ -398,6 +410,7 @@ impl SftpView {
 
         let path_sub = Self::subscribe_path_input(&path_input, &table, window, cx);
         let table_events = Self::subscribe_table_events(&table, window, cx);
+        let table_observer = cx.observe(&table, |_, _, cx| cx.notify());
 
         Self {
             table,
@@ -412,8 +425,12 @@ impl SftpView {
             show_preview: false,
             last_pushed_notification_epoch: 0,
             focus_handle,
-            _subscriptions: vec![path_sub, table_events],
+            _subscriptions: vec![path_sub, table_events, table_observer],
         }
+    }
+
+    pub fn status(&self, cx: &App) -> SftpStatus {
+        self.table.read(cx).delegate().status()
     }
 
     fn subscribe_path_input(
@@ -542,6 +559,21 @@ impl SftpView {
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.table
             .update(cx, |state, cx| state.delegate_mut().disconnect(cx));
+    }
+
+    pub fn current_dir(&self, cx: &App) -> Option<String> {
+        self.table
+            .read(cx)
+            .delegate()
+            .tree
+            .as_ref()
+            .map(|tree| tree.root.clone())
+    }
+
+    pub fn change_dir(&mut self, dir: String, cx: &mut Context<Self>) {
+        self.close_preview(cx);
+        self.table
+            .update(cx, |state, cx| state.delegate_mut().cd(dir, cx));
     }
 
     fn on_refresh(&mut self, _: &Refresh, _window: &mut Window, cx: &mut Context<Self>) {

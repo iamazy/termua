@@ -256,7 +256,7 @@ pub(crate) fn bind_menu_shortcuts(cx: &mut App) {
         KeyBinding::new("ctrl-n", NewLocalTerminal, None),
         KeyBinding::new("ctrl-q", Quit, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
-        KeyBinding::new("ctrl-shift-a", ToggleAssistantSidebar, None),
+        KeyBinding::new("ctrl-shift-a", ToggleAssistantSidebar, Some("!Terminal")),
         KeyBinding::new("ctrl-shift-m", ToggleMessagesSidebar, None),
     ]);
 
@@ -266,7 +266,7 @@ pub(crate) fn bind_menu_shortcuts(cx: &mut App) {
         KeyBinding::new("cmd-n", NewLocalTerminal, None),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-shift-a", ToggleAssistantSidebar, None),
+        KeyBinding::new("cmd-shift-a", ToggleAssistantSidebar, Some("!Terminal")),
         KeyBinding::new("cmd-shift-m", ToggleMessagesSidebar, None),
     ]);
 }

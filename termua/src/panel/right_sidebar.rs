@@ -3,7 +3,7 @@ use gpui::{
     ParentElement as _, Render, Styled as _, Subscription, Window, div,
 };
 use gpui_component::{ActiveTheme, v_flex};
-use gpui_dock::{Panel, PanelControl, PanelEvent};
+use gpui_dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState};
 
 use crate::{
     globals::ensure_ctx_global,
@@ -16,6 +16,13 @@ pub struct RightSidebarView {
     notifications: gpui::Entity<MessageCenterView>,
     assistant: gpui::Entity<AssistantPanelView>,
     _subscriptions: Vec<Subscription>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RightSidebarPanelState {
+    version: usize,
+    active_tab: RightSidebarTab,
+    assistant: crate::panel::assistant_panel::AssistantPanelState,
 }
 
 impl gpui::EventEmitter<PanelEvent> for RightSidebarView {}
@@ -46,12 +53,27 @@ impl RightSidebarView {
         }
     }
 
+    pub(crate) fn restore_persisted_state(
+        &mut self,
+        state: RightSidebarPanelState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if state.version != 1 {
+            return;
+        }
+        cx.global_mut::<RightSidebarState>().active_tab = state.active_tab;
+        self.assistant.update(cx, |assistant, cx| {
+            assistant.restore_persisted_state(state.assistant, window, cx)
+        });
+    }
+
     // Intentionally no local tab bar: switching happens via the app-level toggle actions.
 }
 
 impl Panel for RightSidebarView {
     fn panel_name(&self) -> &'static str {
-        "termua.right_sidebar"
+        super::RIGHT_SIDEBAR_PANEL_NAME
     }
 
     fn tab_name(&self, _cx: &App) -> Option<gpui::SharedString> {
@@ -72,6 +94,19 @@ impl Panel for RightSidebarView {
 
     fn inner_padding(&self, _cx: &App) -> bool {
         false
+    }
+
+    fn dump(&self, cx: &App) -> PanelState {
+        let mut state = PanelState::new(self);
+        state.info = PanelInfo::panel(
+            serde_json::to_value(RightSidebarPanelState {
+                version: 1,
+                active_tab: cx.global::<RightSidebarState>().active_tab,
+                assistant: self.assistant.read(cx).persisted_state(cx),
+            })
+            .expect("right sidebar state should serialize"),
+        );
+        state
     }
 }
 
@@ -163,5 +198,40 @@ mod tests {
                 .is_none(),
             "expected right sidebar not to render the full tab bar"
         );
+    }
+
+    #[gpui::test]
+    fn right_sidebar_ignores_unsupported_persisted_state(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            init_test_app(app);
+            app.set_global(crate::right_sidebar::RightSidebarState {
+                active_tab: crate::right_sidebar::RightSidebarTab::Assistant,
+                ..Default::default()
+            });
+        });
+
+        let (sidebar, window_cx) =
+            cx.add_window_view(|window, cx| RightSidebarView::new(window, cx));
+        window_cx.update(|window, cx| {
+            sidebar.update(cx, |sidebar, cx| {
+                sidebar.restore_persisted_state(
+                    RightSidebarPanelState {
+                        version: usize::MAX,
+                        active_tab: crate::right_sidebar::RightSidebarTab::Notifications,
+                        assistant: crate::panel::assistant_panel::AssistantPanelState {
+                            messages: Vec::new(),
+                            draft: "ignored".to_string(),
+                        },
+                    },
+                    window,
+                    cx,
+                );
+            });
+            assert_eq!(
+                cx.global::<crate::right_sidebar::RightSidebarState>()
+                    .active_tab,
+                crate::right_sidebar::RightSidebarTab::Assistant
+            );
+        });
     }
 }

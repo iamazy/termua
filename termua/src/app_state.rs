@@ -12,7 +12,7 @@ pub(crate) struct SshParams {
     pub(crate) opts: SshOptions,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SerialParams {
     pub(crate) name: String,
     pub(crate) port: String,

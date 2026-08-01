@@ -10,7 +10,7 @@ use gpui::{
 use gpui_component::StyledExt;
 use serde::{Deserialize, Serialize};
 
-use super::{DockArea, DockItem, Panel, PanelView, TabPanel};
+use super::{DockArea, DockEvent, DockItem, Panel, PanelView, TabPanel};
 use crate::resizable::{PANEL_MIN_SIZE, resize_handle};
 
 #[derive(Clone)]
@@ -275,12 +275,13 @@ impl Dock {
     }
 
     /// Set the size of the Dock.
-    pub fn set_size(&mut self, size: Pixels, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn set_size(&mut self, size: Pixels, window: &mut Window, cx: &mut Context<Self>) {
         let mut size = size.max(self.min_size);
         if let Some(max) = self.max_size {
             size = size.min(max);
         }
         self.size = size;
+        self.emit_layout_changed(window, cx);
         cx.notify();
     }
 
@@ -291,7 +292,15 @@ impl Dock {
         cx.defer_in(window, move |_, window, cx| {
             item.set_collapsed(!open, window, cx);
         });
+        self.emit_layout_changed(window, cx);
         cx.notify();
+    }
+
+    fn emit_layout_changed(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let dock_area = self.dock_area.clone();
+        cx.defer_in(window, move |_, _window, cx| {
+            let _ = dock_area.update(cx, |_, cx| cx.emit(DockEvent::LayoutChanged));
+        });
     }
 
     /// Add item to the Dock.

@@ -167,6 +167,10 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<TermuaWindow>,
     ) {
+        if let Ok(terminal_panel) = panel.view().downcast::<TerminalPanel>() {
+            let id = terminal_panel.read(cx).id();
+            TerminalPanel::cleanup_runtime_state(id, cx);
+        }
         self.dock_area.update(cx, |dock, cx| {
             dock.remove_panel_from_all_docks(panel, window, cx);
         });

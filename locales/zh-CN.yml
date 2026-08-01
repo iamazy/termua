@@ -143,6 +143,9 @@ ThemeEditor:
   Hint: "编辑主题颜色（仅预览）。"
 
 Footbar:
+  Sftp:
+    Items: "%{count} 个项目"
+    Selected: "已选择 %{count} 个"
   Tooltip:
     Sessions: "会话"
     MultiExecute: "批量执行"

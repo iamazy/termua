@@ -1190,6 +1190,17 @@ impl DockArea {
             .collect()
     }
 
+    pub fn all_tab_panels(&self, cx: &App) -> Vec<Entity<TabPanel>> {
+        let mut out = self.center.tab_panels(cx);
+        for dock in [&self.left_dock, &self.right_dock, &self.bottom_dock]
+            .into_iter()
+            .flatten()
+        {
+            out.extend(dock.read(cx).panel.tab_panels(cx));
+        }
+        out
+    }
+
     fn render_items(&self, _window: &mut Window, _cx: &mut Context<Self>) -> AnyElement {
         match &self.center {
             DockItem::Split { view, .. } => view.clone().into_any_element(),
@@ -1341,6 +1352,65 @@ mod tests {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div()
         }
+    }
+
+    #[gpui::test]
+    fn empty_layout_containers_dump_their_container_type(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            crate::init(app);
+        });
+
+        let window_cx = cx.add_empty_window();
+        window_cx.update(|window, app| {
+            let dock_area = app.new(|cx| DockArea::new("dock", None, window, cx));
+            let dock_weak = dock_area.downgrade();
+
+            let tabs = DockItem::tabs(Vec::new(), &dock_weak, window, app);
+            assert!(matches!(tabs.view().dump(app).info, PanelInfo::Tabs { .. }));
+
+            let stack = DockItem::v_split(Vec::new(), &dock_weak, window, app);
+            assert!(matches!(
+                stack.view().dump(app).info,
+                PanelInfo::Stack { .. }
+            ));
+        });
+    }
+
+    #[gpui::test]
+    fn bare_side_dock_panel_stays_bare_after_state_round_trip(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            crate::init(app);
+            register_panel(app, "fake.panel", |_, _, _, _, cx| {
+                Box::new(cx.new(|cx| FakePanel::new("restored", cx)))
+            });
+        });
+
+        let window_cx = cx.add_empty_window();
+        window_cx.update(|window, app| {
+            let source = app.new(|cx| DockArea::new("source", None, window, cx));
+            let panel: Arc<dyn PanelView> = Arc::new(app.new(|cx| FakePanel::new("source", cx)));
+            source.update(app, |dock, cx| {
+                dock.set_left_dock(DockItem::panel(panel), None, true, window, cx);
+            });
+            let state = source.read(app).dump(app);
+
+            let restored = app.new(|cx| DockArea::new("restored", None, window, cx));
+            restored
+                .update(app, |dock, cx| dock.load(state, window, cx))
+                .expect("restore dock state");
+
+            assert!(matches!(
+                restored
+                    .read(app)
+                    .left_dock()
+                    .expect("left dock")
+                    .read(app)
+                    .panel(),
+                DockItem::Panel { .. }
+            ));
+        });
     }
 
     #[gpui::test]
