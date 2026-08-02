@@ -28,9 +28,75 @@ fn test_session_env(
     Some(env)
 }
 
+fn test_local_session(env: Vec<SessionEnvVar>) -> crate::store::Session {
+    crate::store::Session {
+        id: 1,
+        protocol: crate::store::SessionType::Local,
+        group_path: "local".to_string(),
+        label: "saved shell".to_string(),
+        backend: crate::settings::TerminalBackend::Alacritty,
+        env: Some(env),
+        ssh_host: None,
+        ssh_port: None,
+        ssh_auth_type: None,
+        ssh_user: None,
+        ssh_credential_username: None,
+        ssh_password: None,
+        ssh_tcp_nodelay: false,
+        ssh_tcp_keepalive: false,
+        ssh_proxy_mode: None,
+        ssh_proxy_command: None,
+        ssh_proxy_workdir: None,
+        ssh_proxy_env: None,
+        ssh_proxy_jump: None,
+        serial_port: None,
+        serial_baud: None,
+        serial_data_bits: None,
+        serial_parity: None,
+        serial_stop_bits: None,
+        serial_flow_control: None,
+    }
+}
+
 #[test]
 fn new_session_colorterm_field_label_uses_camel_case_locale() {
     assert_eq!(t!("NewSession.Field.ColorTerm"), "ColorTerm:");
+}
+
+#[test]
+fn shell_program_select_item_icons_match_shell_kinds() {
+    use gpui_common::TermuaIcon;
+
+    for (program, expected) in [
+        ("bash", TermuaIcon::Terminal),
+        ("zsh", TermuaIcon::Terminal),
+        ("fish", TermuaIcon::Fish),
+        ("nu", TermuaIcon::Nushell),
+        ("pwsh", TermuaIcon::Pwsh),
+        ("powershell", TermuaIcon::Pwsh),
+        ("cmd", TermuaIcon::Terminal),
+        ("custom-shell", TermuaIcon::Terminal),
+    ] {
+        assert_eq!(ShellProgramSelectItem::new(program).icon(), expected);
+    }
+}
+
+#[test]
+fn terminal_backend_select_item_icons_match_backends() {
+    use gpui_common::TermuaIcon;
+
+    for (backend, expected) in [
+        (
+            crate::settings::TerminalBackend::Alacritty,
+            TermuaIcon::Alacritty,
+        ),
+        (
+            crate::settings::TerminalBackend::Wezterm,
+            TermuaIcon::Wezterm,
+        ),
+    ] {
+        assert_eq!(TerminalBackendSelectItem::new(backend).icon(), expected);
+    }
 }
 
 #[gpui::test]
@@ -836,7 +902,7 @@ fn new_session_ssh_proxy_page_renders_jumpserver_controls(cx: &mut gpui::TestApp
 }
 
 #[gpui::test]
-fn new_session_session_pages_do_not_render_type_controls(cx: &mut gpui::TestAppContext) {
+fn new_session_shell_type_control_renders(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         menubar::init(app);
         gpui_term::init(app);
@@ -859,12 +925,12 @@ fn new_session_session_pages_do_not_render_type_controls(cx: &mut gpui::TestAppC
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-type")
-            .is_none()
+            .is_some()
     );
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-type-select")
-            .is_none()
+            .is_some()
     );
 
     // Switch to SSH protocol and ensure the SSH session page has its type dropdown.
@@ -1001,7 +1067,7 @@ fn new_session_default_type_matches_terminal_default_backend_setting(
     ));
     std::fs::create_dir_all(&tmp_dir).unwrap();
 
-    // Write a settings.json that selects Alacritty as the default backend.
+    // WezTerm differs from the enum default, so this proves the setting was loaded.
     let path = tmp_dir.join("termua").join("settings.json");
     let _guard = crate::settings::override_settings_json_path(path.clone());
     if let Some(parent) = path.parent() {
@@ -1010,7 +1076,7 @@ fn new_session_default_type_matches_terminal_default_backend_setting(
     std::fs::write(
         &path,
         r#"{
-          "terminal": { "default_backend": "alacritty" }
+          "terminal": { "default_backend": "wezterm" }
         }"#,
     )
     .unwrap();
@@ -1020,24 +1086,73 @@ fn new_session_default_type_matches_terminal_default_backend_setting(
         gpui_term::init(app);
     });
 
-    let shell = cx.add_empty_window();
-    shell.draw(
+    use std::sync::{Arc, Mutex};
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+    win.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
         gpui::size(
             gpui::AvailableSpace::Definite(gpui::px(800.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        |window, app| {
+        move |window, app| {
             let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
             div().size_full().child(view)
         },
     );
-    shell.run_until_parked();
+    win.run_until_parked();
 
-    shell.update(|_window, app| {
-        let view = app.new(|cx| NewSessionWindow::new(_window, cx));
-        let _view = view.read(app);
+    let view = view_slot.lock().unwrap().clone().unwrap();
+    win.update(|_window, app| {
+        let view = view.read(app);
+        for common in [&view.shell.common, &view.ssh.common, &view.serial.common] {
+            assert_eq!(common.backend, crate::settings::TerminalBackend::Wezterm);
+            assert_eq!(
+                common.backend_select.read(app).selected_value(),
+                Some(&crate::settings::TerminalBackend::Wezterm)
+            );
+        }
     });
+}
+
+#[gpui::test]
+fn new_session_renders_terminal_backend_type_for_every_protocol(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    for (protocol, selector) in [
+        (
+            Protocol::Shell,
+            "termua-new-session-shell-backend-type-select",
+        ),
+        (Protocol::Ssh, "termua-new-session-ssh-backend-type-select"),
+        (
+            Protocol::Serial,
+            "termua-new-session-serial-backend-type-select",
+        ),
+    ] {
+        let win = cx.add_empty_window();
+        win.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(
+                gpui::AvailableSpace::Definite(gpui::px(800.)),
+                gpui::AvailableSpace::Definite(gpui::px(600.)),
+            ),
+            move |window, app| {
+                let view = app.new(|cx| {
+                    NewSessionWindow::new_with_mode(SessionEditorMode::New, protocol, window, cx)
+                });
+                div().size_full().child(view)
+            },
+        );
+        win.run_until_parked();
+        assert!(win.debug_bounds(selector).is_some(), "missing {selector}");
+    }
 }
 
 #[gpui::test]
@@ -1189,15 +1304,64 @@ fn new_session_shell_label_follows_shell_program(cx: &mut gpui::TestAppContext) 
     win.run_until_parked();
 
     win.update(|_window, app| {
+        let shell = &view.read(app).shell;
         assert_eq!(
-            view.read(app)
-                .shell
-                .common
-                .label_input
-                .read(app)
-                .value()
-                .as_ref(),
+            shell.common.label_input.read(app).value().as_ref(),
             "powershell"
+        );
+        assert_eq!(
+            shell.program_select.read(app).selected_value(),
+            Some(&SharedString::from("pwsh"))
+        );
+    });
+}
+
+#[gpui::test]
+fn edit_local_session_restores_shell_type(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |window, app| {
+            let mut session = test_local_session(vec![SessionEnvVar {
+                name: gpui_term::shell::TERMUA_SHELL_ENV_KEY.to_string(),
+                value: "nu".to_string(),
+            }]);
+            session.backend = crate::settings::TerminalBackend::Wezterm;
+            let view = app.new(|cx| NewSessionWindow::new_for_edit(session, window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot.lock().unwrap().clone().unwrap();
+    win.update(|_window, app| {
+        let shell = &view.read(app).shell;
+        assert_eq!(shell.program.as_ref(), "nu");
+        assert_eq!(
+            shell.program_select.read(app).selected_value(),
+            Some(&SharedString::from("nu"))
+        );
+        assert_eq!(
+            shell.common.backend,
+            crate::settings::TerminalBackend::Wezterm
+        );
+        assert_eq!(
+            shell.common.backend_select.read(app).selected_value(),
+            Some(&crate::settings::TerminalBackend::Wezterm)
         );
     });
 }
@@ -1316,7 +1480,6 @@ fn edit_session_disables_protocol_switching(cx: &mut gpui::TestAppContext) {
         .unwrap()
         .clone()
         .expect("expected view to be captured");
-
     win.update(|window, app| {
         view.update(app, |this, cx| {
             this.set_protocol(Protocol::Shell, cx);
@@ -1623,6 +1786,19 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
         .unwrap()
         .clone()
         .expect("expected view to be captured");
+    let selected_backend = match crate::settings::load_settings_from_disk()
+        .unwrap_or_default()
+        .terminal
+        .default_backend
+    {
+        crate::settings::TerminalBackend::Alacritty => crate::settings::TerminalBackend::Wezterm,
+        crate::settings::TerminalBackend::Wezterm => crate::settings::TerminalBackend::Alacritty,
+    };
+    win.update(|window, app| {
+        view.update(app, |this, cx| {
+            this.shell.common.set_backend(selected_backend, window, cx);
+        });
+    });
     let expected_label = win.update(|_window, app| {
         let view = view.read(app);
         view.shell.common.label_input.read(app).value().to_string()
@@ -1643,6 +1819,7 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].group_path, "local");
     assert_eq!(sessions[0].label, expected_label);
+    assert_eq!(sessions[0].backend, selected_backend);
 }
 
 #[gpui::test]
@@ -1681,6 +1858,7 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
         .unwrap()
         .clone()
         .expect("expected view to be captured");
+    let expected_shell = win.update(|_window, app| view.read(app).shell.program.to_string());
 
     win.update(|window, app| {
         view.update(app, |this, cx| {
@@ -1729,11 +1907,12 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
             .find(|var| var.name == name)
             .map(|var| var.value.as_str())
     };
-    assert_eq!(env.len(), 4);
+    assert_eq!(env.len(), 5);
     assert_eq!(env_value("TERM"), Some("xterm-256color"));
     assert_eq!(env_value("COLORTERM"), Some("truecolor"));
     assert_eq!(env_value("CHARSET"), Some("UTF-8"));
     assert_eq!(env_value("FOO"), Some("bar"));
+    assert_eq!(env_value("TERMUA_SHELL"), Some(expected_shell.as_str()));
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

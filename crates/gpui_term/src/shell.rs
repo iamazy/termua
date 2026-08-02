@@ -7,6 +7,8 @@ pub const TERMUA_SHELL_ENV_KEY: &str = "TERMUA_SHELL";
 pub enum ShellKind {
     Bash,
     Zsh,
+    Fish,
+    Nu,
     Pwsh,
     PowerShell,
     Cmd,
@@ -34,19 +36,16 @@ pub fn pick_shell_program_from_env_or_else(
 }
 
 pub fn shell_kind(program: &str) -> ShellKind {
-    let program = program.trim();
-    if program.is_empty() {
+    let name = normalized_shell_program_name(program);
+    if name.is_empty() {
         return ShellKind::Other;
     }
 
-    let name = std::path::Path::new(program)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(program);
-
-    match name {
+    match name.as_str() {
         "bash" => ShellKind::Bash,
         "zsh" => ShellKind::Zsh,
+        "fish" => ShellKind::Fish,
+        "nu" => ShellKind::Nu,
         "pwsh" => ShellKind::Pwsh,
         "powershell" => ShellKind::PowerShell,
         "cmd" => ShellKind::Cmd,
@@ -58,6 +57,8 @@ pub fn shell_display_name(program: &str) -> String {
     match shell_kind(program) {
         ShellKind::Bash => "bash".to_string(),
         ShellKind::Zsh => "zsh".to_string(),
+        ShellKind::Fish => "fish".to_string(),
+        ShellKind::Nu => "nushell".to_string(),
         ShellKind::Pwsh | ShellKind::PowerShell => "powershell".to_string(),
         ShellKind::Cmd => "cmd".to_string(),
         ShellKind::Other => std::path::Path::new(program.trim())
@@ -70,15 +71,87 @@ pub fn shell_display_name(program: &str) -> String {
 
 pub fn shell_program_candidates() -> &'static [&'static str] {
     if cfg!(windows) {
-        // Windows: prefer PowerShell 7+ when available, then Windows PowerShell, then cmd.
-        &["pwsh", "powershell", "cmd"]
+        // Windows: prefer PowerShell 7+, Windows PowerShell, and cmd; also detect NuShell.
+        &["pwsh", "powershell", "cmd", "nu"]
     } else if cfg!(target_os = "macos") {
         // macOS: default user shell is zsh on modern macOS.
-        &["zsh", "bash", "pwsh"]
+        &["zsh", "bash", "fish", "nu", "pwsh", "powershell"]
     } else {
         // Linux/*nix: bash is commonly available and expected.
-        &["bash", "zsh", "pwsh"]
+        &["bash", "zsh", "fish", "nu", "pwsh", "powershell"]
     }
+}
+
+fn detect_shell_programs(
+    process_shell: Option<&str>,
+    exists: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    detect_shell_programs_from_candidates(process_shell, shell_program_candidates(), exists)
+}
+
+fn normalized_shell_program_name(program: &str) -> String {
+    let name = program
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default();
+    let name = name.to_ascii_lowercase();
+    name.strip_suffix(".exe").unwrap_or(&name).to_string()
+}
+
+fn detect_shell_programs_from_candidates(
+    process_shell: Option<&str>,
+    candidates: &[&str],
+    exists: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let process_shell = process_shell
+        .map(str::trim)
+        .filter(|shell| !shell.is_empty());
+    let process_shell_name = process_shell.map(normalized_shell_program_name);
+    let process_shell_available = process_shell.is_some_and(&exists);
+    let candidate_states = candidates
+        .iter()
+        .map(|candidate| {
+            let normalized_name = normalized_shell_program_name(candidate);
+            let duplicates_process_shell = process_shell_available
+                && process_shell_name.as_deref() == Some(normalized_name.as_str());
+            let available = !duplicates_process_shell && exists(candidate);
+            (*candidate, normalized_name, available)
+        })
+        .collect::<Vec<_>>();
+    let pwsh_available = (process_shell_available && process_shell_name.as_deref() == Some("pwsh"))
+        || candidate_states
+            .iter()
+            .any(|(_, name, available)| *available && name == "pwsh");
+
+    let mut programs = Vec::new();
+    if let Some(shell) = process_shell.filter(|_| {
+        process_shell_available
+            && !(pwsh_available && process_shell_name.as_deref() == Some("powershell"))
+    }) {
+        programs.push(shell.to_string());
+    }
+
+    for (candidate, candidate_name, available) in candidate_states {
+        if (process_shell_available
+            && process_shell_name.as_deref() == Some(candidate_name.as_str()))
+            || (pwsh_available && candidate_name == "powershell")
+            || !available
+        {
+            continue;
+        }
+        programs.push(candidate.to_string());
+    }
+
+    if programs.is_empty() {
+        programs.push(default_shell_program().to_string());
+    }
+    programs
+}
+
+pub fn available_shell_programs() -> Vec<String> {
+    let process_shell = std::env::var(SHELL_ENV_KEY).ok();
+    detect_shell_programs(process_shell.as_deref(), program_exists_on_path)
 }
 
 pub fn default_shell_program() -> &'static str {
@@ -190,6 +263,8 @@ mod tests {
     fn shell_kind_detects_supported_shells() {
         assert_eq!(shell_kind("/bin/bash"), ShellKind::Bash);
         assert_eq!(shell_kind("zsh"), ShellKind::Zsh);
+        assert_eq!(shell_kind("fish"), ShellKind::Fish);
+        assert_eq!(shell_kind("nu"), ShellKind::Nu);
         assert_eq!(shell_kind("pwsh"), ShellKind::Pwsh);
         assert_eq!(shell_kind("powershell"), ShellKind::PowerShell);
         assert_eq!(shell_kind("cmd"), ShellKind::Cmd);
@@ -197,8 +272,20 @@ mod tests {
     }
 
     #[test]
+    fn shell_kind_normalizes_executable_suffix_case_and_windows_paths() {
+        assert_eq!(shell_kind("/opt/nushell/bin/nu.exe"), ShellKind::Nu);
+        assert_eq!(shell_kind("PWSh.EXE"), ShellKind::Pwsh);
+        assert_eq!(
+            shell_kind(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+            ShellKind::Pwsh
+        );
+    }
+
+    #[test]
     fn shell_display_name_normalizes_supported_shells() {
         assert_eq!(shell_display_name("/bin/bash"), "bash");
+        assert_eq!(shell_display_name("fish"), "fish");
+        assert_eq!(shell_display_name("nu"), "nushell");
         assert_eq!(shell_display_name("pwsh"), "powershell");
         assert_eq!(shell_display_name("powershell"), "powershell");
     }
@@ -219,6 +306,10 @@ mod tests {
     fn platform_shell_candidates_are_ordered_by_preference() {
         let candidates = shell_program_candidates();
 
+        assert!(candidates.contains(&"nu"));
+        assert!(candidates.contains(&"pwsh"));
+        assert!(candidates.contains(&"powershell"));
+
         #[cfg(windows)]
         assert_eq!(candidates.first().copied(), Some("pwsh"));
 
@@ -227,6 +318,91 @@ mod tests {
 
         #[cfg(all(not(windows), not(target_os = "macos")))]
         assert_eq!(candidates.first().copied(), Some("bash"));
+    }
+
+    #[test]
+    fn detected_shell_programs_filters_unavailable_candidates() {
+        let detected = detect_shell_programs(None, |program| matches!(program, "zsh" | "nu"));
+
+        assert_eq!(detected, vec!["zsh".to_string(), "nu".to_string()]);
+    }
+
+    #[test]
+    fn detected_shell_programs_prefers_executable_process_shell() {
+        let detected = detect_shell_programs(Some("/opt/homebrew/bin/fish"), |program| {
+            matches!(program, "/opt/homebrew/bin/fish" | "bash" | "fish")
+        });
+
+        assert_eq!(
+            detected.first().map(String::as_str),
+            Some("/opt/homebrew/bin/fish")
+        );
+        assert_eq!(
+            detected
+                .iter()
+                .filter(|program| program.ends_with("fish"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn detected_shell_programs_prefers_power_shell_7_when_both_versions_exist() {
+        let detected =
+            detect_shell_programs_from_candidates(None, &["pwsh", "powershell", "nu"], |_| true);
+
+        assert_eq!(detected, vec!["pwsh".to_string(), "nu".to_string()]);
+    }
+
+    #[test]
+    fn detected_shell_programs_does_not_probe_a_candidate_more_than_once() {
+        use std::{cell::RefCell, collections::HashMap};
+
+        let probe_counts = RefCell::new(HashMap::<String, usize>::new());
+        let detected =
+            detect_shell_programs_from_candidates(None, &["pwsh", "powershell", "nu"], |program| {
+                *probe_counts
+                    .borrow_mut()
+                    .entry(program.to_string())
+                    .or_default() += 1;
+                true
+            });
+
+        assert_eq!(detected, vec!["pwsh".to_string(), "nu".to_string()]);
+        assert!(
+            probe_counts.borrow().values().all(|count| *count == 1),
+            "each PATH candidate should be probed at most once: {:?}",
+            probe_counts.borrow()
+        );
+    }
+
+    #[test]
+    fn detected_shell_programs_keeps_power_shell_5_when_version_7_is_missing() {
+        let detected =
+            detect_shell_programs_from_candidates(None, &["pwsh", "powershell"], |program| {
+                program == "powershell"
+            });
+
+        assert_eq!(detected, vec!["powershell".to_string()]);
+    }
+
+    #[test]
+    fn detected_shell_programs_drops_power_shell_5_process_shell_when_version_7_exists() {
+        let detected = detect_shell_programs_from_candidates(
+            Some("/opt/microsoft/powershell"),
+            &["pwsh", "powershell"],
+            |program| matches!(program, "/opt/microsoft/powershell" | "pwsh" | "powershell"),
+        );
+
+        assert_eq!(detected, vec!["pwsh".to_string()]);
+    }
+
+    #[test]
+    fn detected_shell_programs_falls_back_when_none_are_available() {
+        assert_eq!(
+            detect_shell_programs(Some("/missing/shell"), |_| false),
+            vec![default_shell_program().to_string()]
+        );
     }
 
     #[test]

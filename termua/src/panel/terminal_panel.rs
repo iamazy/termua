@@ -101,10 +101,7 @@ pub(crate) fn local_terminal_panel_tab_name(
     id: usize,
     counts: &mut HashMap<String, usize>,
 ) -> SharedString {
-    let Some(base) = gpui_term::shell::pick_shell_program_from_env(env)
-        .map(gpui_term::shell::shell_display_name)
-        .filter(|name| !name.trim().is_empty())
-    else {
+    let Some(base) = local_shell_display_name_from_env(env) else {
         return terminal_panel_tab_name(PanelKind::Local, id);
     };
 
@@ -114,7 +111,24 @@ pub(crate) fn local_terminal_panel_tab_name(
     if *count == 1 {
         base.into()
     } else {
-        format!("{base} {id}").into()
+        format!("{base} {count}").into()
+    }
+}
+
+pub(crate) fn local_shell_display_name_from_env(env: &HashMap<String, String>) -> Option<String> {
+    gpui_term::shell::pick_shell_program_from_env(env)
+        .map(gpui_term::shell::shell_display_name)
+        .filter(|name| !name.trim().is_empty())
+}
+
+pub(crate) fn shell_icon_for_program(program: Option<&str>) -> TermuaIcon {
+    match program.map(gpui_term::shell::shell_kind) {
+        Some(gpui_term::shell::ShellKind::Fish) => TermuaIcon::Fish,
+        Some(gpui_term::shell::ShellKind::Nu) => TermuaIcon::Nushell,
+        Some(gpui_term::shell::ShellKind::Pwsh | gpui_term::shell::ShellKind::PowerShell) => {
+            TermuaIcon::Pwsh
+        }
+        _ => TermuaIcon::Terminal,
     }
 }
 
@@ -137,6 +151,26 @@ pub(crate) fn tab_icon_for_terminal_panel(kind: PanelKind) -> gpui_dock::TabIcon
             color: None,
         },
     }
+}
+
+pub(crate) fn tab_icon_for_terminal_panel_with_launch(
+    kind: PanelKind,
+    launch_state: Option<&TerminalLaunchState>,
+) -> gpui_dock::TabIcon {
+    if kind == PanelKind::Local {
+        let program = match launch_state {
+            Some(TerminalLaunchState::Local { env, .. }) => {
+                gpui_term::shell::pick_shell_program_from_env(env)
+            }
+            _ => None,
+        };
+        return gpui_dock::TabIcon::Monochrome {
+            path: shell_icon_for_program(program).into(),
+            color: None,
+        };
+    }
+
+    tab_icon_for_terminal_panel(kind)
 }
 
 pub(crate) struct TerminalPanel {
@@ -194,6 +228,13 @@ impl TerminalPanel {
 
     pub(crate) fn tab_label(&self) -> SharedString {
         self.tab_label.clone()
+    }
+
+    pub(crate) fn local_shell_display_name(&self) -> Option<String> {
+        match self.launch_state.as_ref() {
+            Some(TerminalLaunchState::Local { env, .. }) => local_shell_display_name_from_env(env),
+            _ => None,
+        }
     }
 
     pub(crate) fn cleanup_runtime_state<T>(id: usize, cx: &mut Context<T>) {
@@ -519,7 +560,10 @@ impl Panel for TerminalPanel {
     }
 
     fn tab_icon(&self, _cx: &App) -> Option<gpui_dock::TabIcon> {
-        Some(tab_icon_for_terminal_panel(self.kind))
+        Some(tab_icon_for_terminal_panel_with_launch(
+            self.kind,
+            self.launch_state.as_ref(),
+        ))
     }
 
     fn set_active(&mut self, active: bool, _window: &mut Window, cx: &mut Context<Self>) {
@@ -650,6 +694,29 @@ mod tests {
     }
 
     #[test]
+    fn local_terminal_tab_icons_follow_shell_program() {
+        for (program, expected_icon) in [
+            ("bash", TermuaIcon::Terminal),
+            ("zsh", TermuaIcon::Terminal),
+            ("fish", TermuaIcon::Fish),
+            ("nu", TermuaIcon::Nushell),
+            ("pwsh", TermuaIcon::Pwsh),
+            ("powershell", TermuaIcon::Pwsh),
+            ("cmd", TermuaIcon::Terminal),
+        ] {
+            let launch = TerminalLaunchState::Local {
+                backend_type: gpui_term::TerminalType::WezTerm,
+                env: HashMap::from([("TERMUA_SHELL".to_string(), program.to_string())]),
+            };
+            assert!(matches!(
+                tab_icon_for_terminal_panel_with_launch(PanelKind::Local, Some(&launch)),
+                gpui_dock::TabIcon::Monochrome { path, color: None }
+                    if path.as_ref() == expected_icon.path()
+            ));
+        }
+    }
+
+    #[test]
     fn recorder_tabs_use_recorder_prefix() {
         assert_eq!(
             terminal_panel_tab_name(PanelKind::Local, 7).as_ref(),
@@ -691,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_local_shell_tabs_append_terminal_id() {
+    fn duplicate_local_shell_tabs_append_shell_sequence() {
         let mut counts = HashMap::new();
         let mut env = HashMap::new();
         env.insert("TERMUA_SHELL".into(), "bash".into());
@@ -702,7 +769,7 @@ mod tests {
         );
         assert_eq!(
             local_terminal_panel_tab_name(&env, 9, &mut counts).as_ref(),
-            "bash 9"
+            "bash 2"
         );
     }
 

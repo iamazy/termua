@@ -592,7 +592,7 @@ fn sessions_context_menu_includes_edit_item(cx: &mut gpui::TestAppContext) {
 
 #[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
-fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
+fn powershell_local_session_uses_shell_specific_icon(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
     });
@@ -600,14 +600,27 @@ fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
     let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-pwsh-icon");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
-    let session_id = crate::store::save_local_session(
+    let session_id = crate::store::save_local_session_with_env(
         "local",
         "powershell",
         crate::settings::TerminalBackend::Wezterm,
         "xterm-256color",
+        None,
         "UTF-8",
+        vec![SessionEnvVar {
+            name: gpui_term::shell::TERMUA_SHELL_ENV_KEY.to_string(),
+            value: "pwsh".to_string(),
+        }],
     )
     .unwrap();
+
+    let sessions = crate::store::load_all_sessions().unwrap();
+    let icon_kinds = icons::build_session_icon_kinds(&sessions);
+    assert_eq!(
+        icon_kinds.get(&session_id),
+        Some(&icons::SessionIconKind::Pwsh),
+        "PowerShell should use the PowerShell icon"
+    );
 
     let (root, cx) = cx.add_window_view(|window, cx| {
         let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
@@ -627,7 +640,7 @@ fn local_sessions_always_show_terminal_icon(cx: &mut gpui::TestAppContext) {
     let icon_selector: &'static str =
         Box::leak(format!("termua-sessions-session-icon-local-{session_id}").into_boxed_str());
     cx.debug_bounds(icon_selector)
-        .expect("expected local sessions to render the generic terminal icon");
+        .expect("expected PowerShell session icon to render");
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

@@ -346,6 +346,8 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
     });
     first_cx.update(|window, cx| {
         first.update(cx, |this, cx| {
+            // Simulate a long-running app where many terminal IDs were previously consumed.
+            this.next_terminal_id = 42;
             let env = HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]);
             add_fake_local_terminal_with_launch(
                 this,
@@ -388,6 +390,23 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
                 .downcast::<crate::panel::TerminalPanel>()
                 .is_ok(),
             "saved terminal panel should be rebuilt by its registered factory"
+        );
+        assert_eq!(
+            restored.read(cx).next_terminal_id,
+            1,
+            "new tabs after restart should reuse the smallest available terminal ID"
+        );
+        let next_label = restored.update(cx, |this, _cx| {
+            crate::panel::local_terminal_panel_tab_name(
+                &HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]),
+                this.next_terminal_id,
+                &mut this.local_tab_label_counts,
+            )
+        });
+        assert_eq!(
+            next_label.as_ref(),
+            "sh 2",
+            "restored local tabs should contribute to per-shell label numbering"
         );
     });
     assert_eq!(restore_attempts.load(Ordering::SeqCst), 1);

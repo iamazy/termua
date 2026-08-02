@@ -570,8 +570,7 @@ impl TermuaWindow {
                     return;
                 }
 
-                let id = self.next_terminal_id;
-                self.next_terminal_id += 1;
+                let id = self.take_next_terminal_id(cx);
 
                 let tab_label =
                     dedupe_tab_label(&mut self.ssh_tab_label_counts, params.name.as_str());

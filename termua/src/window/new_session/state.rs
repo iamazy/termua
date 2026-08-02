@@ -1,11 +1,19 @@
-use gpui::{App, Entity, IntoElement, ParentElement, SharedString, Window, div};
+use gpui::{
+    AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, StyledImage, Window,
+    div, img, px,
+};
+use gpui_common::TermuaIcon;
 use gpui_component::{
+    Icon, Sizable, h_flex,
     input::InputState,
     select::{SearchableVec, SelectItem, SelectState},
 };
 use rust_i18n::t;
 
-use crate::store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode};
+use crate::{
+    settings::TerminalBackend,
+    store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode},
+};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(super) enum SessionEditorMode {
@@ -27,6 +35,8 @@ impl SessionEditorMode {
 }
 
 pub(super) struct SessionCommonState {
+    pub(super) backend: TerminalBackend,
+    pub(super) backend_select: Entity<SelectState<SearchableVec<TerminalBackendSelectItem>>>,
     pub(super) term: SharedString,
     pub(super) colorterm: SharedString,
     pub(super) charset: SharedString,
@@ -38,17 +48,108 @@ pub(super) struct SessionCommonState {
     pub(super) charset_select: Entity<SelectState<SearchableVec<SharedString>>>,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(super) struct TerminalBackendSelectItem {
+    backend: TerminalBackend,
+}
+
+impl TerminalBackendSelectItem {
+    pub(super) fn new(backend: TerminalBackend) -> Self {
+        Self { backend }
+    }
+
+    fn label(&self) -> &'static str {
+        match self.backend {
+            TerminalBackend::Alacritty => "Alacritty",
+            TerminalBackend::Wezterm => "WezTerm",
+        }
+    }
+
+    pub(super) fn icon(&self) -> TermuaIcon {
+        match self.backend {
+            TerminalBackend::Alacritty => TermuaIcon::Alacritty,
+            TerminalBackend::Wezterm => TermuaIcon::Wezterm,
+        }
+    }
+
+    fn render_title(&self) -> impl IntoElement {
+        h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                img(self.icon())
+                    .w(px(16.))
+                    .h(px(16.))
+                    .flex_shrink_0()
+                    .object_fit(gpui::ObjectFit::Contain),
+            )
+            .child(div().child(self.label()))
+    }
+}
+
+impl SelectItem for TerminalBackendSelectItem {
+    type Value = TerminalBackend;
+
+    fn title(&self) -> SharedString {
+        self.label().into()
+    }
+
+    fn display_title(&self) -> Option<AnyElement> {
+        Some(self.render_title().into_any_element())
+    }
+
+    fn render(&self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        self.render_title()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.backend
+    }
+}
+
 pub(super) struct ShellSessionState {
     pub(super) program: SharedString,
+    pub(super) program_options: Vec<ShellProgramSelectItem>,
+    pub(super) program_select: Entity<SelectState<SearchableVec<ShellProgramSelectItem>>>,
     pub(super) env_rows: Vec<EnvRowState>,
     pub(super) env_next_id: u64,
     pub(super) common: SessionCommonState,
 }
 
 pub(super) fn shell_program_title(program: &str) -> SharedString {
-    match program {
-        "pwsh" => SharedString::from("powershell"),
-        other => SharedString::from(other.to_string()),
+    gpui_term::shell::shell_display_name(program).into()
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ShellProgramSelectItem {
+    program: SharedString,
+}
+
+impl ShellProgramSelectItem {
+    pub(super) fn new(program: impl Into<SharedString>) -> Self {
+        Self {
+            program: program.into(),
+        }
+    }
+
+    pub(super) fn icon(&self) -> TermuaIcon {
+        use gpui_term::shell::ShellKind;
+
+        match gpui_term::shell::shell_kind(self.program.as_ref()) {
+            ShellKind::Bash => TermuaIcon::Terminal,
+            ShellKind::Fish => TermuaIcon::Fish,
+            ShellKind::Nu => TermuaIcon::Nushell,
+            ShellKind::Pwsh | ShellKind::PowerShell => TermuaIcon::Pwsh,
+            ShellKind::Zsh | ShellKind::Cmd | ShellKind::Other => TermuaIcon::Terminal,
+        }
+    }
+
+    fn render_title(&self) -> impl IntoElement {
+        h_flex()
+            .items_center()
+            .gap_2()
+            .child(Icon::empty().path(self.icon().path()).small())
+            .child(div().child(self.title()))
     }
 }
 
@@ -206,6 +307,26 @@ impl SelectItem for SshAuthSelectItem {
 
     fn value(&self) -> &Self::Value {
         &self.auth_type
+    }
+}
+
+impl SelectItem for ShellProgramSelectItem {
+    type Value = SharedString;
+
+    fn title(&self) -> SharedString {
+        shell_program_title(self.program.as_ref())
+    }
+
+    fn display_title(&self) -> Option<AnyElement> {
+        Some(self.render_title().into_any_element())
+    }
+
+    fn render(&self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        self.render_title()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.program
     }
 }
 
