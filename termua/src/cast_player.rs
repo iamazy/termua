@@ -366,6 +366,7 @@ mod tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn play_cast_removes_only_complete_fish_newline_probes() {
         let genuine_output = serde_json::to_string(&(0.0, "o", "user output: ⏎\r\n")).unwrap();
         let fish_probe = serde_json::to_string(&(
