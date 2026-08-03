@@ -322,7 +322,10 @@ mod tests {
 
     #[test]
     fn detected_shell_programs_filters_unavailable_candidates() {
-        let detected = detect_shell_programs(None, |program| matches!(program, "zsh" | "nu"));
+        let detected =
+            detect_shell_programs_from_candidates(None, &["zsh", "bash", "nu"], |program| {
+                matches!(program, "zsh" | "nu")
+            });
 
         assert_eq!(detected, vec!["zsh".to_string(), "nu".to_string()]);
     }
