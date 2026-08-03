@@ -30,7 +30,7 @@ use crate::{
         line_number::{
             LineNumberPaintData, LineNumberState, compute_line_number_layout,
             compute_line_number_paint_data, paint_line_numbers,
-            reserve_left_padding_without_line_numbers, should_relayout_for_mode_change,
+            reserve_left_padding_without_line_numbers, should_relayout_for_line_number_change,
             should_show_line_numbers,
         },
         scrolling::{SCROLLBAR_WIDTH, scrollbar_geometry_for_terminal},
@@ -1217,12 +1217,17 @@ impl TerminalElement {
         let mut last_hovered_word =
             Self::sync_terminal_for_prepaint(terminal, dimensions, bounds, &hover_word, window, cx);
 
-        // After syncing, reconcile line number visibility with the updated mode.
-        let mode_after_sync = terminal.read(cx).last_content().mode;
-        if should_relayout_for_mode_change(
+        // After syncing, reconcile every input that can change the line-number gutter.
+        let (mode_after_sync, total_lines_after_sync) = {
+            let terminal = terminal.read(cx);
+            (terminal.last_content().mode, terminal.total_lines())
+        };
+        if should_relayout_for_line_number_change(
             typography.show_line_numbers_setting,
             initial_mode,
+            total_lines_for_digits,
             mode_after_sync,
+            total_lines_after_sync,
         ) {
             show_line_numbers_for_layout =
                 should_show_line_numbers(typography.show_line_numbers_setting, mode_after_sync);
@@ -1232,7 +1237,6 @@ impl TerminalElement {
                     mode_after_sync,
                 );
 
-            let total_lines_for_digits = terminal.read(cx).total_lines();
             (
                 dimensions,
                 gutter,
@@ -1246,7 +1250,7 @@ impl TerminalElement {
                 typography.show_scrollbar,
                 show_line_numbers_for_layout,
                 reserve_left_padding_without_line_numbers_for_layout,
-                total_lines_for_digits,
+                total_lines_after_sync,
             );
 
             last_hovered_word = Self::sync_terminal_for_prepaint(
@@ -3613,7 +3617,9 @@ mod tests {
         compute_terminal_layout_metrics, highlight_quads_for_range, placeholder_highlight_bgs,
         snippet_placeholder_bg_quads,
     };
-    use crate::{GridPoint, TerminalMode, view::line_number::should_relayout_for_mode_change};
+    use crate::{
+        GridPoint, TerminalMode, view::line_number::should_relayout_for_line_number_change,
+    };
 
     #[test]
     fn placeholder_highlight_colors_are_theme_derived() {
@@ -3640,10 +3646,12 @@ mod tests {
 
     #[test]
     fn relayouts_when_exiting_alt_screen_with_hidden_line_numbers() {
-        assert!(should_relayout_for_mode_change(
+        assert!(should_relayout_for_line_number_change(
             false,
             TerminalMode::ALT_SCREEN,
-            TerminalMode::empty()
+            24,
+            TerminalMode::empty(),
+            24,
         ));
     }
 
