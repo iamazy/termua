@@ -221,10 +221,6 @@ fn new_session_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
         window.debug_bounds("termua-lock-overlay").is_some(),
         "expected New Session to render the lock overlay while locked"
     );
-    assert!(
-        window.debug_bounds("termua-lock-drag-overlay").is_some(),
-        "expected a drag overlay so the window remains movable while locked"
-    );
     assert!(window.debug_bounds("termua-lock-password-input").is_some());
 }
 

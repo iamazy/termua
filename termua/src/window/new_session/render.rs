@@ -132,21 +132,27 @@ impl Render for NewSessionWindow {
                         .child(div().text_sm().child(title)),
                 ),
             )
-            .child(self.render_protocol_tabs(window, cx))
             .child(
-                h_flex()
-                    .id("termua-new-session-main")
+                v_flex()
                     .flex_1()
                     .min_h_0()
-                    .items_stretch()
-                    .child(self.render_left_pane(window, cx))
-                    .child(self.render_right_pane(window, cx)),
+                    .relative()
+                    .child(self.render_protocol_tabs(window, cx))
+                    .child(
+                        h_flex()
+                            .id("termua-new-session-main")
+                            .flex_1()
+                            .min_h_0()
+                            .items_stretch()
+                            .child(self.render_left_pane(window, cx))
+                            .child(self.render_right_pane(window, cx)),
+                    )
+                    .child(self.render_footer(connect_enabled, window, cx))
+                    .when_some(lock_overlay, |this, overlay| this.child(overlay)),
             )
-            .child(self.render_footer(connect_enabled, window, cx))
             .children(gpui_component::Root::render_sheet_layer(window, cx))
             .children(gpui_component::Root::render_dialog_layer(window, cx))
             .children(gpui_component::Root::render_notification_layer(window, cx))
-            .when_some(lock_overlay, |this, overlay| this.child(overlay))
     }
 }
 

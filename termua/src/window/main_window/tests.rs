@@ -1510,9 +1510,17 @@ fn main_window_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
     window.run_until_parked();
 
     assert!(window.debug_bounds("termua-lock-overlay").is_some());
+    let overlay_bounds = window
+        .debug_bounds("termua-lock-overlay")
+        .expect("expected lock overlay bounds");
+    assert_eq!(overlay_bounds.origin.y, gpui_component::TITLE_BAR_HEIGHT);
     assert!(
-        window.debug_bounds("termua-lock-drag-overlay").is_some(),
-        "expected a drag overlay so the window remains movable while locked"
+        window.debug_bounds("termua-window-titlebar").is_some(),
+        "titlebar should remain visible while locked so window controls remain available"
+    );
+    assert!(
+        window.debug_bounds("foldable-app-menu-bar").is_none(),
+        "in-window menu should be hidden while locked"
     );
     assert!(window.debug_bounds("termua-lock-password-input").is_some());
 }

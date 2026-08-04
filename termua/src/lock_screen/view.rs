@@ -1,7 +1,6 @@
 use gpui::{
-    AnyElement, App, Context, CursorStyle, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, SharedString, Styled, Window, div,
-    prelude::FluentBuilder as _,
+    AnyElement, App, Context, Entity, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, SharedString, Styled, Window, div, prelude::FluentBuilder as _,
 };
 use gpui_component::{
     ActiveTheme as _, IconName, Sizable as _,
@@ -76,19 +75,6 @@ pub fn render_lock_overlay<T: 'static>(
     unlock: fn(&mut T, &mut Window, &mut Context<T>),
     cx: &mut Context<T>,
 ) -> AnyElement {
-    let left_inset = if cfg!(target_os = "macos") {
-        // Leave room for macOS traffic-light window controls.
-        gpui::px(84.)
-    } else {
-        gpui::px(0.)
-    };
-    let right_inset = if cfg!(target_os = "macos") {
-        gpui::px(0.)
-    } else {
-        // Leave room for right-side window controls.
-        gpui::px(140.)
-    };
-
     div()
         .id("termua-lock-overlay")
         .debug_selector(|| "termua-lock-overlay".to_string())
@@ -146,21 +132,6 @@ pub fn render_lock_overlay<T: 'static>(
                             )),
                     ),
             ),
-        )
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .left(left_inset)
-                .right(right_inset)
-                .h(gpui_component::TITLE_BAR_HEIGHT)
-                .debug_selector(|| "termua-lock-drag-overlay".to_string())
-                .cursor(CursorStyle::OpenHand)
-                .on_mouse_down(MouseButton::Left, |_ev, window, cx| {
-                    window.prevent_default();
-                    cx.stop_propagation();
-                    window.start_window_move();
-                }),
         )
         .into_any_element()
 }
