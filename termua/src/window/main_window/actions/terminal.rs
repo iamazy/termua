@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use gpui::{AppContext, Context, FocusHandle, ReadGlobal, SharedString, Window};
 use gpui_dock::{DockPlacement, PanelView};
@@ -17,6 +20,72 @@ use crate::{
 };
 
 impl TermuaWindow {
+    fn occupied_terminal_ids(&self, cx: &gpui::App) -> HashSet<usize> {
+        self.dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| {
+                if let Ok(panel) = panel.view().downcast::<TerminalPanel>() {
+                    return Some(panel.read(cx).id());
+                }
+                panel
+                    .view()
+                    .downcast::<crate::panel::SshErrorPanel>()
+                    .ok()
+                    .map(|panel| panel.read(cx).id())
+            })
+            .collect()
+    }
+
+    pub(in crate::window::main_window) fn take_next_terminal_id(
+        &mut self,
+        cx: &gpui::App,
+    ) -> usize {
+        let occupied = self.occupied_terminal_ids(cx);
+
+        while occupied.contains(&self.next_terminal_id) {
+            self.next_terminal_id = self.next_terminal_id.saturating_add(1);
+        }
+        let id = self.next_terminal_id;
+        self.next_terminal_id = self.next_terminal_id.saturating_add(1);
+        id
+    }
+
+    fn reset_next_terminal_id(&mut self, cx: &gpui::App) {
+        let occupied = self.occupied_terminal_ids(cx);
+        self.next_terminal_id = 1;
+        while occupied.contains(&self.next_terminal_id) {
+            self.next_terminal_id = self.next_terminal_id.saturating_add(1);
+        }
+    }
+
+    fn rebuild_local_tab_label_counts(&mut self, cx: &gpui::App) {
+        self.local_tab_label_counts.clear();
+        let shell_names = self
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| {
+                if let Ok(panel) = panel.view().downcast::<TerminalPanel>() {
+                    return panel.read(cx).local_shell_display_name();
+                }
+                panel
+                    .view()
+                    .downcast::<crate::panel::SshErrorPanel>()
+                    .ok()
+                    .and_then(|panel| panel.read(cx).local_shell_display_name())
+            })
+            .collect::<Vec<_>>();
+
+        for shell_name in shell_names {
+            *self.local_tab_label_counts.entry(shell_name).or_default() += 1;
+        }
+    }
+
     pub(super) fn add_local_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.add_local_terminal_with_params(TerminalType::WezTerm, HashMap::new(), window, cx);
     }
@@ -471,8 +540,7 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
-        let id = self.next_terminal_id;
-        self.next_terminal_id += 1;
+        let id = self.take_next_terminal_id(cx);
 
         let tab_label = dedupe_tab_label(&mut self.ssh_tab_label_counts, name.as_str());
         let tab_tooltip = ssh_tab_tooltip(&opts);
@@ -499,8 +567,7 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
-        let id = self.next_terminal_id;
-        self.next_terminal_id += 1;
+        let id = self.take_next_terminal_id(cx);
 
         let tab_label = terminal_panel_tab_name(PanelKind::Serial, id);
         let tab_tooltip: SharedString = format!("{name}\n{} @ {}", opts.port, opts.baud).into();
@@ -527,8 +594,7 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TerminalPanel> {
-        let id = self.next_terminal_id;
-        self.next_terminal_id += 1;
+        let id = self.take_next_terminal_id(cx);
 
         let tab_label = match kind {
             PanelKind::Local => crate::panel::local_terminal_panel_tab_name(
@@ -579,7 +645,6 @@ impl TermuaWindow {
                 let panel = panel.read(cx);
                 (panel.id(), panel.tab_label(), panel.terminal_view())
             };
-            self.next_terminal_id = self.next_terminal_id.max(id.saturating_add(1));
             let terminal = terminal_view.read(cx).terminal.clone();
             self.subscribe_terminal_events_for_messages(
                 terminal.clone(),
@@ -598,6 +663,8 @@ impl TermuaWindow {
             );
             self.subscribe_terminal_view_events(&terminal_view, window, cx);
         }
+        self.reset_next_terminal_id(cx);
+        self.rebuild_local_tab_label_counts(cx);
     }
 
     pub(in crate::window::main_window) fn restore_pending_sftp_panels(

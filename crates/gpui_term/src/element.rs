@@ -30,10 +30,10 @@ use crate::{
         line_number::{
             LineNumberPaintData, LineNumberState, compute_line_number_layout,
             compute_line_number_paint_data, paint_line_numbers,
-            reserve_left_padding_without_line_numbers, should_relayout_for_mode_change,
+            reserve_left_padding_without_line_numbers, should_relayout_for_line_number_change,
             should_show_line_numbers,
         },
-        scrolling::{SCROLLBAR_WIDTH, scrollbar_geometry_for_terminal},
+        scrolling::{SCROLLBAR_WIDTH, scrollbar_bounds_for_terminal},
     },
 };
 
@@ -94,8 +94,9 @@ fn compute_terminal_layout_metrics(
     };
 
     let mut size = bounds.size;
-    // The scrollbar is an overlay; do not reserve horizontal space for it.
-    size.width -= gutter;
+    // Keep the scrollbar/marker lane outside the terminal cell grid so progress, search-match,
+    // and soft-wrap markers never cover actual terminal characters.
+    size.width -= gutter + scrollbar_width;
 
     // Workaround: if the terminal is effectively one column wide, some wide
     // characters can trigger incorrect wrap/damage behavior in the backend.
@@ -120,6 +121,7 @@ pub struct LayoutState {
     hitbox: Hitbox,
     bg_quads: Vec<BgQuad>,
     text_spans: Vec<TextSpan>,
+    soft_wrap_markers: Vec<GridPoint>,
     relative_highlighted_ranges: Vec<(RangeInclusive<GridPoint>, Hsla)>,
     cursor: Option<CursorLayout>,
     background_color: Hsla,
@@ -707,7 +709,6 @@ impl TerminalElement {
         terminal_view: &Entity<TerminalView>,
         suggestions_hovered_row: Option<usize>,
         sb_bounds: Bounds<Pixels>,
-        track: Bounds<Pixels>,
         e: &MouseMoveEvent,
         cx: &mut App,
     ) {
@@ -724,7 +725,7 @@ impl TerminalElement {
                 return;
             }
 
-            view.update_scrollbar_preview_at(track, e.position, view_cx);
+            view.update_scrollbar_preview_at(sb_bounds, e.position, view_cx);
         });
     }
 
@@ -879,15 +880,12 @@ impl TerminalElement {
                 let suggestions_hovered_row =
                     suggestions_overlay_row_at_position(&terminal, &terminal_view, e.position, cx);
 
-                let geometry = terminal_view.read(cx).scrollbar_geometry(cx);
-                let sb_bounds = geometry.bounds;
-                let track = geometry.track;
+                let sb_bounds = terminal_view.read(cx).scrollbar_bounds(cx);
 
                 Self::update_scrollbar_hover_state(
                     &terminal_view,
                     suggestions_hovered_row,
                     sb_bounds,
-                    track,
                     e,
                     cx,
                 );
@@ -1106,6 +1104,7 @@ struct PrepaintArtifacts {
     relative_highlighted_ranges: Vec<(RangeInclusive<GridPoint>, Hsla)>,
     bg_quads: Vec<BgQuad>,
     text_spans: Vec<TextSpan>,
+    soft_wrap_markers: Vec<GridPoint>,
     scrollbar_bounds: Bounds<Pixels>,
 }
 
@@ -1217,12 +1216,17 @@ impl TerminalElement {
         let mut last_hovered_word =
             Self::sync_terminal_for_prepaint(terminal, dimensions, bounds, &hover_word, window, cx);
 
-        // After syncing, reconcile line number visibility with the updated mode.
-        let mode_after_sync = terminal.read(cx).last_content().mode;
-        if should_relayout_for_mode_change(
+        // After syncing, reconcile every input that can change the line-number gutter.
+        let (mode_after_sync, total_lines_after_sync) = {
+            let terminal = terminal.read(cx);
+            (terminal.last_content().mode, terminal.total_lines())
+        };
+        if should_relayout_for_line_number_change(
             typography.show_line_numbers_setting,
             initial_mode,
+            total_lines_for_digits,
             mode_after_sync,
+            total_lines_after_sync,
         ) {
             show_line_numbers_for_layout =
                 should_show_line_numbers(typography.show_line_numbers_setting, mode_after_sync);
@@ -1232,7 +1236,6 @@ impl TerminalElement {
                     mode_after_sync,
                 );
 
-            let total_lines_for_digits = terminal.read(cx).total_lines();
             (
                 dimensions,
                 gutter,
@@ -1246,7 +1249,7 @@ impl TerminalElement {
                 typography.show_scrollbar,
                 show_line_numbers_for_layout,
                 reserve_left_padding_without_line_numbers_for_layout,
-                total_lines_for_digits,
+                total_lines_after_sync,
             );
 
             last_hovered_word = Self::sync_terminal_for_prepaint(
@@ -1331,6 +1334,7 @@ impl TerminalElement {
             hitbox,
             bg_quads: artifacts.bg_quads,
             text_spans: artifacts.text_spans,
+            soft_wrap_markers: artifacts.soft_wrap_markers,
             cursor,
             background_color: artifacts.background_color,
             dimensions,
@@ -1387,8 +1391,7 @@ impl TerminalElement {
         let terminal_view_read = terminal_view.read(cx);
         let scroll_top = terminal_view_read.scroll_top();
 
-        let scrollbar_bounds =
-            scrollbar_geometry_for_terminal(dimensions.bounds, scrollbar_width).bounds;
+        let scrollbar_bounds = scrollbar_bounds_for_terminal(dimensions.bounds, scrollbar_width);
 
         let relative_highlighted_ranges = Self::build_relative_highlighted_ranges(
             &search_matches,
@@ -1414,6 +1417,8 @@ impl TerminalElement {
         );
 
         let background_color = Self::background_color_for_cells(cells, cx);
+        let start_line_offset = (display_offset.min(i32::MAX as usize)) as i32;
+        let soft_wrap_markers = soft_wrap_marker_points(cells, start_line_offset, &search_matches);
 
         PrepaintArtifacts {
             mode,
@@ -1426,6 +1431,7 @@ impl TerminalElement {
             relative_highlighted_ranges,
             bg_quads,
             text_spans,
+            soft_wrap_markers,
             scrollbar_bounds,
         }
     }
@@ -1959,6 +1965,44 @@ fn terminal_element_paint_text_spans(
             window,
             cx,
         );
+    }
+
+    if !layout.soft_wrap_markers.is_empty() && layout.scrollbar_bounds.size.width > Pixels::ZERO {
+        let marker = "↩";
+        let font_size = layout
+            .base_text_style
+            .font_size
+            .to_pixels(window.rem_size())
+            * 0.7;
+        let shaped = window.text_system().shape_line(
+            marker.into(),
+            font_size,
+            &[TextRun {
+                len: marker.len(),
+                font: layout.base_text_style.font(),
+                color: cx.theme().muted_foreground.opacity(0.55),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+
+        for marker_point in &layout.soft_wrap_markers {
+            let pos = point(
+                layout.scrollbar_bounds.left()
+                    + ((layout.scrollbar_bounds.size.width - shaped.width()) / 2.).max(px(0.)),
+                origin.y + marker_point.line as f32 * layout.dimensions.line_height,
+            );
+            let _ = shaped.paint(
+                pos,
+                layout.dimensions.line_height,
+                TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
+        }
     }
     text_paint_start.elapsed()
 }
@@ -2623,6 +2667,29 @@ impl TextSpanBuilder {
             font_size: self.font_size,
         }
     }
+}
+
+fn soft_wrap_marker_points(
+    grid: &[IndexedCell],
+    start_line_offset: i32,
+    search_matches: &[RangeInclusive<GridPoint>],
+) -> Vec<GridPoint> {
+    grid.iter()
+        .filter(|cell| cell.flags.contains(CellFlags::WRAPLINE))
+        .filter(|cell| {
+            let line = cell.point.line;
+            let first_possible = search_matches.partition_point(|range| range.end().line < line);
+            !search_matches
+                .get(first_possible)
+                .is_some_and(|range| range.start().line <= line)
+        })
+        .map(|cell| {
+            GridPoint::new(
+                start_line_offset.saturating_add(cell.point.line),
+                cell.point.column,
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn build_plan(
@@ -3611,9 +3678,12 @@ mod tests {
 
     use super::{
         compute_terminal_layout_metrics, highlight_quads_for_range, placeholder_highlight_bgs,
-        snippet_placeholder_bg_quads,
+        snippet_placeholder_bg_quads, soft_wrap_marker_points,
     };
-    use crate::{GridPoint, TerminalMode, view::line_number::should_relayout_for_mode_change};
+    use crate::{
+        CellFlags, GridPoint, IndexedCell, TerminalMode,
+        view::line_number::should_relayout_for_line_number_change,
+    };
 
     #[test]
     fn placeholder_highlight_colors_are_theme_derived() {
@@ -3632,19 +3702,68 @@ mod tests {
 
         // If line numbers are hidden, we still want some breathing room from the left edge.
         // (Minimum of 14px, otherwise one-third of a cell width.)
-        let (_dimensions, gutter, _line_number_width, _line_number_digits, _scrollbar_width) =
+        let (dimensions, gutter, _line_number_width, _line_number_digits, _scrollbar_width) =
             compute_terminal_layout_metrics(bounds, px(6.0), px(12.0), false, false, true, 100);
 
         assert_eq!(gutter, px(14.0));
+        assert_eq!(dimensions.bounds.size.width, px(286.0));
+
+        let (dimensions, _, _, _, scrollbar_width) =
+            compute_terminal_layout_metrics(bounds, px(6.0), px(12.0), true, false, true, 100);
+        assert_eq!(scrollbar_width, px(14.0));
+        assert_eq!(dimensions.bounds.size.width, px(272.0));
     }
 
     #[test]
     fn relayouts_when_exiting_alt_screen_with_hidden_line_numbers() {
-        assert!(should_relayout_for_mode_change(
+        assert!(should_relayout_for_line_number_change(
             false,
             TerminalMode::ALT_SCREEN,
-            TerminalMode::empty()
+            24,
+            TerminalMode::empty(),
+            24,
         ));
+    }
+
+    #[test]
+    fn soft_wrap_markers_only_include_wrapped_rows() {
+        let cells = vec![
+            IndexedCell {
+                point: GridPoint::new(-2, 3),
+                cell: crate::Cell {
+                    c: 'a',
+                    flags: CellFlags::WRAPLINE,
+                    ..Default::default()
+                },
+            },
+            IndexedCell {
+                point: GridPoint::new(-1, 3),
+                cell: crate::Cell {
+                    c: 'b',
+                    ..Default::default()
+                },
+            },
+        ];
+
+        assert_eq!(
+            soft_wrap_marker_points(&cells, 2, &[]),
+            vec![GridPoint::new(0, 3)]
+        );
+    }
+
+    #[test]
+    fn search_match_suppresses_soft_wrap_marker_on_same_row() {
+        let cells = vec![IndexedCell {
+            point: GridPoint::new(-2, 3),
+            cell: crate::Cell {
+                c: 'a',
+                flags: CellFlags::WRAPLINE,
+                ..Default::default()
+            },
+        }];
+        let matches = vec![GridPoint::new(-2, 0)..=GridPoint::new(-2, 1)];
+
+        assert!(soft_wrap_marker_points(&cells, 2, &matches).is_empty());
     }
 
     #[test]

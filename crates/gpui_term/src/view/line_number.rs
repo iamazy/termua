@@ -26,18 +26,24 @@ pub(crate) fn reserve_left_padding_without_line_numbers(
     !show_line_numbers_setting && !mode.contains(TerminalMode::ALT_SCREEN)
 }
 
-pub(crate) fn should_relayout_for_mode_change(
+pub(crate) fn should_relayout_for_line_number_change(
     show_line_numbers_setting: bool,
     previous_mode: TerminalMode,
+    previous_total_lines: usize,
     mode_after_sync: TerminalMode,
+    total_lines_after_sync: usize,
 ) -> bool {
     // We compute layout once using the previous snapshot mode as a hint, then sync the backend
-    // (which updates mode). If either the line number gutter or the left padding policy changes
-    // across the sync boundary, do a second layout+sync so the user doesn't see a one-frame shift.
+    // (which can update mode and reflow the buffer). If the line number gutter or left padding
+    // policy changes across the sync boundary, do a second layout+sync so the user doesn't see a
+    // one-frame shift.
     should_show_line_numbers(show_line_numbers_setting, previous_mode)
         != should_show_line_numbers(show_line_numbers_setting, mode_after_sync)
         || reserve_left_padding_without_line_numbers(show_line_numbers_setting, previous_mode)
             != reserve_left_padding_without_line_numbers(show_line_numbers_setting, mode_after_sync)
+        || (should_show_line_numbers(show_line_numbers_setting, mode_after_sync)
+            && digit_count(previous_total_lines.max(1))
+                != digit_count(total_lines_after_sync.max(1)))
 }
 
 #[derive(Copy, Clone)]
@@ -282,6 +288,17 @@ mod tests {
         let mut buf = String::new();
         format_line_number(&mut buf, 42, 4);
         assert_eq!(buf, "  42 ");
+    }
+
+    #[test]
+    fn relayouts_when_sync_changes_line_number_digits() {
+        assert!(super::should_relayout_for_line_number_change(
+            true,
+            crate::TerminalMode::empty(),
+            6,
+            crate::TerminalMode::empty(),
+            24,
+        ));
     }
 
     #[test]

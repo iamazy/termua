@@ -125,6 +125,8 @@ mod tests {
             TermuaIcon::FolderOpenBlue,
             TermuaIcon::FolderClosedBlue,
             TermuaIcon::GitBash,
+            TermuaIcon::Fish,
+            TermuaIcon::Nushell,
             TermuaIcon::Pwsh,
         ] {
             assert!(

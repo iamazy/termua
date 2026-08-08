@@ -197,7 +197,7 @@ impl TabPanel {
         }
     }
 
-    fn scroll_active_tab_into_view(&mut self, cx: &App) {
+    fn scroll_active_tab_after_resize(&mut self, cx: &App) {
         let Some(active_panel) = self.active_panel(cx) else {
             return;
         };
@@ -207,7 +207,35 @@ impl TabPanel {
             return;
         };
 
-        self.tab_bar_scroll_handle.scroll_to_item(active_pos);
+        let viewport = self.tab_bar_scroll_handle.bounds();
+        let Some(active_bounds) = self.tab_bar_scroll_handle.bounds_for_item(active_pos) else {
+            self.tab_bar_scroll_handle.scroll_to_item(active_pos);
+            return;
+        };
+        let Some(last_bounds) = self
+            .tab_bar_scroll_handle
+            .bounds_for_item(visible_panels.len() - 1)
+        else {
+            self.tab_bar_scroll_handle.scroll_to_item(active_pos);
+            return;
+        };
+
+        let mut offset = self.tab_bar_scroll_handle.offset();
+        let max_offset_x = self.tab_bar_scroll_handle.max_offset().x;
+        let content_end_offset_x = (viewport.right() - last_bounds.right()).min(gpui::px(0.));
+        offset.x = offset
+            .x
+            .clamp(content_end_offset_x.max(-max_offset_x), gpui::px(0.));
+
+        if active_bounds.size.width > viewport.size.width
+            || active_bounds.left() + offset.x < viewport.left()
+        {
+            offset.x = viewport.left() - active_bounds.left();
+        } else if active_bounds.right() + offset.x > viewport.right() {
+            offset.x = viewport.right() - active_bounds.right();
+        }
+        offset.x = offset.x.clamp(-max_offset_x, gpui::px(0.));
+        self.tab_bar_scroll_handle.set_offset(offset);
     }
 
     /// Mark the TabPanel as being used in Tiles.
@@ -792,7 +820,7 @@ impl TabPanel {
 
                 if this.scroll_active_tab_next_frame {
                     this.scroll_active_tab_next_frame = false;
-                    this.scroll_active_tab_into_view(cx);
+                    this.scroll_active_tab_after_resize(cx);
                     cx.notify();
                 }
             });
@@ -2060,5 +2088,105 @@ mod tests {
                 offset_x,
             );
         }
+
+        // Resize wider while the tabs still overflow. The last active tab should stay aligned
+        // with the viewport's right edge instead of leaving stale-scroll empty space after it.
+        window_cx.simulate_resize(gpui::size(px(1200.), px(360.)));
+        for _ in 0..2 {
+            let tab_panel_for_draw = tab_panel.clone();
+            window_cx.draw(
+                point(px(0.), px(0.)),
+                size(
+                    AvailableSpace::Definite(px(1200.)),
+                    AvailableSpace::Definite(px(360.)),
+                ),
+                move |_, _| div().size_full().child(tab_panel_for_draw),
+            );
+            window_cx.run_until_parked();
+        }
+
+        let (bounds, last_bounds, offset_x, max_offset_x) = window_cx.update(|_, cx| {
+            let handle = &tab_panel.read(cx).tab_bar_scroll_handle;
+            (
+                handle.bounds(),
+                handle
+                    .bounds_for_item(23)
+                    .expect("expected last tab bounds to exist"),
+                handle.offset().x,
+                handle.max_offset().x,
+            )
+        });
+        assert!(
+            max_offset_x > px(8.),
+            "expected tabs to still overflow after widening"
+        );
+        assert!(
+            (last_bounds.right() + offset_x - bounds.right()).abs() <= px(1.),
+            "expected the last active tab to remain right-aligned after widening (viewport={:?}, \
+             tab={:?}, offset_x={:?})",
+            bounds,
+            last_bounds,
+            offset_x,
+        );
+
+        // Repeat with a non-last active tab and a scroll position at the content end. Resizing
+        // must still avoid exposing the trailing drag/drop spacer.
+        window_cx.simulate_resize(gpui::size(px(520.), px(360.)));
+        for _ in 0..2 {
+            let tab_panel_for_draw = tab_panel.clone();
+            window_cx.draw(
+                point(px(0.), px(0.)),
+                size(
+                    AvailableSpace::Definite(px(520.)),
+                    AvailableSpace::Definite(px(360.)),
+                ),
+                move |_, _| div().size_full().child(tab_panel_for_draw),
+            );
+            window_cx.run_until_parked();
+        }
+        window_cx.update(|window, cx| {
+            tab_panel.update(cx, |this, cx| this.set_active_ix(22, window, cx));
+            let handle = &tab_panel.read(cx).tab_bar_scroll_handle;
+            let mut offset = handle.offset();
+            offset.x = -handle.max_offset().x;
+            handle.set_offset(offset);
+        });
+
+        window_cx.simulate_resize(gpui::size(px(1200.), px(360.)));
+        for _ in 0..2 {
+            let tab_panel_for_draw = tab_panel.clone();
+            window_cx.draw(
+                point(px(0.), px(0.)),
+                size(
+                    AvailableSpace::Definite(px(1200.)),
+                    AvailableSpace::Definite(px(360.)),
+                ),
+                move |_, _| div().size_full().child(tab_panel_for_draw),
+            );
+            window_cx.run_until_parked();
+        }
+
+        let (bounds, active_bounds, last_bounds, offset_x) = window_cx.update(|_, cx| {
+            let handle = &tab_panel.read(cx).tab_bar_scroll_handle;
+            (
+                handle.bounds(),
+                handle
+                    .bounds_for_item(22)
+                    .expect("expected active tab bounds to exist"),
+                handle
+                    .bounds_for_item(23)
+                    .expect("expected last tab bounds to exist"),
+                handle.offset().x,
+            )
+        });
+        assert!(
+            active_bounds.left() + offset_x >= bounds.left() - px(1.)
+                && active_bounds.right() + offset_x <= bounds.right() + px(1.),
+            "expected the non-last active tab to remain visible after widening"
+        );
+        assert!(
+            last_bounds.right() + offset_x >= bounds.right() - px(1.),
+            "expected widening with a non-last active tab not to expose trailing empty space"
+        );
     }
 }

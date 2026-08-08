@@ -16,7 +16,7 @@ use crate::{
     settings::TerminalSettings,
     view::scrolling::{
         SCROLLBAR_ACTIVE_MARKER_SIZE, SCROLLBAR_MARKER_LIMIT, SCROLLBAR_MARKER_SIZE,
-        SCROLLBAR_WIDTH, ScrollbarMarkerSpec, ScrollbarPreview,
+        SCROLLBAR_WIDTH, ScrollbarMarkerSpec, ScrollbarMarkerViewport, ScrollbarPreview,
         scroll_offset_for_line_coord_centered, scrollbar_marker_specs,
     },
 };
@@ -237,12 +237,22 @@ impl TerminalView {
             return None;
         }
 
-        let geometry = self.scrollbar_geometry(cx);
+        let lane_bounds = self.scrollbar_bounds(cx);
+        let content = terminal.last_content();
+        let content_y_offset = if content.display_offset == 0 {
+            self.scroll_top()
+        } else {
+            Pixels::ZERO
+        };
         let active_match_index = terminal.active_match_index();
         let marker_specs = scrollbar_marker_specs(
-            geometry.track,
-            total_lines,
-            viewport_lines,
+            ScrollbarMarkerViewport::new(
+                lane_bounds,
+                content.terminal_bounds.line_height,
+                content_y_offset,
+                content.display_offset,
+                viewport_lines,
+            ),
             matches,
             active_match_index,
             SCROLLBAR_MARKER_LIMIT,
@@ -254,8 +264,6 @@ impl TerminalView {
         let marker_color = cx.theme().foreground.opacity(0.30);
         let active_marker_color = cx.theme().foreground.opacity(0.70);
         let marker_specs_for_click = marker_specs.clone();
-        let lane_bounds = geometry.bounds;
-
         let overlay = div()
             .id("terminal-scrollbar-markers")
             .debug_selector(|| "terminal-scrollbar-markers".to_string())

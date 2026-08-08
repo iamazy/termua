@@ -14,6 +14,14 @@ const SHELL_SESSION_ID: &str = "shell.session";
 const SSH_SESSION_ID: &str = "ssh.session";
 const SERIAL_SESSION_ID: &str = "serial.session";
 const DEFAULT_COLORTERM: &str = "truecolor";
+const RESERVED_TERMINAL_ENV_NAMES: &[&str] =
+    &["TERM", "COLORTERM", "CHARSET", "SHELL", "TERMUA_SHELL"];
+
+fn is_reserved_terminal_env_name(name: &str) -> bool {
+    RESERVED_TERMINAL_ENV_NAMES
+        .iter()
+        .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
 
 use nav::{
     Page, build_nav_tree_items, default_selected_item_id, find_tree_item_by_id,
@@ -33,8 +41,9 @@ pub use state::Protocol;
 use state::{
     EnvRowState, ProxyEnvRowState, ProxyJumpRowState, SerialDataBitsSelectItem,
     SerialFlowControlSelectItem, SerialParitySelectItem, SerialSessionState,
-    SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellSessionState,
-    SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState, shell_program_title,
+    SerialStopBitsSelectItem, SessionCommonState, SessionEditorMode, ShellProgramSelectItem,
+    ShellSessionState, SshAuthSelectItem, SshAuthType, SshProxySelectItem, SshSessionState,
+    TerminalBackendSelectItem, shell_program_title,
 };
 
 pub struct NewSessionWindow {
@@ -341,12 +350,16 @@ impl NewSessionWindow {
         let nav_tree_items = build_nav_tree_items(protocol);
         let nav_tree_state = cx.new(|cx| TreeState::new(cx).items(nav_tree_items.clone()));
 
-        let shell = ShellSessionState::new(window, cx);
-        let mut ssh = SshSessionState::new(window, cx);
+        let default_backend = crate::settings::load_settings_from_disk()
+            .unwrap_or_default()
+            .terminal
+            .default_backend;
+        let shell = ShellSessionState::new(default_backend, window, cx);
+        let mut ssh = SshSessionState::new(default_backend, window, cx);
         if mode.is_edit() {
             ssh.password_edit_unlocked = false;
         }
-        let serial = SerialSessionState::new(window, cx);
+        let serial = SerialSessionState::new(default_backend, window, cx);
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
@@ -544,6 +557,23 @@ impl NewSessionWindow {
     }
 
     fn install_shell_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        Self::subscribe_backend_select(
+            &mut self._subscriptions,
+            Protocol::Shell,
+            &self.shell.common.backend_select,
+            window,
+            cx,
+        );
+        self._subscriptions
+            .push(cx.subscribe_in(&self.shell.program_select, window, {
+                move |this, _select, ev, window, cx| {
+                    if let SelectEvent::Confirm(Some(program)) = ev {
+                        this.shell.set_program(program.as_ref(), window, cx);
+                        cx.notify();
+                        window.refresh();
+                    }
+                }
+            }));
         self._subscriptions
             .push(cx.subscribe_in(&self.shell.common.term_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
@@ -580,6 +610,13 @@ impl NewSessionWindow {
     }
 
     fn install_ssh_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        Self::subscribe_backend_select(
+            &mut self._subscriptions,
+            Protocol::Ssh,
+            &self.ssh.common.backend_select,
+            window,
+            cx,
+        );
         self._subscriptions
             .push(cx.subscribe_in(&self.ssh.host_input, window, {
                 move |_this, _input, ev, window, cx| {
@@ -668,6 +705,13 @@ impl NewSessionWindow {
     }
 
     fn install_serial_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        Self::subscribe_backend_select(
+            &mut self._subscriptions,
+            Protocol::Serial,
+            &self.serial.common.backend_select,
+            window,
+            cx,
+        );
         self._subscriptions
             .push(cx.subscribe_in(&self.serial.common.term_select, window, {
                 move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
@@ -704,6 +748,34 @@ impl NewSessionWindow {
                     }
                 }
             }));
+    }
+
+    fn subscribe_backend_select(
+        subscriptions: &mut Vec<Subscription>,
+        protocol: Protocol,
+        select: &Entity<SelectState<SearchableVec<TerminalBackendSelectItem>>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        subscriptions.push(cx.subscribe_in(select, window, {
+            move |this,
+                  _select,
+                  ev: &SelectEvent<SearchableVec<TerminalBackendSelectItem>>,
+                  window,
+                  cx| {
+                let SelectEvent::Confirm(Some(backend)) = ev else {
+                    return;
+                };
+                match protocol {
+                    Protocol::Shell => &mut this.shell.common,
+                    Protocol::Ssh => &mut this.ssh.common,
+                    Protocol::Serial => &mut this.serial.common,
+                }
+                .set_backend(*backend, window, cx);
+                cx.notify();
+                window.refresh();
+            }
+        }));
     }
 }
 
@@ -790,7 +862,23 @@ impl SessionCommonState {
         );
     }
 
-    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
+    fn new(
+        backend: crate::settings::TerminalBackend,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) -> Self {
+        let backend_select = new_select(
+            window,
+            cx,
+            vec![
+                TerminalBackendSelectItem::new(crate::settings::TerminalBackend::Alacritty),
+                TerminalBackendSelectItem::new(crate::settings::TerminalBackend::Wezterm),
+            ],
+            Some(match backend {
+                crate::settings::TerminalBackend::Alacritty => 0,
+                crate::settings::TerminalBackend::Wezterm => 1,
+            }),
+        );
         let term_select = new_select(
             window,
             cx,
@@ -814,6 +902,8 @@ impl SessionCommonState {
         let colorterm_options = colorterm_options();
         let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         Self {
+            backend,
+            backend_select,
             term: "xterm-256color".into(),
             colorterm: DEFAULT_COLORTERM.into(),
             charset: "UTF-8".into(),
@@ -824,6 +914,18 @@ impl SessionCommonState {
             colorterm_select,
             charset_select,
         }
+    }
+
+    fn set_backend(
+        &mut self,
+        backend: crate::settings::TerminalBackend,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) {
+        self.backend = backend;
+        self.backend_select.update(cx, |select, cx| {
+            select.set_selected_value(&backend, window, cx);
+        });
     }
 
     fn set_term(
@@ -874,17 +976,28 @@ impl SessionCommonState {
 }
 
 impl ShellSessionState {
-    fn program_default_value() -> SharedString {
-        gpui_term::shell::default_shell_program().into()
-    }
+    fn new(
+        backend: crate::settings::TerminalBackend,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) -> Self {
+        let common = SessionCommonState::new(backend, window, cx);
 
-    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
-        let common = SessionCommonState::new(window, cx);
-
-        let program = Self::program_default_value();
+        let program_options = gpui_term::shell::available_shell_programs()
+            .into_iter()
+            .map(ShellProgramSelectItem::new)
+            .collect::<Vec<_>>();
+        let program = program_options
+            .first()
+            .expect("shell detection always returns a fallback")
+            .value()
+            .clone();
+        let program_select = new_select(window, cx, program_options.clone(), Some(0));
 
         let this = Self {
             program,
+            program_options,
+            program_select,
             env_rows: Vec::new(),
             env_next_id: 1,
             common,
@@ -912,6 +1025,22 @@ impl ShellSessionState {
 
         let program: SharedString = program.to_string().into();
         self.program = program.clone();
+
+        if !self
+            .program_options
+            .iter()
+            .any(|item| item.value() == &program)
+        {
+            self.program_options
+                .push(ShellProgramSelectItem::new(program.clone()));
+            let items = SearchableVec::new(self.program_options.clone());
+            self.program_select.update(cx, |select, cx| {
+                select.set_items(items, window, cx);
+            });
+        }
+        self.program_select.update(cx, |select, cx| {
+            select.set_selected_value(&program, window, cx);
+        });
 
         // Keep the label in sync with the selected shell program, but don't override
         // user-customized labels.
@@ -950,8 +1079,12 @@ impl ShellSessionState {
 }
 
 impl SshSessionState {
-    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
-        let common = SessionCommonState::new(window, cx);
+    fn new(
+        backend: crate::settings::TerminalBackend,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) -> Self {
+        let common = SessionCommonState::new(backend, window, cx);
 
         let auth_select = new_select(
             window,
@@ -1138,8 +1271,12 @@ impl SshSessionState {
 }
 
 impl SerialSessionState {
-    fn new(window: &mut Window, cx: &mut Context<NewSessionWindow>) -> Self {
-        let common = SessionCommonState::new(window, cx);
+    fn new(
+        backend: crate::settings::TerminalBackend,
+        window: &mut Window,
+        cx: &mut Context<NewSessionWindow>,
+    ) -> Self {
+        let common = SessionCommonState::new(backend, window, cx);
 
         let ports = Vec::<SharedString>::new();
         let port_select = new_select(window, cx, ports.clone(), None);

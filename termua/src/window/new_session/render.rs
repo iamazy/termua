@@ -22,17 +22,10 @@ use rust_i18n::t;
 
 use super::{
     NewSessionWindow, Page, Protocol, SerialSessionState, ShellSessionState, SshAuthType,
-    SshSessionState, new_proxy_jump_row_state, ssh, ssh::ssh_user_input_box_width,
+    SshSessionState, is_reserved_terminal_env_name, new_proxy_jump_row_state, ssh,
+    ssh::ssh_user_input_box_width,
 };
 use crate::store::SshProxyMode;
-
-const RESERVED_TERMINAL_ENV_NAMES: &[&str] = &["TERM", "COLORTERM", "CHARSET"];
-
-fn is_reserved_terminal_env_name(name: &str) -> bool {
-    RESERVED_TERMINAL_ENV_NAMES
-        .iter()
-        .any(|reserved| name.eq_ignore_ascii_case(reserved))
-}
 
 fn reserved_terminal_env_hint() -> String {
     t!("NewSession.Hint.ReservedTerminalEnv").to_string()
@@ -92,10 +85,11 @@ impl Render for NewSessionWindow {
             .lock_overlay
             .render_overlay_if_locked(Self::unlock_from_overlay, cx);
 
-        let default_backend = crate::settings::load_settings_from_disk()
-            .unwrap_or_default()
-            .terminal
-            .default_backend;
+        let backend = match self.protocol {
+            Protocol::Shell => self.shell.common.backend,
+            Protocol::Ssh => self.ssh.common.backend,
+            Protocol::Serial => self.serial.common.backend,
+        };
 
         v_flex()
             .id("termua-new-session-window")
@@ -128,7 +122,7 @@ impl Render for NewSessionWindow {
                             div()
                                 .debug_selector(|| "termua-new-session-titlebar-icon".to_string())
                                 .child(
-                                    img(backend_icon(default_backend))
+                                    img(backend_icon(backend))
                                         .w(px(16.))
                                         .h(px(16.))
                                         .flex_shrink_0()
@@ -138,21 +132,27 @@ impl Render for NewSessionWindow {
                         .child(div().text_sm().child(title)),
                 ),
             )
-            .child(self.render_protocol_tabs(window, cx))
             .child(
-                h_flex()
-                    .id("termua-new-session-main")
+                v_flex()
                     .flex_1()
                     .min_h_0()
-                    .items_stretch()
-                    .child(self.render_left_pane(window, cx))
-                    .child(self.render_right_pane(window, cx)),
+                    .relative()
+                    .child(self.render_protocol_tabs(window, cx))
+                    .child(
+                        h_flex()
+                            .id("termua-new-session-main")
+                            .flex_1()
+                            .min_h_0()
+                            .items_stretch()
+                            .child(self.render_left_pane(window, cx))
+                            .child(self.render_right_pane(window, cx)),
+                    )
+                    .child(self.render_footer(connect_enabled, window, cx))
+                    .when_some(lock_overlay, |this, overlay| this.child(overlay)),
             )
-            .child(self.render_footer(connect_enabled, window, cx))
             .children(gpui_component::Root::render_sheet_layer(window, cx))
             .children(gpui_component::Root::render_dialog_layer(window, cx))
             .children(gpui_component::Root::render_notification_layer(window, cx))
-            .when_some(lock_overlay, |this, overlay| this.child(overlay))
     }
 }
 
@@ -540,6 +540,22 @@ fn render_form_row(
         .child(div().flex_1().min_w(px(280.)).child(control))
 }
 
+fn render_backend_type_row(
+    common: &super::SessionCommonState,
+    selector: &'static str,
+    cx: &mut Context<NewSessionWindow>,
+) -> gpui::AnyElement {
+    render_form_row(
+        t!("NewSession.Field.Type").to_string(),
+        div()
+            .w_full()
+            .debug_selector(move || selector.to_string())
+            .child(Select::new(&common.backend_select)),
+        cx,
+    )
+    .into_any_element()
+}
+
 impl ShellSessionState {
     fn render_env_editor(
         &self,
@@ -633,6 +649,24 @@ impl ShellSessionState {
         v_flex()
             .id("termua-new-session-shell-session")
             .gap_3()
+            .child(render_backend_type_row(
+                &self.common,
+                "termua-new-session-shell-backend-type-select",
+                cx,
+            ))
+            .child(render_form_row(
+                t!("NewSession.Field.Shell").to_string(),
+                div()
+                    .w_full()
+                    .debug_selector(|| "termua-new-session-shell-type".to_string())
+                    .child(
+                        div()
+                            .w_full()
+                            .debug_selector(|| "termua-new-session-shell-type-select".to_string())
+                            .child(Select::new(&self.program_select)),
+                    ),
+                cx,
+            ))
             .child(render_form_row(
                 t!("NewSession.Field.Label").to_string(),
                 div().w_full().child(Input::new(&self.common.label_input)),
@@ -1183,6 +1217,11 @@ impl SshSessionState {
             .then_some(t!("NewSession.Ssh.Error.PortRange").to_string());
 
         let mut rows = Vec::new();
+        rows.push(render_backend_type_row(
+            &self.common,
+            "termua-new-session-ssh-backend-type-select",
+            cx,
+        ));
         rows.push(self.render_host_row(host_error, port_error, window, cx));
         rows.push(self.render_auth_type_row(cx));
         if let Some(row) = self.render_password_row(view.clone(), !self.password_edit_unlocked, cx)
@@ -1374,6 +1413,11 @@ impl SerialSessionState {
         v_flex()
             .id("termua-new-session-serial-session")
             .gap_3()
+            .child(render_backend_type_row(
+                &self.common,
+                "termua-new-session-serial-backend-type-select",
+                cx,
+            ))
             .child(render_form_row(
                 t!("NewSession.Serial.Field.Port").to_string(),
                 div()

@@ -7,7 +7,7 @@ use gpui_component::{ActiveTheme as _, v_flex};
 use gpui_dock::{Panel, PanelEvent, PanelInfo, PanelState, TabPanel};
 
 use super::{PanelKind, TerminalLaunchState, TerminalPanelState};
-use crate::panel::terminal_panel::tab_icon_for_terminal_panel;
+use crate::panel::terminal_panel::tab_icon_for_terminal_panel_with_launch;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SshErrorPanelStatus {
@@ -27,6 +27,10 @@ pub(crate) struct SshErrorPanel {
 }
 
 impl SshErrorPanel {
+    pub(crate) fn id(&self) -> usize {
+        self.id
+    }
+
     pub(crate) fn new(
         id: usize,
         tab_label: SharedString,
@@ -77,6 +81,13 @@ impl SshErrorPanel {
         self.terminal_state.clone()
     }
 
+    pub(crate) fn local_shell_display_name(&self) -> Option<String> {
+        let TerminalLaunchState::Local { env, .. } = &self.terminal_state.as_ref()?.launch else {
+            return None;
+        };
+        crate::panel::terminal_panel::local_shell_display_name_from_env(env)
+    }
+
     pub(crate) fn parent_tab(&self) -> Option<WeakEntity<TabPanel>> {
         self.parent_tab.clone()
     }
@@ -117,7 +128,10 @@ impl Panel for SshErrorPanel {
                 TerminalLaunchState::Serial { .. } => PanelKind::Serial,
                 TerminalLaunchState::Recorder { .. } => PanelKind::Recorder,
             };
-            return Some(tab_icon_for_terminal_panel(kind));
+            return Some(tab_icon_for_terminal_panel_with_launch(
+                kind,
+                Some(&state.launch),
+            ));
         }
 
         Some(gpui_dock::TabIcon::Monochrome {
@@ -226,6 +240,26 @@ mod tests {
             panel.read_with(cx, |panel, app| panel.tab_icon(app)),
             Some(tab_icon_for_terminal_panel(PanelKind::Ssh))
         );
+    }
+
+    #[gpui::test]
+    fn restoring_powershell_panel_uses_powershell_terminal_icon(cx: &mut gpui::TestAppContext) {
+        let panel = cx.new(|cx| {
+            SshErrorPanel::restoring(
+                terminal_state(TerminalLaunchState::Local {
+                    backend_type: gpui_term::TerminalType::WezTerm,
+                    env: HashMap::from([("TERMUA_SHELL".to_string(), "pwsh".to_string())]),
+                }),
+                "Restoring...".into(),
+                cx,
+            )
+        });
+
+        assert!(matches!(
+            panel.read_with(cx, |panel, app| panel.tab_icon(app)),
+            Some(gpui_dock::TabIcon::Monochrome { path, color: None })
+                if path.as_ref() == TermuaIcon::Pwsh.path()
+        ));
     }
 
     #[gpui::test]

@@ -67,12 +67,39 @@ impl TermuaWindow {
             .child(self.dock_area.clone())
             .into_any_element()
     }
+
+    fn render_main_content(
+        &mut self,
+        window: &mut Window,
+        lock_overlay: Option<gpui::AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let center = self.render_center_area(window, cx);
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(center)
+            .child(self.footbar.clone())
+            .when_some(lock_overlay, |this, overlay| this.child(overlay))
+            .into_any_element()
+    }
 }
 
 impl Render for TermuaWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let lock_overlay = self.render_lock_overlay(cx);
-        let center = self.render_center_area(window, cx);
+        let locked = cx.global::<lock_screen::LockState>().locked();
+        let titlebar = if locked {
+            gpui_component::TitleBar::new()
+        } else {
+            MenubarTitleBar::build(window, cx)
+        };
+        let titlebar = div()
+            .debug_selector(|| "termua-window-titlebar".to_string())
+            .child(titlebar);
+        let main_content = self.render_main_content(window, lock_overlay, cx);
 
         v_flex()
             .size_full()
@@ -98,12 +125,10 @@ impl Render for TermuaWindow {
             .on_action(cx.listener(Self::on_new_local_terminal))
             .on_action(cx.listener(Self::on_play_cast))
             .on_action(cx.listener(Self::on_open_sftp))
-            .child(MenubarTitleBar::build(window, cx))
-            .child(center)
-            .child(self.footbar.clone())
+            .child(titlebar)
+            .child(main_content)
             .children(gpui_component::Root::render_sheet_layer(window, cx))
             .children(gpui_component::Root::render_dialog_layer(window, cx))
             .children(gpui_component::Root::render_notification_layer(window, cx))
-            .when_some(lock_overlay, |this, overlay| this.child(overlay))
     }
 }

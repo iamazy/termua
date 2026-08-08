@@ -1918,18 +1918,19 @@ impl Render for SettingsWindow {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    .relative()
                     // `h_flex()` defaults to `items_center()`, which causes panes to size to their
                     // content height (breaking scroll because the scroll container can grow).
                     // We need the panes to stretch to the available height.
                     .items_stretch()
                     .child(self.render_left_pane(window, cx))
-                    .child(self.render_right_pane(window, cx)),
+                    .child(self.render_right_pane(window, cx))
+                    .when_some(lock_overlay, |this, overlay| this.child(overlay)),
             )
             .children(gpui_component::Root::render_sheet_layer(window, cx))
             .children(gpui_component::Root::render_dialog_layer(window, cx))
             .when_some(drag_overlay, |this, overlay| this.child(overlay))
             .children(gpui_component::Root::render_notification_layer(window, cx))
-            .when_some(lock_overlay, |this, overlay| this.child(overlay))
     }
 }
 

@@ -52,8 +52,8 @@ fn on_search_backdrop_left_mouse_down(
     cx: &mut Context<TerminalView>,
 ) {
     if TerminalSettings::global(cx).show_scrollbar {
-        let geometry = this.scrollbar_geometry(cx);
-        if geometry.bounds.contains(&e.position) {
+        let scrollbar_bounds = this.scrollbar_bounds(cx);
+        if scrollbar_bounds.contains(&e.position) {
             // Allow scrollbar interaction while searching; do not dismiss.
             this.set_scrollbar_hovered(true, cx);
             this.set_mouse_left_down_in_terminal(false);
@@ -75,9 +75,9 @@ fn on_search_backdrop_mouse_move(
     let panel_dragging = this.search.search_panel_dragging;
     if !panel_dragging {
         if TerminalSettings::global(cx).show_scrollbar {
-            let geometry = this.scrollbar_geometry(cx);
-            if geometry.bounds.contains(&e.position) {
-                this.update_scrollbar_preview_at(geometry.track, e.position, cx);
+            let scrollbar_bounds = this.scrollbar_bounds(cx);
+            if scrollbar_bounds.contains(&e.position) {
+                this.update_scrollbar_preview_at(scrollbar_bounds, e.position, cx);
             } else {
                 this.clear_scrollbar_preview(cx);
             }
@@ -148,8 +148,8 @@ fn on_search_backdrop_right_mouse_down(
     cx: &mut Context<TerminalView>,
 ) {
     if TerminalSettings::global(cx).show_scrollbar {
-        let geometry = this.scrollbar_geometry(cx);
-        if geometry.bounds.contains(&e.position) {
+        let scrollbar_bounds = this.scrollbar_bounds(cx);
+        if scrollbar_bounds.contains(&e.position) {
             // Do not dismiss on scrollbar right-click either.
             cx.stop_propagation();
             return;

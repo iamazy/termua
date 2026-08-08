@@ -1,4 +1,4 @@
-use std::{cell::Cell, cmp, collections::HashMap, ops::RangeInclusive, rc::Rc, time::Duration};
+use std::{cell::Cell, cmp, ops::RangeInclusive, rc::Rc, time::Duration};
 
 use gpui::{
     App, Bounds, Context, Pixels, Point, ReadGlobal, ScrollWheelEvent, Window, point, px, size,
@@ -17,7 +17,6 @@ use crate::{
 };
 
 pub(crate) const SCROLLBAR_WIDTH: Pixels = px(14.0);
-pub(crate) const SCROLLBAR_PAD: Pixels = px(2.0);
 pub(crate) const SCROLLBAR_MARKER_HIT_RADIUS: Pixels = px(7.0);
 pub(crate) const SCROLLBAR_MARKER_LIMIT: usize = 4096;
 pub(crate) const SCROLLBAR_MARKER_SIZE: Pixels = px(4.0);
@@ -173,76 +172,17 @@ pub(crate) struct ScrollbarPreview {
     pub(crate) match_range: RangeInclusive<GridPoint>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct ScrollbarGeometry {
-    pub(crate) bounds: Bounds<Pixels>,
-    pub(crate) track: Bounds<Pixels>,
-}
-
-pub(crate) fn scrollbar_track_bounds(sb: Bounds<Pixels>) -> Bounds<Pixels> {
-    let pad = SCROLLBAR_PAD
-        .min(sb.size.width / 2.0)
-        .min(sb.size.height / 2.0);
-    Bounds {
-        origin: sb.origin + point(pad, pad),
-        size: size(
-            (sb.size.width - pad * 2.0).max(Pixels::ZERO),
-            (sb.size.height - pad * 2.0).max(Pixels::ZERO),
-        ),
-    }
-}
-
 pub(crate) fn scrollbar_bounds_for_terminal(
     terminal_bounds: Bounds<Pixels>,
     scrollbar_width: Pixels,
 ) -> Bounds<Pixels> {
-    // Overlay scrollbar: place it inside the terminal bounds so the terminal content can
-    // render underneath it (no dedicated layout gutter).
-    let w = scrollbar_width.min(terminal_bounds.size.width.max(Pixels::ZERO));
+    // The terminal bounds describe the character grid. The scrollbar and marker lane starts
+    // immediately after it so terminal characters never render underneath the lane.
+    let w = scrollbar_width.max(Pixels::ZERO);
     Bounds {
-        origin: point(
-            terminal_bounds.origin.x + (terminal_bounds.size.width - w).max(Pixels::ZERO),
-            terminal_bounds.origin.y,
-        ),
+        origin: point(terminal_bounds.right(), terminal_bounds.origin.y),
         size: size(w, terminal_bounds.size.height),
     }
-}
-
-pub(crate) fn scrollbar_geometry_for_terminal(
-    terminal_bounds: Bounds<Pixels>,
-    scrollbar_width: Pixels,
-) -> ScrollbarGeometry {
-    let bounds = scrollbar_bounds_for_terminal(terminal_bounds, scrollbar_width);
-    ScrollbarGeometry {
-        bounds,
-        track: scrollbar_track_bounds(bounds),
-    }
-}
-
-pub(crate) fn scrollbar_marker_y_for_line_coord(
-    track_bounds: Bounds<Pixels>,
-    total_lines: usize,
-    viewport_lines: usize,
-    line_coord: i32,
-) -> Option<Pixels> {
-    if total_lines == 0 || track_bounds.size.height <= Pixels::ZERO {
-        return None;
-    }
-
-    let top_line = viewport_lines as i32 - total_lines as i32;
-    let mut idx = line_coord.saturating_sub(top_line);
-    let max_idx = total_lines.saturating_sub(1) as i32;
-    if idx < 0 {
-        idx = 0;
-    } else if idx > max_idx {
-        idx = max_idx;
-    }
-
-    // Map to the center of the corresponding "line band" in the track, similar to a minimap.
-    // This avoids piling markers right on the top/bottom edges where they get clamped.
-    let denom = total_lines.max(1) as f32;
-    let t = (idx as f32 + 0.5) / denom;
-    Some(track_bounds.origin.y + track_bounds.size.height * t.clamp(0.0, 1.0))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -252,34 +192,94 @@ pub(crate) struct ScrollbarMarkerSpec {
     pub(crate) active: bool,
 }
 
-pub(crate) fn scrollbar_marker_specs(
-    track_bounds: Bounds<Pixels>,
-    total_lines: usize,
+#[derive(Clone, Copy)]
+pub(crate) struct ScrollbarMarkerViewport {
+    lane_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    content_y_offset: Pixels,
+    display_offset: usize,
     viewport_lines: usize,
+}
+
+impl ScrollbarMarkerViewport {
+    pub(crate) fn new(
+        lane_bounds: Bounds<Pixels>,
+        line_height: Pixels,
+        content_y_offset: Pixels,
+        display_offset: usize,
+        viewport_lines: usize,
+    ) -> Self {
+        Self {
+            lane_bounds,
+            line_height,
+            content_y_offset,
+            display_offset,
+            viewport_lines,
+        }
+    }
+}
+
+fn visible_match_index_range(
+    matches: &[RangeInclusive<GridPoint>],
+    display_offset: usize,
+    viewport_lines: usize,
+) -> std::ops::Range<usize> {
+    let top_line = -(display_offset as i128);
+    let bottom_line = top_line + viewport_lines as i128;
+    let start =
+        matches.partition_point(|search_match| i128::from(search_match.start().line) < top_line);
+    let end =
+        matches.partition_point(|search_match| i128::from(search_match.start().line) < bottom_line);
+    start..end
+}
+
+fn match_viewport_row(search_match: &RangeInclusive<GridPoint>, display_offset: usize) -> usize {
+    (i128::from(search_match.start().line) + display_offset as i128) as usize
+}
+
+fn marker_y_for_viewport_row(
+    lane_bounds: Bounds<Pixels>,
+    line_height: Pixels,
+    content_y_offset: Pixels,
+    viewport_row: usize,
+) -> Option<Pixels> {
+    let y = lane_bounds.origin.y + (viewport_row as f32 + 0.5) * line_height - content_y_offset;
+    (y >= lane_bounds.top() && y < lane_bounds.bottom()).then_some(y)
+}
+
+pub(crate) fn scrollbar_marker_specs(
+    viewport: ScrollbarMarkerViewport,
     matches: &[RangeInclusive<GridPoint>],
     active_match_index: Option<usize>,
     limit: usize,
 ) -> Vec<ScrollbarMarkerSpec> {
-    if matches.is_empty() || total_lines == 0 || viewport_lines == 0 || limit == 0 {
+    if matches.is_empty()
+        || viewport.line_height <= Pixels::ZERO
+        || viewport.viewport_lines == 0
+        || limit == 0
+    {
         return Vec::new();
     }
 
-    let mut spec_indexes_by_y: HashMap<i32, usize> = HashMap::new();
     let mut specs: Vec<ScrollbarMarkerSpec> = Vec::new();
-    for (match_index, search_match) in matches.iter().enumerate() {
-        let Some(y) = scrollbar_marker_y_for_line_coord(
-            track_bounds,
-            total_lines,
-            viewport_lines,
-            search_match.start().line,
+    let mut last_row = None;
+    for match_index in
+        visible_match_index_range(matches, viewport.display_offset, viewport.viewport_lines)
+    {
+        let search_match = &matches[match_index];
+        let viewport_row = match_viewport_row(search_match, viewport.display_offset);
+        let Some(y) = marker_y_for_viewport_row(
+            viewport.lane_bounds,
+            viewport.line_height,
+            viewport.content_y_offset,
+            viewport_row,
         ) else {
             continue;
         };
-        let key = ((y - track_bounds.origin.y) / px(1.0)).round() as i32;
         let active = active_match_index == Some(match_index);
 
-        if let Some(&spec_index) = spec_indexes_by_y.get(&key) {
-            let spec = &mut specs[spec_index];
+        if last_row == Some(viewport_row) {
+            let spec = specs.last_mut().expect("a grouped marker must exist");
             if active {
                 spec.match_index = match_index;
                 spec.active = true;
@@ -287,15 +287,16 @@ pub(crate) fn scrollbar_marker_specs(
             continue;
         }
 
-        spec_indexes_by_y.insert(key, specs.len());
+        if specs.len() >= limit {
+            break;
+        }
+
+        last_row = Some(viewport_row);
         specs.push(ScrollbarMarkerSpec {
             match_index,
             y,
             active,
         });
-        if specs.len() >= limit {
-            break;
-        }
     }
 
     specs
@@ -344,89 +345,44 @@ pub(crate) fn scroll_offset_for_line_coord_centered(
 }
 
 pub(crate) fn search_match_index_for_scrollbar_hover(
-    track_bounds: Bounds<Pixels>,
-    total_lines: usize,
-    viewport_lines: usize,
+    viewport: ScrollbarMarkerViewport,
     matches: &[RangeInclusive<GridPoint>],
     hover_y: Pixels,
     hit_radius: Pixels,
 ) -> Option<usize> {
-    if matches.is_empty() || hit_radius <= Pixels::ZERO || total_lines == 0 || viewport_lines == 0 {
+    if matches.is_empty() || hit_radius <= Pixels::ZERO || viewport.viewport_lines == 0 {
         return None;
     }
 
-    // Approximate the hovered line by inverting the minimap mapping.
-    let h = track_bounds.size.height;
-    if h <= Pixels::ZERO {
-        return None;
-    }
+    let mut last_row = None;
+    let mut best = None;
+    for match_index in
+        visible_match_index_range(matches, viewport.display_offset, viewport.viewport_lines)
+    {
+        let viewport_row = match_viewport_row(&matches[match_index], viewport.display_offset);
+        if last_row == Some(viewport_row) {
+            continue;
+        }
+        last_row = Some(viewport_row);
 
-    debug_assert!(
-        matches
-            .windows(2)
-            .all(|pair| pair[0].start().line <= pair[1].start().line),
-        "scrollbar hover lookup expects search matches sorted by start line"
-    );
-
-    let mut t = (hover_y - track_bounds.origin.y) / h;
-    t = t.clamp(0.0, 1.0);
-    let idx = ((t * total_lines.max(1) as f32).floor() as i64)
-        .clamp(0, total_lines.saturating_sub(1) as i64) as usize;
-    let top_line = viewport_lines as i32 - total_lines as i32;
-    let approx_line = top_line.saturating_add(idx as i32);
-
-    let i = matches.partition_point(|m| m.start().line < approx_line);
-
-    let min_y = hover_y - hit_radius;
-    let max_y = hover_y + hit_radius;
-
-    let mut best: Option<(usize, Pixels)> = None;
-
-    // Scan down (increasing line -> increasing marker y) until we pass the hit window.
-    let mut j = i;
-    while j < matches.len() {
-        let line = matches[j].start().line;
-        let Some(y) =
-            scrollbar_marker_y_for_line_coord(track_bounds, total_lines, viewport_lines, line)
-        else {
-            break;
+        let Some(y) = marker_y_for_viewport_row(
+            viewport.lane_bounds,
+            viewport.line_height,
+            viewport.content_y_offset,
+            viewport_row,
+        ) else {
+            continue;
         };
-        if y > max_y {
-            break;
-        }
-        let dy = (y - hover_y).abs();
-        if dy <= hit_radius && best.map(|(_, best_dy)| dy < best_dy).unwrap_or(true) {
-            best = Some((j, dy));
-            if dy <= px(0.5) {
-                break;
-            }
-        }
-        j += 1;
-    }
-
-    // Scan up.
-    let mut j = i;
-    while j > 0 {
-        j -= 1;
-        let line = matches[j].start().line;
-        let Some(y) =
-            scrollbar_marker_y_for_line_coord(track_bounds, total_lines, viewport_lines, line)
-        else {
-            break;
-        };
-        if y < min_y {
-            break;
-        }
-        let dy = (y - hover_y).abs();
-        if dy <= hit_radius && best.map(|(_, best_dy)| dy < best_dy).unwrap_or(true) {
-            best = Some((j, dy));
-            if dy <= px(0.5) {
-                break;
-            }
+        let distance = (y - hover_y).abs();
+        if distance <= hit_radius
+            && best
+                .map(|(_, best_distance)| distance < best_distance)
+                .unwrap_or(true)
+        {
+            best = Some((match_index, distance));
         }
     }
-
-    best.map(|(idx, _)| idx)
+    best.map(|(match_index, _)| match_index)
 }
 
 impl TerminalView {
@@ -549,14 +505,14 @@ impl TerminalView {
         self.scroll.scrollbar_revealed
     }
 
-    pub(crate) fn scrollbar_geometry(&self, cx: &App) -> ScrollbarGeometry {
+    pub(crate) fn scrollbar_bounds(&self, cx: &App) -> Bounds<Pixels> {
         let terminal = self.terminal.read(cx);
         let width = if TerminalSettings::global(cx).show_scrollbar {
             SCROLLBAR_WIDTH
         } else {
             Pixels::ZERO
         };
-        scrollbar_geometry_for_terminal(terminal.last_content().terminal_bounds.bounds, width)
+        scrollbar_bounds_for_terminal(terminal.last_content().terminal_bounds.bounds, width)
     }
 
     pub(crate) fn sync_terminal_scrollbar_handle(&self, cx: &App) {
@@ -697,16 +653,26 @@ impl TerminalView {
 
     pub(crate) fn update_scrollbar_preview_at(
         &mut self,
-        track: Bounds<Pixels>,
+        lane: Bounds<Pixels>,
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
         let match_idx = {
             let terminal = self.terminal.read(cx);
+            let content = terminal.last_content();
+            let content_y_offset = if content.display_offset == 0 {
+                self.scroll_top()
+            } else {
+                Pixels::ZERO
+            };
             search_match_index_for_scrollbar_hover(
-                track,
-                terminal.total_lines(),
-                terminal.viewport_lines(),
+                ScrollbarMarkerViewport::new(
+                    lane,
+                    content.terminal_bounds.line_height,
+                    content_y_offset,
+                    content.display_offset,
+                    terminal.viewport_lines(),
+                ),
                 terminal.matches(),
                 position.y,
                 SCROLLBAR_MARKER_HIT_RADIUS,
@@ -978,12 +944,27 @@ mod tests {
     use gpui_component::scroll::ScrollbarHandle as _;
 
     use super::{
-        SCROLLBAR_MARKER_LIMIT, TerminalScrollbarHandle, buffer_index_for_line_coord,
-        scroll_offset_for_line_coord_centered, scrollbar_geometry_for_terminal,
-        scrollbar_marker_specs, scrollbar_marker_y_for_line_coord,
+        SCROLLBAR_MARKER_LIMIT, ScrollbarMarkerViewport, TerminalScrollbarHandle,
+        buffer_index_for_line_coord, scroll_offset_for_line_coord_centered,
+        scrollbar_bounds_for_terminal, scrollbar_marker_specs,
         search_match_index_for_scrollbar_hover,
     };
     use crate::GridPoint;
+
+    fn marker_viewport(
+        lane_bounds: Bounds<Pixels>,
+        line_height: Pixels,
+        display_offset: usize,
+        viewport_lines: usize,
+    ) -> ScrollbarMarkerViewport {
+        ScrollbarMarkerViewport::new(
+            lane_bounds,
+            line_height,
+            Pixels::ZERO,
+            display_offset,
+            viewport_lines,
+        )
+    }
 
     #[test]
     fn terminal_scrollbar_handle_maps_display_offset_to_component_offset() {
@@ -1028,52 +1009,84 @@ mod tests {
     }
 
     #[test]
-    fn scrollbar_geometry_for_terminal_returns_bounds_and_padded_track() {
+    fn scrollbar_bounds_for_terminal_returns_dedicated_lane_bounds() {
         let terminal_bounds = Bounds {
             origin: point(px(10.0), px(20.0)),
             size: size(px(80.0), px(100.0)),
         };
 
-        let geometry = scrollbar_geometry_for_terminal(terminal_bounds, px(14.0));
+        let bounds = scrollbar_bounds_for_terminal(terminal_bounds, px(14.0));
 
-        assert_eq!(geometry.bounds.origin, point(px(76.0), px(20.0)));
-        assert_eq!(geometry.bounds.size, size(px(14.0), px(100.0)));
-        assert_eq!(geometry.track.origin, point(px(78.0), px(22.0)));
-        assert_eq!(geometry.track.size, size(px(10.0), px(96.0)));
+        assert_eq!(bounds.origin, point(px(90.0), px(20.0)));
+        assert_eq!(bounds.size, size(px(14.0), px(100.0)));
     }
 
     #[test]
-    fn scrollbar_marker_y_maps_entire_buffer_top_to_bottom() {
-        let track = Bounds {
-            origin: point(px(0.0), px(10.0)),
-            size: size(px(8.0), px(100.0)),
+    fn scrollbar_markers_align_with_visible_terminal_rows() {
+        let lane = Bounds {
+            origin: point(px(0.0), px(20.0)),
+            size: size(px(14.0), px(40.0)),
         };
+        let matches = vec![
+            GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
+            GridPoint::new(-1, 0)..=GridPoint::new(-1, 1),
+            GridPoint::new(1, 0)..=GridPoint::new(1, 1),
+            GridPoint::new(2, 0)..=GridPoint::new(2, 1),
+        ];
 
-        // total_lines=3, viewport_lines=1 -> top_line = -2, bottom_line = 0
-        let y_top = scrollbar_marker_y_for_line_coord(track, 3, 1, -2).unwrap();
-        let y_mid = scrollbar_marker_y_for_line_coord(track, 3, 1, -1).unwrap();
-        let y_bot = scrollbar_marker_y_for_line_coord(track, 3, 1, 0).unwrap();
+        let specs = scrollbar_marker_specs(
+            marker_viewport(lane, px(10.0), 2, 4),
+            &matches,
+            None,
+            SCROLLBAR_MARKER_LIMIT,
+        );
 
-        // Line-band centers: 1/6, 3/6, 5/6 of the track height.
-        assert!(((y_top - px(26.666_7)) / px(1.0)).abs() < 0.01);
-        assert!(((y_mid - px(60.0)) / px(1.0)).abs() < 0.01);
-        assert!(((y_bot - px(93.333_3)) / px(1.0)).abs() < 0.01);
+        assert_eq!(specs.len(), 3);
+        assert_eq!(
+            specs.iter().map(|spec| spec.y).collect::<Vec<_>>(),
+            vec![px(25.0), px(35.0), px(55.0)]
+        );
     }
 
     #[test]
-    fn scrollbar_marker_y_clamps_out_of_range_lines() {
-        let track = Bounds {
-            origin: point(px(0.0), px(0.0)),
-            size: size(px(8.0), px(50.0)),
+    fn scrollbar_markers_follow_terminal_content_pixel_offset() {
+        let lane = Bounds {
+            origin: point(px(0.0), px(20.0)),
+            size: size(px(14.0), px(40.0)),
         };
+        let matches = vec![GridPoint::new(0, 0)..=GridPoint::new(0, 1)];
 
-        // total_lines=3, viewport_lines=1 -> valid coords: -2,-1,0.
-        let y_above = scrollbar_marker_y_for_line_coord(track, 3, 1, -99).unwrap();
-        let y_below = scrollbar_marker_y_for_line_coord(track, 3, 1, 99).unwrap();
+        let specs = scrollbar_marker_specs(
+            ScrollbarMarkerViewport::new(lane, px(10.0), px(3.0), 0, 4),
+            &matches,
+            None,
+            SCROLLBAR_MARKER_LIMIT,
+        );
 
-        // Clamps to the first/last line-band centers (1/6 and 5/6 of the height).
-        assert!(((y_above - px(8.333_3)) / px(1.0)).abs() < 0.01);
-        assert!(((y_below - px(41.666_7)) / px(1.0)).abs() < 0.01);
+        assert_eq!(specs[0].y, px(22.0));
+    }
+
+    #[test]
+    fn scrollbar_markers_exclude_rows_shifted_out_of_view() {
+        let lane = Bounds {
+            origin: point(px(0.0), px(20.0)),
+            size: size(px(14.0), px(40.0)),
+        };
+        let matches = vec![
+            GridPoint::new(0, 0)..=GridPoint::new(0, 1),
+            GridPoint::new(1, 0)..=GridPoint::new(1, 1),
+        ];
+
+        let specs = scrollbar_marker_specs(
+            ScrollbarMarkerViewport::new(lane, px(10.0), px(11.0), 0, 4),
+            &matches,
+            None,
+            SCROLLBAR_MARKER_LIMIT,
+        );
+
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].match_index, 1);
+        assert_eq!(specs[0].y, px(24.0));
     }
 
     #[test]
@@ -1104,22 +1117,31 @@ mod tests {
 
     #[test]
     fn search_match_index_for_scrollbar_hover_picks_nearest_marker() {
-        let track = Bounds {
+        let lane = Bounds {
             origin: point(px(0.0), px(0.0)),
             size: size(px(10.0), px(100.0)),
         };
 
-        // total_lines=3, viewport_lines=1 => marker y ~ 16.7, 50, 83.3
         let matches = vec![
             GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
             GridPoint::new(-1, 0)..=GridPoint::new(-1, 1),
             GridPoint::new(0, 0)..=GridPoint::new(0, 1),
         ];
 
-        let hit = search_match_index_for_scrollbar_hover(track, 3, 1, &matches, px(84.0), px(6.0));
-        assert_eq!(hit, Some(2));
+        let hit = search_match_index_for_scrollbar_hover(
+            marker_viewport(lane, px(10.0), 2, 3),
+            &matches,
+            px(16.0),
+            px(6.0),
+        );
+        assert_eq!(hit, Some(1));
 
-        let miss = search_match_index_for_scrollbar_hover(track, 3, 1, &matches, px(84.0), px(0.5));
+        let miss = search_match_index_for_scrollbar_hover(
+            marker_viewport(lane, px(10.0), 2, 3),
+            &matches,
+            px(50.0),
+            px(0.5),
+        );
         assert_eq!(miss, None);
     }
 
@@ -1134,7 +1156,32 @@ mod tests {
             GridPoint::new(-1, 4)..=GridPoint::new(-1, 5),
         ];
 
-        let specs = scrollbar_marker_specs(track, 3, 1, &matches, Some(1), SCROLLBAR_MARKER_LIMIT);
+        let specs = scrollbar_marker_specs(
+            marker_viewport(track, px(10.0), 1, 3),
+            &matches,
+            Some(1),
+            SCROLLBAR_MARKER_LIMIT,
+        );
+
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].match_index, 1);
+        assert!(specs[0].active);
+    }
+
+    #[test]
+    fn scrollbar_marker_limit_keeps_active_duplicate_on_last_included_row() {
+        let lane = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(10.0), px(100.0)),
+        };
+        let matches = vec![
+            GridPoint::new(0, 0)..=GridPoint::new(0, 1),
+            GridPoint::new(0, 4)..=GridPoint::new(0, 5),
+            GridPoint::new(1, 0)..=GridPoint::new(1, 1),
+        ];
+
+        let specs =
+            scrollbar_marker_specs(marker_viewport(lane, px(10.0), 0, 3), &matches, Some(1), 1);
 
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].match_index, 1);
@@ -1154,7 +1201,12 @@ mod tests {
             GridPoint::new(0, 0)..=GridPoint::new(0, 1),
         ];
 
-        let specs = scrollbar_marker_specs(track, 3, 1, &matches, Some(2), SCROLLBAR_MARKER_LIMIT);
+        let specs = scrollbar_marker_specs(
+            marker_viewport(track, px(10.0), 2, 3),
+            &matches,
+            Some(2),
+            SCROLLBAR_MARKER_LIMIT,
+        );
 
         assert_eq!(specs.len(), 3);
         assert_eq!(specs[0].match_index, 0);
@@ -1175,7 +1227,8 @@ mod tests {
             GridPoint::new(-2, 0)..=GridPoint::new(-2, 1),
         ];
 
-        let specs = scrollbar_marker_specs(track, 5, 1, &matches, Some(2), 2);
+        let specs =
+            scrollbar_marker_specs(marker_viewport(track, px(10.0), 4, 5), &matches, Some(2), 2);
 
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].match_index, 0);
