@@ -1,8 +1,9 @@
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
-    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyContext,
-    KeyDownEvent, Keystroke, Pixels, PromptLevel, ReadGlobal, Styled, Subscription, Window, px,
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
+    KeyContext, KeyDownEvent, Keystroke, Pixels, PromptLevel, ReadGlobal, SharedString, Styled,
+    Subscription, Window, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -20,7 +21,7 @@ use smol::Timer;
 use crate::{
     Copy, DecreaseFontSize, HoveredWord, IncreaseFontSize, ResetFontSize, TerminalContent,
     TerminalMode,
-    record::render_recording_indicator_label,
+    record::{render_recording_indicator_label, render_terminal_status_indicator},
     settings::{CursorShape, TerminalBlink, TerminalSettings},
     snippet::{SnippetJump, SnippetJumpDir, SnippetSession},
     suggestions::{SuggestionEngine, SuggestionItem, SuggestionStaticConfig},
@@ -49,6 +50,20 @@ pub trait ContextMenuProvider: Send + Sync + 'static {
         window: &mut Window,
         cx: &mut App,
     ) -> PopupMenu;
+
+    fn status_indicator(
+        &self,
+        _terminal: &Entity<Terminal>,
+        _cx: &App,
+    ) -> Option<TerminalStatusIndicator> {
+        None
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerminalStatusIndicator {
+    pub icon_path: SharedString,
+    pub color: Hsla,
 }
 
 pub struct ImeState {
@@ -947,6 +962,9 @@ impl TerminalView {
         if let Some(rec) = self.render_recording_indicator_overlay(cx) {
             out.push(rec);
         }
+        if let Some(status) = self.render_provider_status_indicator_overlay(cx) {
+            out.push(status);
+        }
         out
     }
 
@@ -955,6 +973,21 @@ impl TerminalView {
         let label = recording_indicator_label(recording_active)?;
         let theme = cx.theme();
         Some(render_recording_indicator_label(theme, label))
+    }
+
+    fn render_provider_status_indicator_overlay(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let indicator = self
+            .context_menu_provider
+            .as_ref()?
+            .status_indicator(&self.terminal, cx)?;
+        Some(render_terminal_status_indicator(
+            cx.theme(),
+            indicator,
+            self.cast_recording_active(cx),
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]

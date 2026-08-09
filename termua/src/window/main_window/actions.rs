@@ -17,11 +17,21 @@ use gpui_component::{
 };
 use rust_i18n::t;
 
-use super::TermuaWindow;
+use super::{TermuaWindow, state::WebShareEntry};
 use crate::{
     NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, ShareTerminalWeb, TermuaAppState,
-    lock_screen, notification,
+    lock_screen, notification, panel::TerminalPanel,
 };
+
+pub(super) fn web_share_started_message(tab_label: &str, url: &str) -> String {
+    format!(
+        "Web terminal sharing started for tab \"{tab_label}\" on the trusted LAN. URL copied:\n{url}"
+    )
+}
+
+pub(super) fn web_share_stopped_message(tab_label: &str) -> String {
+    format!("Web terminal sharing stopped for tab \"{tab_label}\".")
+}
 
 impl TermuaWindow {
     fn has_open_tabs(&self, cx: &App) -> bool {
@@ -79,6 +89,25 @@ impl TermuaWindow {
 }
 
 impl TermuaWindow {
+    fn terminal_tab_label(
+        &self,
+        terminal_view: &gpui::Entity<gpui_term::TerminalView>,
+        cx: &App,
+    ) -> gpui::SharedString {
+        self.dock_area
+            .read(cx)
+            .visible_tab_panels(cx)
+            .into_iter()
+            .filter_map(|tab_panel| tab_panel.read(cx).active_panel(cx))
+            .filter_map(|panel| panel.view().downcast::<TerminalPanel>().ok())
+            .find_map(|panel| {
+                let panel = panel.read(cx);
+                (panel.terminal_view().entity_id() == terminal_view.entity_id())
+                    .then(|| panel.tab_label())
+            })
+            .unwrap_or_else(|| "terminal".into())
+    }
+
     pub(crate) fn open_web_control_request_dialog(
         &mut self,
         peer: std::net::SocketAddr,
@@ -309,22 +338,6 @@ impl TermuaWindow {
         if cx.global::<lock_screen::LockState>().locked() {
             return;
         }
-        if let Some(server) = self.web_share.take() {
-            server.shutdown();
-            self.web_share_active
-                .store(false, std::sync::atomic::Ordering::Relaxed);
-            self.web_share_subscription = None;
-            notification::notify_deferred(
-                notification::MessageKind::Info,
-                "Web terminal sharing stopped.",
-                window,
-                cx,
-            );
-            return;
-        }
-        if self.web_share_starting {
-            return;
-        }
         let Some(terminal_view) = self
             .focused_terminal_view
             .as_ref()
@@ -338,18 +351,38 @@ impl TermuaWindow {
             );
             return;
         };
+        let tab_label = self.terminal_tab_label(&terminal_view, cx);
         let terminal = terminal_view.read(cx).terminal.clone();
+        let terminal_id = terminal.entity_id();
+        if let Some(share) = self.web_shares.remove(&terminal_id) {
+            share.server.shutdown();
+            self.web_share_indicator.deactivate(terminal_id);
+            terminal_view.update(cx, |_, cx| cx.notify());
+            notification::notify_deferred(
+                notification::MessageKind::Info,
+                web_share_stopped_message(share.tab_label.as_ref()),
+                window,
+                cx,
+            );
+            return;
+        }
+        if !self.web_shares_starting.insert(terminal_id) {
+            return;
+        }
         let snapshot = gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
         let token = crate::web::generate_token();
         let xterm_theme = crate::web::XtermTheme::from_app_theme(cx.theme());
-        self.web_share_starting = true;
 
         cx.spawn_in(window, async move |this, window| {
-            let result =
-                crate::web::WebShareServer::bind_with_theme(token.clone(), snapshot, xterm_theme)
-                    .await;
+            let result = crate::web::WebShareServer::bind_with_theme(
+                token.clone(),
+                snapshot,
+                xterm_theme,
+                tab_label.to_string(),
+            )
+            .await;
             let _ = this.update_in(window, move |this, window, cx| {
-                this.web_share_starting = false;
+                this.web_shares_starting.remove(&terminal_id);
                 let server = match result {
                     Ok(server) => std::sync::Arc::new(server),
                     Err(error) => {
@@ -375,34 +408,20 @@ impl TermuaWindow {
                 cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
                 notification::notify_deferred(
                     notification::MessageKind::Warning,
-                    format!("Web terminal is available on the trusted LAN. URL copied:\n{url}"),
+                    web_share_started_message(tab_label.as_ref(), &url),
                     window,
                     cx,
                 );
 
-                server.set_history_before(
-                    terminal
-                        .read(cx)
-                        .total_lines()
-                        .saturating_sub(terminal.read(cx).viewport_lines()),
-                );
-
                 let snapshot_server = std::sync::Arc::clone(&server);
-                this.web_share_subscription =
-                    Some(cx.subscribe(&terminal, move |_this, terminal, event, cx| {
-                        if !matches!(event, gpui_term::Event::ContentUpdated) {
-                            return;
-                        }
-                        let snapshot =
-                            gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
-                        snapshot_server.update_snapshot(snapshot);
-                        snapshot_server.set_history_before(
-                            terminal
-                                .read(cx)
-                                .total_lines()
-                                .saturating_sub(terminal.read(cx).viewport_lines()),
-                        );
-                    }));
+                let subscription = cx.subscribe(&terminal, move |_this, terminal, event, cx| {
+                    if !matches!(event, gpui_term::Event::ContentUpdated) {
+                        return;
+                    }
+                    let snapshot =
+                        gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
+                    snapshot_server.update_snapshot(snapshot);
+                });
 
                 let input_rx = server.inputs();
                 let input_terminal = terminal.downgrade();
@@ -412,31 +431,6 @@ impl TermuaWindow {
                             break;
                         };
                         let _ = terminal.update(cx, |terminal, _cx| terminal.input(input.data));
-                    }
-                })
-                .detach();
-
-                let history_rx = server.history_requests();
-                let history_terminal = terminal.downgrade();
-                let history_server = std::sync::Arc::clone(&server);
-                cx.spawn(async move |_this, cx| {
-                    while let Ok(request) = history_rx.recv().await {
-                        let Some(terminal) = history_terminal.upgrade() else {
-                            break;
-                        };
-                        let (start, columns, rows, cells) = terminal.update(cx, |terminal, _cx| {
-                            let available = terminal
-                                .total_lines()
-                                .saturating_sub(terminal.viewport_lines());
-                            let before = request.before.min(available);
-                            let start = before.saturating_sub(200);
-                            let count = before.saturating_sub(start);
-                            let (columns, rows, cells) =
-                                terminal.preview_cells_from_top(start, count);
-                            (start, columns, rows, cells)
-                        });
-                        let ansi = gpui_term::serialize_terminal_rows_ansi(columns, rows, &cells);
-                        history_server.send_history(request.client_id, start, ansi);
                     }
                 })
                 .detach();
@@ -466,12 +460,24 @@ impl TermuaWindow {
                 })
                 .detach();
 
-                this.web_share = Some(server);
-                this.web_share_active
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                this.web_shares.insert(
+                    terminal_id,
+                    WebShareEntry {
+                        server,
+                        tab_label,
+                        _subscription: subscription,
+                    },
+                );
+                this.web_share_indicator.activate(terminal_id);
+                terminal_view.update(cx, |_, cx| cx.notify());
 
-                let expiring_server = this.web_share.as_ref().cloned().unwrap();
+                let expiring_server = this
+                    .web_shares
+                    .get(&terminal_id)
+                    .map(|share| std::sync::Arc::clone(&share.server))
+                    .unwrap();
                 let expiring_terminal = terminal.downgrade();
+                let expiring_terminal_view = terminal_view.downgrade();
                 cx.spawn(async move |this, cx| {
                     for _ in 0..30 * 60 {
                         smol::Timer::after(std::time::Duration::from_secs(1)).await;
@@ -480,18 +486,18 @@ impl TermuaWindow {
                         }
                     }
                     expiring_server.shutdown();
-                    let _ =
-                        this.update(cx, |this, cx| {
-                            if this.web_share.as_ref().is_some_and(|active| {
-                                std::sync::Arc::ptr_eq(active, &expiring_server)
-                            }) {
-                                this.web_share = None;
-                                this.web_share_active
-                                    .store(false, std::sync::atomic::Ordering::Relaxed);
-                                this.web_share_subscription = None;
-                                cx.notify();
+                    let _ = this.update(cx, |this, cx| {
+                        if this.web_shares.get(&terminal_id).is_some_and(|active| {
+                            std::sync::Arc::ptr_eq(&active.server, &expiring_server)
+                        }) {
+                            this.web_shares.remove(&terminal_id);
+                            this.web_share_indicator.deactivate(terminal_id);
+                            if let Some(terminal_view) = expiring_terminal_view.upgrade() {
+                                terminal_view.update(cx, |_, cx| cx.notify());
                             }
-                        });
+                            cx.notify();
+                        }
+                    });
                 })
                 .detach();
             });

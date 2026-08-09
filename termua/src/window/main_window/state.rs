@@ -1,11 +1,8 @@
 //! TermuaWindow state and construction.
 
 use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -103,11 +100,16 @@ pub(crate) struct TermuaWindow {
     pub(super) ssh_terminal_builder: SshTerminalBuilderFn,
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
     pub(super) workspace_save_task: Option<gpui::Task<()>>,
-    pub(super) web_share: Option<Arc<crate::web::WebShareServer>>,
-    pub(super) web_share_active: Arc<AtomicBool>,
-    pub(super) web_share_starting: bool,
-    pub(super) web_share_subscription: Option<Subscription>,
+    pub(super) web_shares: HashMap<gpui::EntityId, WebShareEntry>,
+    pub(super) web_share_indicator: Arc<WebShareIndicator>,
+    pub(super) web_shares_starting: HashSet<gpui::EntityId>,
     pub(super) _subscriptions: Vec<Subscription>,
+}
+
+pub(super) struct WebShareEntry {
+    pub(super) server: Arc<crate::web::WebShareServer>,
+    pub(super) tab_label: gpui::SharedString,
+    pub(super) _subscription: Subscription,
 }
 
 #[cfg(test)]
@@ -146,7 +148,40 @@ fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
 }
 
 struct TermuaContextMenuProvider {
-    web_share_active: Arc<AtomicBool>,
+    web_share_indicator: Arc<WebShareIndicator>,
+}
+
+#[derive(Default)]
+pub(super) struct WebShareIndicator(Mutex<HashSet<gpui::EntityId>>);
+
+impl WebShareIndicator {
+    pub(super) fn activate(&self, terminal_id: gpui::EntityId) {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .insert(terminal_id);
+    }
+
+    pub(super) fn deactivate(&self, terminal_id: gpui::EntityId) {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .remove(&terminal_id);
+    }
+
+    pub(super) fn clear(&self) {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .clear();
+    }
+
+    pub(super) fn is_active_for(&self, terminal_id: gpui::EntityId) -> bool {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .contains(&terminal_id)
+    }
 }
 
 pub(super) fn web_share_menu_label_key(active: bool) -> &'static str {
@@ -167,6 +202,16 @@ pub(super) fn web_share_menu_icon_color(active: bool, cx: &App) -> Hsla {
     } else {
         cx.theme().muted_foreground
     }
+}
+
+pub(super) fn web_share_terminal_status_indicator(
+    active: bool,
+    cx: &App,
+) -> Option<gpui_term::TerminalStatusIndicator> {
+    active.then(|| gpui_term::TerminalStatusIndicator {
+        icon_path: web_share_menu_icon_path().into(),
+        color: cx.theme().danger,
+    })
 }
 
 pub(super) struct RecorderContextMenuProvider;
@@ -213,6 +258,17 @@ impl gpui_term::ContextMenuProvider for RecorderContextMenuProvider {
 }
 
 impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
+    fn status_indicator(
+        &self,
+        terminal: &gpui::Entity<gpui_term::Terminal>,
+        cx: &App,
+    ) -> Option<gpui_term::TerminalStatusIndicator> {
+        web_share_terminal_status_indicator(
+            self.web_share_indicator.is_active_for(terminal.entity_id()),
+            cx,
+        )
+    }
+
     fn context_menu(
         &self,
         menu: gpui_component::menu::PopupMenu,
@@ -239,7 +295,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
         } else {
             "Terminal.ContextMenu.Recording"
         };
-        let web_share_active = self.web_share_active.load(Ordering::Relaxed);
+        let web_share_active = self.web_share_indicator.is_active_for(terminal.entity_id());
         let web_share_icon = Icon::default()
             .path(web_share_menu_icon_path())
             .text_color(web_share_menu_icon_color(web_share_active, cx));
@@ -372,7 +428,7 @@ impl TermuaWindow {
         });
         let footbar = cx.new(FootbarView::new);
         let lock_overlay = lock_screen::overlay::LockOverlayState::new(window, cx);
-        let web_share_active = Arc::new(AtomicBool::new(false));
+        let web_share_indicator = Arc::new(WebShareIndicator::default());
         let mut this = Self {
             dock_area: dock_area.clone(),
             sessions_sidebar: sessions_sidebar.clone(),
@@ -386,13 +442,12 @@ impl TermuaWindow {
             ssh_tab_label_counts: HashMap::new(),
             ssh_terminal_builder,
             terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider {
-                web_share_active: Arc::clone(&web_share_active),
+                web_share_indicator: Arc::clone(&web_share_indicator),
             }),
             workspace_save_task: None,
-            web_share: None,
-            web_share_active,
-            web_share_starting: false,
-            web_share_subscription: None,
+            web_shares: HashMap::new(),
+            web_share_indicator,
+            web_shares_starting: HashSet::new(),
             _subscriptions: Vec::new(),
         };
 
@@ -703,12 +758,11 @@ impl TermuaWindow {
                     window.refresh();
 
                     if locked {
-                        if let Some(server) = this.web_share.take() {
-                            server.shutdown();
+                        for (_, share) in this.web_shares.drain() {
+                            share.server.shutdown();
                         }
-                        this.web_share_active.store(false, Ordering::Relaxed);
-                        this.web_share_starting = false;
-                        this.web_share_subscription = None;
+                        this.web_share_indicator.clear();
+                        this.web_shares_starting.clear();
                         this.lock_overlay.password_input.update(cx, |state, cx| {
                             state.set_masked(true, window, cx);
                         });

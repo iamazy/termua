@@ -1,7 +1,9 @@
 // Recording-specific UI helpers for `TerminalView`.
 
 use gpui::{AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
-use gpui_component::Theme;
+use gpui_component::{Icon, Theme};
+
+use super::TerminalStatusIndicator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecordingMenuEntry {
@@ -35,6 +37,31 @@ pub(crate) fn render_recording_indicator_label(theme: &Theme, label: &'static st
         .rounded_full()
         .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(theme.danger))
         .child(div().text_xs().text_color(theme.danger).child(label))
+        .into_any_element()
+}
+
+pub(crate) fn render_terminal_status_indicator(
+    theme: &Theme,
+    indicator: TerminalStatusIndicator,
+    recording_active: bool,
+) -> AnyElement {
+    div()
+        .id("terminal-provider-status-indicator")
+        .absolute()
+        .top(px(12.0))
+        .right(px(if recording_active { 72.0 } else { 12.0 }))
+        .flex()
+        .items_center()
+        .p(px(4.0))
+        .bg(theme.background.opacity(0.65))
+        .border_1()
+        .border_color(indicator.color.opacity(0.8))
+        .rounded_full()
+        .child(
+            Icon::default()
+                .path(indicator.icon_path)
+                .text_color(indicator.color),
+        )
         .into_any_element()
 }
 

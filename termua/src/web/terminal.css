@@ -38,6 +38,9 @@ body {
     background: #000;
     transform-origin: center center;
 }
+#terminal .xterm-viewport {
+    overflow-y: hidden !important;
+}
 button {
     padding: 7px 12px;
 }

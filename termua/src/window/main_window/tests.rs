@@ -808,7 +808,37 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             super::state::web_share_menu_icon_color(true, app),
             app.theme().danger
         );
+        assert!(super::state::web_share_terminal_status_indicator(false, app).is_none());
+        let status = super::state::web_share_terminal_status_indicator(true, app)
+            .expect("active sharing should expose a terminal status indicator");
+        assert_eq!(status.icon_path.as_ref(), "icons/global.svg");
+        assert_eq!(status.color, app.theme().danger);
+
+        let shared_terminal = app.new(|_| ());
+        let other_terminal = app.new(|_| ());
+        let indicator = super::state::WebShareIndicator::default();
+        indicator.activate(shared_terminal.entity_id());
+        indicator.activate(other_terminal.entity_id());
+        assert!(indicator.is_active_for(shared_terminal.entity_id()));
+        assert!(indicator.is_active_for(other_terminal.entity_id()));
+        indicator.deactivate(other_terminal.entity_id());
+        assert!(indicator.is_active_for(shared_terminal.entity_id()));
+        assert!(!indicator.is_active_for(other_terminal.entity_id()));
+        indicator.deactivate(shared_terminal.entity_id());
+        assert!(!indicator.is_active_for(shared_terminal.entity_id()));
     });
+}
+
+#[test]
+fn web_share_notifications_identify_the_terminal_tab() {
+    assert_eq!(
+        super::actions::web_share_started_message("bash 2", "http://192.168.1.2:8080/#token=x"),
+        "Web terminal sharing started for tab \"bash 2\" on the trusted LAN. URL copied:\nhttp://192.168.1.2:8080/#token=x"
+    );
+    assert_eq!(
+        super::actions::web_share_stopped_message("bash 2"),
+        "Web terminal sharing stopped for tab \"bash 2\"."
+    );
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

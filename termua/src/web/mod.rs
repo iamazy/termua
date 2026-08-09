@@ -22,7 +22,6 @@ pub struct WebShareServer {
     state: Arc<Mutex<ServerState>>,
     control_rx: smol::channel::Receiver<ControlRequest>,
     input_rx: smol::channel::Receiver<WebInput>,
-    history_rx: smol::channel::Receiver<HistoryRequest>,
     snapshot_tx: smol::channel::Sender<()>,
     shutdown_tx: smol::channel::Sender<()>,
 }
@@ -34,8 +33,6 @@ struct ServerState {
     clients: HashMap<ClientId, ClientConnection>,
     control_tx: smol::channel::Sender<ControlRequest>,
     input_tx: smol::channel::Sender<WebInput>,
-    history_tx: smol::channel::Sender<HistoryRequest>,
-    history_before: usize,
 }
 
 #[derive(Clone)]
@@ -81,19 +78,12 @@ pub struct WebInput {
     pub data: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryRequest {
-    pub client_id: ClientId,
-    pub before: usize,
-}
-
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMessage {
     Authenticate { token: String },
     RequestControl,
     Input { data: String },
-    History { before: usize },
 }
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -173,6 +163,21 @@ fn css_color(color: gpui::Hsla) -> String {
     )
 }
 
+fn escape_html_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
 pub fn local_network_ip() -> std::net::IpAddr {
     std::net::UdpSocket::bind(("0.0.0.0", 0))
         .and_then(|socket| {
@@ -185,19 +190,25 @@ pub fn local_network_ip() -> std::net::IpAddr {
 impl WebShareServer {
     #[cfg(test)]
     pub async fn bind(token: String, snapshot: gpui_term::TerminalScreen) -> io::Result<Self> {
-        Self::bind_with_theme(token, snapshot, XtermTheme::default()).await
+        Self::bind_with_theme(
+            token,
+            snapshot,
+            XtermTheme::default(),
+            "Termua Web Terminal".into(),
+        )
+        .await
     }
 
     pub async fn bind_with_theme(
         token: String,
         snapshot: gpui_term::TerminalScreen,
         theme: XtermTheme,
+        tab_name: String,
     ) -> io::Result<Self> {
         let listener = smol::net::TcpListener::bind(("0.0.0.0", 0)).await?;
         let addr = listener.local_addr()?;
         let (control_tx, control_rx) = smol::channel::bounded(16);
         let (input_tx, input_rx) = smol::channel::bounded(256);
-        let (history_tx, history_rx) = smol::channel::bounded(32);
         let (snapshot_tx, snapshot_rx) = smol::channel::bounded(1);
         let (shutdown_tx, shutdown_rx) = smol::channel::bounded(1);
         let state = Arc::new(Mutex::new(ServerState {
@@ -207,8 +218,6 @@ impl WebShareServer {
             clients: HashMap::new(),
             control_tx,
             input_tx,
-            history_tx,
-            history_before: 0,
         }));
         let listener_state = Arc::clone(&state);
         let broadcaster_state = Arc::clone(&state);
@@ -249,6 +258,7 @@ impl WebShareServer {
                 "__TERMUA_THEME__",
                 &serde_json::to_string(&theme).expect("web terminal theme must serialize"),
             )
+            .replace("__TERMUA_TAB_NAME__", &escape_html_text(&tab_name))
             .into();
         smol::spawn(async move {
             loop {
@@ -290,7 +300,6 @@ impl WebShareServer {
             state,
             control_rx,
             input_rx,
-            history_rx,
             snapshot_tx,
             shutdown_tx,
         })
@@ -317,35 +326,6 @@ impl WebShareServer {
         self.input_rx.clone()
     }
 
-    pub fn history_requests(&self) -> smol::channel::Receiver<HistoryRequest> {
-        self.history_rx.clone()
-    }
-
-    pub fn send_history(&self, client_id: ClientId, before: usize, data: Vec<u8>) {
-        let mut state = self.state.lock().expect("web share state poisoned");
-        let Some(client) = state.clients.get(&client_id) else {
-            return;
-        };
-        let mut message = Vec::with_capacity(data.len() + 9);
-        message.push(1);
-        message.extend_from_slice(&(before as u64).to_be_bytes());
-        message.extend(data);
-        let full_screen = screen_message(
-            0,
-            &state.snapshot,
-            gpui_term::serialize_terminal_screen_ansi(&state.snapshot),
-        );
-        if client
-            .messages
-            .try_send(Message::Binary(message.into()))
-            .is_err()
-            || client.messages.try_send(full_screen).is_err()
-        {
-            state.clients.remove(&client_id);
-            state.access.disconnect(client_id);
-        }
-    }
-
     pub fn approve_control(&self, request: ControlRequestId) -> Result<(), AccessError> {
         let mut state = self.state.lock().expect("web share state poisoned");
         state.access.approve(request)?;
@@ -361,13 +341,6 @@ impl WebShareServer {
             .deny(request);
     }
 
-    pub fn set_history_before(&self, before: usize) {
-        self.state
-            .lock()
-            .expect("web share state poisoned")
-            .history_before = before;
-    }
-
     pub fn update_snapshot(&self, snapshot: gpui_term::TerminalScreen) {
         let mut state = self.state.lock().expect("web share state poisoned");
         state.snapshot = snapshot;
@@ -376,11 +349,8 @@ impl WebShareServer {
     }
 }
 
-fn access_message(control: bool, history_before: usize) -> Message {
-    Message::Text(
-        format!(r#"{{"type":"access","control":{control},"history_before":{history_before}}}"#)
-            .into(),
-    )
+fn access_message(control: bool) -> Message {
+    Message::Text(format!(r#"{{"type":"access","control":{control}}}"#).into())
 }
 
 fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -> Message {
@@ -394,10 +364,9 @@ fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -
 
 fn broadcast_access(state: &ServerState) {
     for (client_id, client) in &state.clients {
-        let _ = client.messages.try_send(access_message(
-            state.access.can_input(*client_id),
-            state.history_before,
-        ));
+        let _ = client
+            .messages
+            .try_send(access_message(state.access.can_input(*client_id)));
     }
 }
 
@@ -433,7 +402,7 @@ async fn serve_websocket(
                             let result = state.access.connect(&token, client_id);
                             if result.is_ok() {
                                 state.clients.insert(client_id, connection.clone());
-                                let _ = out_tx.try_send(access_message(false, state.history_before));
+                                let _ = out_tx.try_send(access_message(false));
                                 let snapshot = screen_message(
                                     0,
                                     &state.snapshot,
@@ -462,18 +431,6 @@ async fn serve_websocket(
                         };
                         if let Some(tx) = tx {
                             let _ = tx.send(WebInput { client_id, data: data.into_bytes() }).await;
-                        }
-                    }
-                    ClientMessage::History { before } if authenticated => {
-                        let tx = {
-                            let state = state.lock().expect("web share state poisoned");
-                            state
-                                .access
-                                .is_connected(client_id)
-                                .then(|| state.history_tx.clone())
-                        };
-                        if let Some(tx) = tx {
-                            let _ = tx.send(HistoryRequest { client_id, before }).await;
                         }
                     }
                     _ => {}
@@ -556,10 +513,6 @@ impl ShareAccess {
 
     pub fn can_input(&self, client: ClientId) -> bool {
         self.controller == Some(client)
-    }
-
-    fn is_connected(&self, client: ClientId) -> bool {
-        self.clients.contains(&client)
     }
 
     pub fn request_control(&mut self, client: ClientId) -> Result<ControlRequestId, AccessError> {
@@ -759,10 +712,14 @@ mod tests {
     #[test]
     fn local_server_serves_terminal_page() {
         smol::block_on(async {
-            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
-                .await
-                .unwrap();
-            server.set_history_before(42);
+            let server = WebShareServer::bind_with_theme(
+                "secret".into(),
+                screen_with_text("screen"),
+                XtermTheme::default(),
+                "bash & <tools>".into(),
+            )
+            .await
+            .unwrap();
             let mut stream = smol::net::TcpStream::connect(server.local_addr())
                 .await
                 .unwrap();
@@ -779,6 +736,7 @@ mod tests {
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("xterm"));
             assert!(response.contains("request-control"));
+            assert!(response.contains("<title>bash &amp; &lt;tools&gt;</title>"));
             assert!(compact_response.contains("theme:{"));
             assert!(compact_response.contains("term.resize(columns,rows)"));
             assert!(compact_response.contains("bytes[0]===2"));
@@ -787,6 +745,12 @@ mod tests {
             assert!(compact_response.contains("transform=`scale(${scale})`"));
             assert!(compact_response.contains("Math.min(1.15,"));
             assert!(!compact_response.contains("Math.min(wantedWidth,bounds.width)"));
+            assert!(compact_response.contains("scrollback:0"));
+            assert!(compact_response.contains(".xterm-viewport{overflow-y:hidden!important"));
+            assert!(compact_response.contains("event.preventDefault()"));
+            assert!(compact_response.contains("event.stopImmediatePropagation()"));
+            assert!(!compact_response.contains("term.onScroll("));
+            assert!(!compact_response.contains(r#"type:"history""#));
             assert!(response.contains(r#"<style data-termua-asset="terminal.css">"#));
             assert!(response.contains(r#"<script data-termua-asset="terminal.js">"#));
             assert!(!response.contains("__TERMUA_"));
@@ -829,7 +793,6 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            server.set_history_before(42);
             let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
             let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
             socket
@@ -840,7 +803,7 @@ mod tests {
                 .unwrap();
             let access = socket.next().await.unwrap().unwrap().into_text().unwrap();
             assert!(access.contains(r#""control":false"#));
-            assert!(access.contains(r#""history_before":42"#));
+            assert!(!access.contains("history_before"));
             let screen = socket.next().await.unwrap().unwrap().into_data();
             assert_eq!(screen[0], 0);
             assert_eq!(u32::from_be_bytes(screen[1..5].try_into().unwrap()), 20);
@@ -871,20 +834,6 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(server.inputs().recv().await.unwrap().data, b"allowed");
-
-            socket
-                .send(async_tungstenite::tungstenite::Message::Text(
-                    r#"{"type":"history","before":10}"#.into(),
-                ))
-                .await
-                .unwrap();
-            let history = server.history_requests().recv().await.unwrap();
-            assert_eq!(history.before, 10);
-            server.send_history(history.client_id, 5, b"older".to_vec());
-            let response = socket.next().await.unwrap().unwrap().into_data();
-            assert_eq!(response[0], 1);
-            assert_eq!(u64::from_be_bytes(response[1..9].try_into().unwrap()), 5);
-            assert_eq!(&response[9..], b"older");
         });
     }
 
@@ -952,21 +901,5 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.chars().all(|ch| ch.is_ascii_hexdigit()));
         assert_ne!(first, second);
-    }
-
-    #[test]
-    fn history_rows_serialize_without_clearing_the_terminal() {
-        let cells = vec![IndexedCell {
-            point: GridPoint::new(0, 0),
-            cell: Cell {
-                c: 'h',
-                ..Default::default()
-            },
-        }];
-        let ansi = gpui_term::serialize_terminal_rows_ansi(2, 1, &cells);
-        let ansi = String::from_utf8(ansi).unwrap();
-        assert!(!ansi.contains("\u{1b}[2J"));
-        assert!(ansi.contains("h "));
-        assert!(ansi.ends_with("\r\n"));
     }
 }
