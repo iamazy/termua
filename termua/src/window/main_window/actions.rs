@@ -4,8 +4,17 @@ mod sftp;
 mod ssh;
 mod terminal;
 
-use gpui::{App, ClipboardItem, Context, InteractiveElement, ParentElement, Window, div};
-use gpui_component::ActiveTheme as _;
+use gpui::{
+    App, ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window,
+    div, px,
+};
+use gpui_common::TermuaIcon;
+use gpui_component::{
+    ActiveTheme as _, Icon,
+    button::{Button, ButtonVariants},
+    dialog::{DialogAction, DialogClose, DialogFooter},
+    h_flex, v_flex,
+};
 use rust_i18n::t;
 
 use super::TermuaWindow;
@@ -70,6 +79,107 @@ impl TermuaWindow {
 }
 
 impl TermuaWindow {
+    pub(crate) fn open_web_control_request_dialog(
+        &mut self,
+        peer: std::net::SocketAddr,
+        decision_tx: smol::channel::Sender<bool>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Some(root)) = window.root::<gpui_component::Root>() else {
+            log::warn!("termua: web control dialog requested without a component root");
+            let _ = decision_tx.try_send(false);
+            return;
+        };
+
+        root.update(cx, |root, cx| {
+            root.open_dialog(
+                move |dialog, _window, app| {
+                    let allow_tx = decision_tx.clone();
+                    let deny_tx = decision_tx.clone();
+                    let title = h_flex()
+                        .gap_2()
+                        .items_center()
+                        .debug_selector(|| "termua-web-control-dialog-title".to_string())
+                        .child(
+                            Icon::default()
+                                .path(TermuaIcon::LockOpen)
+                                .text_color(app.theme().warning),
+                        )
+                        .child("Browser control request")
+                        .into_any_element();
+                    let source = v_flex()
+                        .gap_1()
+                        .text_sm()
+                        .p_3()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(app.theme().border.opacity(0.8))
+                        .bg(app.theme().border.opacity(0.12))
+                        .debug_selector(|| "termua-web-control-dialog-source".to_string())
+                        .child(div().text_sm().text_color(app.theme().muted_foreground).child(
+                            "Request source",
+                        ))
+                        .child(div().child(peer.to_string()));
+                    let notice = h_flex()
+                        .gap_2()
+                        .items_start()
+                        .text_sm()
+                        .p_3()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(app.theme().warning.opacity(0.3))
+                        .bg(app.theme().warning.opacity(0.08))
+                        .text_color(app.theme().warning)
+                        .debug_selector(|| "termua-web-control-dialog-notice".to_string())
+                        .child(Icon::default().path(TermuaIcon::AlertCircle))
+                        .child(div().min_w_0().child(
+                            "If allowed, this browser can send keyboard input to the current terminal until sharing ends.",
+                        ));
+
+                    dialog
+                        .title(title)
+                        .w(px(560.))
+                        .child(
+                            v_flex()
+                                .gap_3()
+                                .child("A browser on your local network is requesting control of this terminal.")
+                                .child(source)
+                                .child(notice),
+                        )
+                        .footer(
+                            DialogFooter::new()
+                                .child(DialogClose::new().child(
+                                    Button::new("termua-web-control-dialog-deny")
+                                        .label("Deny")
+                                        .debug_selector(|| {
+                                            "termua-web-control-dialog-deny".to_string()
+                                        }),
+                                ))
+                                .child(DialogAction::new().child(
+                                    Button::new("termua-web-control-dialog-allow")
+                                        .primary()
+                                        .label("Allow control")
+                                        .debug_selector(|| {
+                                            "termua-web-control-dialog-allow".to_string()
+                                        }),
+                                )),
+                        )
+                        .on_ok(move |_, _window, _app| {
+                            let _ = allow_tx.try_send(true);
+                            true
+                        })
+                        .on_cancel(move |_, _window, _app| {
+                            let _ = deny_tx.try_send(false);
+                            true
+                        })
+                },
+                window,
+                cx,
+            );
+        });
+    }
+
     pub(super) fn unlock_from_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.lock_overlay.unlock_with_password(window, cx);
     }
@@ -333,17 +443,19 @@ impl TermuaWindow {
                 let approval_server = std::sync::Arc::clone(&server);
                 cx.spawn_in(window, async move |this, window| {
                     while let Ok(request) = control_rx.recv().await {
-                        let prompt = this.update_in(window, |_, window, cx| {
-                            window.prompt(
-                                gpui::PromptLevel::Warning,
-                                "Allow browser control of this terminal?",
-                                Some(&format!("Request from {}", request.peer)),
-                                &["Allow", "Deny"],
+                        let (decision_tx, decision_rx) = smol::channel::bounded(1);
+                        let opened = this.update_in(window, move |this, window, cx| {
+                            this.open_web_control_request_dialog(
+                                request.peer,
+                                decision_tx,
+                                window,
                                 cx,
-                            )
+                            );
                         });
-                        let Ok(prompt) = prompt else { break };
-                        if prompt.await == Ok(0) {
+                        if opened.is_err() {
+                            break;
+                        }
+                        if decision_rx.recv().await == Ok(true) {
                             let _ = approval_server.approve_control(request.request_id);
                         } else {
                             approval_server.deny_control(request.request_id);

@@ -868,6 +868,83 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
 
 #[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
+fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let termua_slot_for_view = Rc::clone(&termua_slot);
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *termua_slot_for_view.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+
+    cx.update(|window, app| {
+        let termua = termua_slot
+            .borrow()
+            .as_ref()
+            .expect("expected TermuaWindow view to be captured")
+            .clone();
+        let (decision_tx, _decision_rx) = smol::channel::bounded(1);
+        termua.update(app, |this, cx| {
+            this.open_web_control_request_dialog(
+                "192.168.1.20:54321".parse().unwrap(),
+                decision_tx,
+                window,
+                cx,
+            );
+        });
+    });
+
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    cx.run_until_parked();
+
+    for selector in [
+        "termua-web-control-dialog-title",
+        "termua-web-control-dialog-source",
+        "termua-web-control-dialog-notice",
+        "termua-web-control-dialog-deny",
+        "termua-web-control-dialog-allow",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "expected {selector} to be rendered"
+        );
+    }
+
+    let source_height = cx
+        .debug_bounds("termua-web-control-dialog-source")
+        .unwrap()
+        .size
+        .height;
+    let notice_height = cx
+        .debug_bounds("termua-web-control-dialog-notice")
+        .unwrap()
+        .size
+        .height;
+    assert!(
+        source_height <= gpui::px(76.) && notice_height <= gpui::px(76.),
+        "expected compact detail text: source={source_height:?}, notice={notice_height:?}"
+    );
+}
+
+#[cfg_attr(target_os = "macos", ignore)]
+#[gpui::test]
 fn request_quit_without_open_tabs_does_not_open_confirmation_dialog(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
 
