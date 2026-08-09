@@ -96,7 +96,7 @@ pub(crate) struct TermuaWindow {
     pub(super) ssh_terminal_builder: SshTerminalBuilderFn,
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
     pub(super) workspace_save_task: Option<gpui::Task<()>>,
-    pub(super) web_share: Option<Arc<crate::web_terminal::WebShareServer>>,
+    pub(super) web_share: Option<Arc<crate::web::WebShareServer>>,
     pub(super) web_share_starting: bool,
     pub(super) web_share_subscription: Option<Subscription>,
     pub(super) _subscriptions: Vec<Subscription>,

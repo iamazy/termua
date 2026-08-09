@@ -13,32 +13,9 @@ use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 
-const TERMINAL_PAGE: &str = r#"<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Termua Web Terminal</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
-<style>html,body{height:100%;margin:0;background:#000;color:#ddd;font:14px system-ui}body{display:flex;flex-direction:column;overflow:hidden}#bar{height:42px;box-sizing:border-box;flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;background:#202124}#stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#000}#terminal{flex:none;width:100%;height:100%;overflow:hidden;background:#000;transform-origin:center center}button{padding:7px 12px}#status{flex:1}</style>
-</head><body><div id="bar"><span id="status">Connecting read-only…</span><button id="request-control">Request control</button></div><div id="stage"><div id="terminal"></div></div>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-<script>
-const terminalNode=document.getElementById('terminal'),stage=document.getElementById('stage');
-const term=new Terminal({cursorBlink:true,scrollback:10000,convertEol:false,theme:__TERMUA_THEME__}); term.open(terminalNode);
-const token=new URLSearchParams(location.hash.slice(1)).get('token')||'';
-const ws=new WebSocket(`ws://${location.host}/ws`); ws.binaryType='arraybuffer';
-let latestSnapshot=new Uint8Array(),historyChunks=[],historyBefore=0,historyLoading=false,historyAwaitingSnapshot=false;
-ws.onopen=()=>ws.send(JSON.stringify({type:'authenticate',token}));
-function joined(chunks){const size=chunks.reduce((sum,chunk)=>sum+chunk.length,0),result=new Uint8Array(size);let offset=0;for(const chunk of chunks){result.set(chunk,offset);offset+=chunk.length;}return result;}
-function layoutTerminal(){requestAnimationFrame(()=>{const cell=term._core?._renderService?.dimensions?.css?.cell;if(!cell||!cell.width||!cell.height)return;const bounds=stage.getBoundingClientRect(),wantedWidth=Math.ceil(cell.width*term.cols+18),wantedHeight=Math.ceil(cell.height*term.rows+2),scale=Math.min(1,bounds.width/wantedWidth,bounds.height/wantedHeight);terminalNode.style.width=`${wantedWidth}px`;terminalNode.style.height=`${wantedHeight}px`;terminalNode.style.transform=`scale(${scale})`;term.refresh(0,term.rows-1);});}
-function resizeTerminal(columns,rows){if(term.cols!==columns||term.rows!==rows)term.resize(columns,rows);layoutTerminal();}
-function rebuild(){term.write('',()=>{term.reset();term.write(joined([...historyChunks,latestSnapshot]),()=>{historyLoading=false;layoutTerminal();});});}
-function loadHistory(){if(historyLoading||historyBefore===0||ws.readyState!==1)return; historyLoading=true; ws.send(JSON.stringify({type:'history',before:historyBefore}));}
-ws.onmessage=e=>{if(e.data instanceof ArrayBuffer){const bytes=new Uint8Array(e.data),view=new DataView(e.data);if(bytes[0]===0||bytes[0]===2){const columns=view.getUint32(1),rows=view.getUint32(5),ansi=bytes.slice(9);resizeTerminal(columns,rows);if(bytes[0]===0){latestSnapshot=ansi;if(historyAwaitingSnapshot){historyAwaitingSnapshot=false;rebuild();}else term.write(ansi);}else if(!historyAwaitingSnapshot)term.write(ansi);}else if(bytes[0]===1){historyBefore=Number(view.getBigUint64(1));historyChunks.unshift(bytes.slice(9));historyAwaitingSnapshot=true;}return;} const m=JSON.parse(e.data); if(m.type==='access'){historyBefore=m.history_before;document.getElementById('status').textContent=m.control?'Control granted':'Read-only';}};
-term.onData(data=>ws.readyState===1&&ws.send(JSON.stringify({type:'input',data})));
-term.onScroll(position=>{if(position<20)loadHistory();});
-document.getElementById('terminal').addEventListener('wheel',event=>{if(event.deltaY<0)loadHistory();},{passive:true});
-document.getElementById('request-control').onclick=()=>ws.send(JSON.stringify({type:'request_control'}));
-window.addEventListener('resize',layoutTerminal);
-</script></body></html>"#;
+const TERMINAL_PAGE: &str = include_str!("index.html");
+const TERMINAL_STYLE: &str = include_str!("terminal.css");
+const TERMINAL_SCRIPT: &str = include_str!("terminal.js");
 
 pub struct WebShareServer {
     addr: SocketAddr,
@@ -68,7 +45,7 @@ struct ClientConnection {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WebTerminalTheme {
+pub struct XtermTheme {
     foreground: String,
     background: String,
     cursor: String,
@@ -131,7 +108,7 @@ pub fn generate_token() -> String {
     token
 }
 
-impl WebTerminalTheme {
+impl XtermTheme {
     pub fn from_app_theme(colors: &gpui_component::ThemeColor) -> Self {
         Self {
             foreground: css_color(colors.foreground),
@@ -158,7 +135,7 @@ impl WebTerminalTheme {
     }
 }
 
-impl Default for WebTerminalTheme {
+impl Default for XtermTheme {
     fn default() -> Self {
         Self {
             foreground: "#d8dee9".into(),
@@ -208,13 +185,13 @@ pub fn local_network_ip() -> std::net::IpAddr {
 impl WebShareServer {
     #[cfg(test)]
     pub async fn bind(token: String, snapshot: gpui_term::TerminalScreen) -> io::Result<Self> {
-        Self::bind_with_theme(token, snapshot, WebTerminalTheme::default()).await
+        Self::bind_with_theme(token, snapshot, XtermTheme::default()).await
     }
 
     pub async fn bind_with_theme(
         token: String,
         snapshot: gpui_term::TerminalScreen,
-        theme: WebTerminalTheme,
+        theme: XtermTheme,
     ) -> io::Result<Self> {
         let listener = smol::net::TcpListener::bind(("0.0.0.0", 0)).await?;
         let addr = listener.local_addr()?;
@@ -266,6 +243,8 @@ impl WebShareServer {
         })
         .detach();
         let terminal_page: Arc<str> = TERMINAL_PAGE
+            .replace("__TERMUA_STYLE__", TERMINAL_STYLE)
+            .replace("__TERMUA_SCRIPT__", TERMINAL_SCRIPT)
             .replace(
                 "__TERMUA_THEME__",
                 &serde_json::to_string(&theme).expect("web terminal theme must serialize"),
@@ -793,28 +772,36 @@ mod tests {
                 .unwrap();
             let mut response = String::new();
             stream.read_to_string(&mut response).await.unwrap();
+            let compact_response: String = response
+                .chars()
+                .filter(|character| !character.is_ascii_whitespace())
+                .collect();
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("xterm"));
             assert!(response.contains("request-control"));
-            assert!(response.contains("theme:{"));
-            assert!(response.contains("term.resize(columns,rows)"));
-            assert!(response.contains("bytes[0]===2"));
-            assert!(response.contains("justify-content:center"));
-            assert!(response.contains("background:#000"));
-            assert!(response.contains("transform=`scale(${scale})`"));
-            assert!(!response.contains("Math.min(wantedWidth,bounds.width)"));
+            assert!(compact_response.contains("theme:{"));
+            assert!(compact_response.contains("term.resize(columns,rows)"));
+            assert!(compact_response.contains("bytes[0]===2"));
+            assert!(compact_response.contains("justify-content:center"));
+            assert!(compact_response.contains("background:#000"));
+            assert!(compact_response.contains("transform=`scale(${scale})`"));
+            assert!(compact_response.contains("Math.min(1.15,"));
+            assert!(!compact_response.contains("Math.min(wantedWidth,bounds.width)"));
+            assert!(response.contains(r#"<style data-termua-asset="terminal.css">"#));
+            assert!(response.contains(r#"<script data-termua-asset="terminal.js">"#));
+            assert!(!response.contains("__TERMUA_"));
         });
     }
 
     #[test]
-    fn web_theme_uses_termua_named_color_mapping() {
+    fn xterm_theme_uses_termua_named_color_mapping() {
         let colors = gpui_component::ThemeColor {
             foreground: gpui::rgb(0x123456).into(),
             background: gpui::rgb(0xabcdef).into(),
             muted_foreground: gpui::rgb(0x654321).into(),
             ..Default::default()
         };
-        let theme = WebTerminalTheme::from_app_theme(&colors);
+        let theme = XtermTheme::from_app_theme(&colors);
         let json = serde_json::to_string(&theme).unwrap();
 
         assert!(json.contains(r##""foreground":"#123456""##));

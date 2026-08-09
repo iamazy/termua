@@ -228,17 +228,14 @@ impl TermuaWindow {
         };
         let terminal = terminal_view.read(cx).terminal.clone();
         let snapshot = gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
-        let token = crate::web_terminal::generate_token();
-        let web_theme = crate::web_terminal::WebTerminalTheme::from_app_theme(cx.theme());
+        let token = crate::web::generate_token();
+        let xterm_theme = crate::web::XtermTheme::from_app_theme(cx.theme());
         self.web_share_starting = true;
 
         cx.spawn_in(window, async move |this, window| {
-            let result = crate::web_terminal::WebShareServer::bind_with_theme(
-                token.clone(),
-                snapshot,
-                web_theme,
-            )
-            .await;
+            let result =
+                crate::web::WebShareServer::bind_with_theme(token.clone(), snapshot, xterm_theme)
+                    .await;
             let _ = this.update_in(window, move |this, window, cx| {
                 this.web_share_starting = false;
                 let server = match result {
@@ -260,7 +257,7 @@ impl TermuaWindow {
 
                 let url = format!(
                     "http://{}:{}/#token={token}",
-                    crate::web_terminal::local_network_ip(),
+                    crate::web::local_network_ip(),
                     server.local_addr().port()
                 );
                 cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
