@@ -311,6 +311,8 @@ impl TermuaWindow {
         }
         if let Some(server) = self.web_share.take() {
             server.shutdown();
+            self.web_share_active
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             self.web_share_subscription = None;
             notification::notify_deferred(
                 notification::MessageKind::Info,
@@ -465,6 +467,8 @@ impl TermuaWindow {
                 .detach();
 
                 this.web_share = Some(server);
+                this.web_share_active
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
 
                 let expiring_server = this.web_share.as_ref().cloned().unwrap();
                 let expiring_terminal = terminal.downgrade();
@@ -482,6 +486,8 @@ impl TermuaWindow {
                                 std::sync::Arc::ptr_eq(active, &expiring_server)
                             }) {
                                 this.web_share = None;
+                                this.web_share_active
+                                    .store(false, std::sync::atomic::Ordering::Relaxed);
                                 this.web_share_subscription = None;
                                 cx.notify();
                             }

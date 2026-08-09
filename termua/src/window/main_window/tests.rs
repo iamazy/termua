@@ -773,6 +773,42 @@ fn terminal_context_menu_labels_follow_the_active_locale() {
     assert_eq!(t!("Terminal.ContextMenu.Paste"), "粘贴");
     assert_eq!(t!("Terminal.ContextMenu.SelectAll"), "全选");
     assert_eq!(t!("Terminal.ContextMenu.Clear"), "清空");
+    assert_eq!(t!("Terminal.ContextMenu.ShareWeb"), "在浏览器中分享");
+    assert_eq!(t!("Terminal.ContextMenu.ShareWebActive"), "分享中");
+
+    crate::locale::set_locale("en");
+    assert_eq!(t!("Terminal.ContextMenu.ShareWeb"), "Share in Web Browser");
+    assert_eq!(
+        t!("Terminal.ContextMenu.ShareWebActive"),
+        "Sharing in Web Browser"
+    );
+}
+
+#[gpui::test]
+fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestAppContext) {
+    use gpui_component::ActiveTheme as _;
+
+    cx.update(|app| {
+        gpui_component::init(app);
+
+        assert_eq!(
+            super::state::web_share_menu_label_key(false),
+            "Terminal.ContextMenu.ShareWeb"
+        );
+        assert_eq!(
+            super::state::web_share_menu_label_key(true),
+            "Terminal.ContextMenu.ShareWebActive"
+        );
+        assert_eq!(super::state::web_share_menu_icon_path(), "icons/global.svg");
+        assert_eq!(
+            super::state::web_share_menu_icon_color(false, app),
+            app.theme().muted_foreground
+        );
+        assert_eq!(
+            super::state::web_share_menu_icon_color(true, app),
+            app.theme().danger
+        );
+    });
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

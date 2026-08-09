@@ -299,6 +299,7 @@ Terminal:
     SelectAll: "Select All"
     Clear: "Clear"
     ShareWeb: "Share in Web Browser"
+    ShareWebActive: "Sharing in Web Browser"
 
 MainWindow:
   QuitConfirm:

@@ -298,6 +298,7 @@ Terminal:
     SelectAll: "全选"
     Clear: "清空"
     ShareWeb: "在浏览器中分享"
+    ShareWebActive: "分享中"
 
 MainWindow:
   QuitConfirm:

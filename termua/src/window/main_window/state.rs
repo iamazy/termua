@@ -1,8 +1,15 @@
 //! TermuaWindow state and construction.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
-use gpui::{App, AppContext, Context, Focusable, Styled, Subscription, Window};
+use gpui::{App, AppContext, Context, Focusable, Hsla, Styled, Subscription, Window};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
 use gpui_dock::{
@@ -97,6 +104,7 @@ pub(crate) struct TermuaWindow {
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
     pub(super) workspace_save_task: Option<gpui::Task<()>>,
     pub(super) web_share: Option<Arc<crate::web::WebShareServer>>,
+    pub(super) web_share_active: Arc<AtomicBool>,
     pub(super) web_share_starting: bool,
     pub(super) web_share_subscription: Option<Subscription>,
     pub(super) _subscriptions: Vec<Subscription>,
@@ -137,7 +145,29 @@ fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
     );
 }
 
-struct TermuaContextMenuProvider;
+struct TermuaContextMenuProvider {
+    web_share_active: Arc<AtomicBool>,
+}
+
+pub(super) fn web_share_menu_label_key(active: bool) -> &'static str {
+    if active {
+        "Terminal.ContextMenu.ShareWebActive"
+    } else {
+        "Terminal.ContextMenu.ShareWeb"
+    }
+}
+
+pub(super) fn web_share_menu_icon_path() -> &'static str {
+    TermuaIcon::Global.path()
+}
+
+pub(super) fn web_share_menu_icon_color(active: bool, cx: &App) -> Hsla {
+    if active {
+        cx.theme().danger
+    } else {
+        cx.theme().muted_foreground
+    }
+}
 
 pub(super) struct RecorderContextMenuProvider;
 
@@ -209,6 +239,10 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
         } else {
             "Terminal.ContextMenu.Recording"
         };
+        let web_share_active = self.web_share_active.load(Ordering::Relaxed);
+        let web_share_icon = Icon::default()
+            .path(web_share_menu_icon_path())
+            .text_color(web_share_menu_icon_color(web_share_active, cx));
 
         let has_sftp = terminal.read(cx).sftp().is_some();
 
@@ -232,9 +266,12 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             .separator();
 
         menu = menu
-            .menu(
-                t!("Terminal.ContextMenu.ShareWeb").to_string(),
-                Box::new(ShareTerminalWeb),
+            .item(
+                gpui_component::menu::PopupMenuItem::new(
+                    t!(web_share_menu_label_key(web_share_active)).to_string(),
+                )
+                .icon(web_share_icon)
+                .action(Box::new(ShareTerminalWeb)),
             )
             .separator()
             .menu_with_icon(
@@ -335,6 +372,7 @@ impl TermuaWindow {
         });
         let footbar = cx.new(FootbarView::new);
         let lock_overlay = lock_screen::overlay::LockOverlayState::new(window, cx);
+        let web_share_active = Arc::new(AtomicBool::new(false));
         let mut this = Self {
             dock_area: dock_area.clone(),
             sessions_sidebar: sessions_sidebar.clone(),
@@ -347,9 +385,12 @@ impl TermuaWindow {
             local_tab_label_counts: HashMap::new(),
             ssh_tab_label_counts: HashMap::new(),
             ssh_terminal_builder,
-            terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider),
+            terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider {
+                web_share_active: Arc::clone(&web_share_active),
+            }),
             workspace_save_task: None,
             web_share: None,
+            web_share_active,
             web_share_starting: false,
             web_share_subscription: None,
             _subscriptions: Vec::new(),
@@ -665,6 +706,7 @@ impl TermuaWindow {
                         if let Some(server) = this.web_share.take() {
                             server.shutdown();
                         }
+                        this.web_share_active.store(false, Ordering::Relaxed);
                         this.web_share_starting = false;
                         this.web_share_subscription = None;
                         this.lock_overlay.password_input.update(cx, |state, cx| {
