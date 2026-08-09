@@ -298,6 +298,7 @@ Terminal:
     Paste: "Paste"
     SelectAll: "Select All"
     Clear: "Clear"
+    ShareWeb: "Share in Web Browser"
 
 MainWindow:
   QuitConfirm:

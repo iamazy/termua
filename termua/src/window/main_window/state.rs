@@ -17,7 +17,7 @@ use gpui_transfer::TransferCenterState;
 use rust_i18n::t;
 
 use crate::{
-    OpenSftp, TermuaAppState,
+    OpenSftp, ShareTerminalWeb, TermuaAppState,
     footbar::FootbarView,
     globals::{ensure_ctx_global, ensure_ctx_global_with},
     lock_screen, notification,
@@ -96,6 +96,9 @@ pub(crate) struct TermuaWindow {
     pub(super) ssh_terminal_builder: SshTerminalBuilderFn,
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
     pub(super) workspace_save_task: Option<gpui::Task<()>>,
+    pub(super) web_share: Option<Arc<crate::web_terminal::WebShareServer>>,
+    pub(super) web_share_starting: bool,
+    pub(super) web_share_subscription: Option<Subscription>,
     pub(super) _subscriptions: Vec<Subscription>,
 }
 
@@ -229,6 +232,11 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             .separator();
 
         menu = menu
+            .menu(
+                t!("Terminal.ContextMenu.ShareWeb").to_string(),
+                Box::new(ShareTerminalWeb),
+            )
+            .separator()
             .menu_with_icon(
                 t!("Terminal.ContextMenu.Copy").to_string(),
                 IconName::Copy,
@@ -341,6 +349,9 @@ impl TermuaWindow {
             ssh_terminal_builder,
             terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider),
             workspace_save_task: None,
+            web_share: None,
+            web_share_starting: false,
+            web_share_subscription: None,
             _subscriptions: Vec::new(),
         };
 
@@ -651,6 +662,11 @@ impl TermuaWindow {
                     window.refresh();
 
                     if locked {
+                        if let Some(server) = this.web_share.take() {
+                            server.shutdown();
+                        }
+                        this.web_share_starting = false;
+                        this.web_share_subscription = None;
                         this.lock_overlay.password_input.update(cx, |state, cx| {
                             state.set_masked(true, window, cx);
                         });

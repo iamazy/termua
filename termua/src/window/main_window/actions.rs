@@ -4,12 +4,14 @@ mod sftp;
 mod ssh;
 mod terminal;
 
-use gpui::{App, Context, InteractiveElement, ParentElement, Window, div};
+use gpui::{App, ClipboardItem, Context, InteractiveElement, ParentElement, Window, div};
+use gpui_component::ActiveTheme as _;
 use rust_i18n::t;
 
 use super::TermuaWindow;
 use crate::{
-    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, TermuaAppState, lock_screen, notification,
+    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, ShareTerminalWeb, TermuaAppState,
+    lock_screen, notification,
 };
 
 impl TermuaWindow {
@@ -186,5 +188,199 @@ impl TermuaWindow {
         };
 
         self.open_sftp_for_terminal_view(focused, window, cx);
+    }
+
+    pub(super) fn on_share_terminal_web(
+        &mut self,
+        _: &ShareTerminalWeb,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if cx.global::<lock_screen::LockState>().locked() {
+            return;
+        }
+        if let Some(server) = self.web_share.take() {
+            server.shutdown();
+            self.web_share_subscription = None;
+            notification::notify_deferred(
+                notification::MessageKind::Info,
+                "Web terminal sharing stopped.",
+                window,
+                cx,
+            );
+            return;
+        }
+        if self.web_share_starting {
+            return;
+        }
+        let Some(terminal_view) = self
+            .focused_terminal_view
+            .as_ref()
+            .and_then(|view| view.upgrade())
+        else {
+            notification::notify_deferred(
+                notification::MessageKind::Error,
+                "No active terminal to share.",
+                window,
+                cx,
+            );
+            return;
+        };
+        let terminal = terminal_view.read(cx).terminal.clone();
+        let snapshot = gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
+        let token = crate::web_terminal::generate_token();
+        let web_theme = crate::web_terminal::WebTerminalTheme::from_app_theme(cx.theme());
+        self.web_share_starting = true;
+
+        cx.spawn_in(window, async move |this, window| {
+            let result = crate::web_terminal::WebShareServer::bind_with_theme(
+                token.clone(),
+                snapshot,
+                web_theme,
+            )
+            .await;
+            let _ = this.update_in(window, move |this, window, cx| {
+                this.web_share_starting = false;
+                let server = match result {
+                    Ok(server) => std::sync::Arc::new(server),
+                    Err(error) => {
+                        notification::notify_deferred(
+                            notification::MessageKind::Error,
+                            format!("Failed to start web terminal: {error}"),
+                            window,
+                            cx,
+                        );
+                        return;
+                    }
+                };
+                if cx.global::<lock_screen::LockState>().locked() {
+                    server.shutdown();
+                    return;
+                }
+
+                let url = format!(
+                    "http://{}:{}/#token={token}",
+                    crate::web_terminal::local_network_ip(),
+                    server.local_addr().port()
+                );
+                cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                notification::notify_deferred(
+                    notification::MessageKind::Warning,
+                    format!("Web terminal is available on the trusted LAN. URL copied:\n{url}"),
+                    window,
+                    cx,
+                );
+
+                server.set_history_before(
+                    terminal
+                        .read(cx)
+                        .total_lines()
+                        .saturating_sub(terminal.read(cx).viewport_lines()),
+                );
+
+                let snapshot_server = std::sync::Arc::clone(&server);
+                this.web_share_subscription =
+                    Some(cx.subscribe(&terminal, move |_this, terminal, event, cx| {
+                        if !matches!(event, gpui_term::Event::ContentUpdated) {
+                            return;
+                        }
+                        let snapshot =
+                            gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
+                        snapshot_server.update_snapshot(snapshot);
+                        snapshot_server.set_history_before(
+                            terminal
+                                .read(cx)
+                                .total_lines()
+                                .saturating_sub(terminal.read(cx).viewport_lines()),
+                        );
+                    }));
+
+                let input_rx = server.inputs();
+                let input_terminal = terminal.downgrade();
+                cx.spawn(async move |_this, cx| {
+                    while let Ok(input) = input_rx.recv().await {
+                        let Some(terminal) = input_terminal.upgrade() else {
+                            break;
+                        };
+                        let _ = terminal.update(cx, |terminal, _cx| terminal.input(input.data));
+                    }
+                })
+                .detach();
+
+                let history_rx = server.history_requests();
+                let history_terminal = terminal.downgrade();
+                let history_server = std::sync::Arc::clone(&server);
+                cx.spawn(async move |_this, cx| {
+                    while let Ok(request) = history_rx.recv().await {
+                        let Some(terminal) = history_terminal.upgrade() else {
+                            break;
+                        };
+                        let (start, columns, rows, cells) = terminal.update(cx, |terminal, _cx| {
+                            let available = terminal
+                                .total_lines()
+                                .saturating_sub(terminal.viewport_lines());
+                            let before = request.before.min(available);
+                            let start = before.saturating_sub(200);
+                            let count = before.saturating_sub(start);
+                            let (columns, rows, cells) =
+                                terminal.preview_cells_from_top(start, count);
+                            (start, columns, rows, cells)
+                        });
+                        let ansi = gpui_term::serialize_terminal_rows_ansi(columns, rows, &cells);
+                        history_server.send_history(request.client_id, start, ansi);
+                    }
+                })
+                .detach();
+
+                let control_rx = server.control_requests();
+                let approval_server = std::sync::Arc::clone(&server);
+                cx.spawn_in(window, async move |this, window| {
+                    while let Ok(request) = control_rx.recv().await {
+                        let prompt = this.update_in(window, |_, window, cx| {
+                            window.prompt(
+                                gpui::PromptLevel::Warning,
+                                "Allow browser control of this terminal?",
+                                Some(&format!("Request from {}", request.peer)),
+                                &["Allow", "Deny"],
+                                cx,
+                            )
+                        });
+                        let Ok(prompt) = prompt else { break };
+                        if prompt.await == Ok(0) {
+                            let _ = approval_server.approve_control(request.request_id);
+                        } else {
+                            approval_server.deny_control(request.request_id);
+                        }
+                    }
+                })
+                .detach();
+
+                this.web_share = Some(server);
+
+                let expiring_server = this.web_share.as_ref().cloned().unwrap();
+                let expiring_terminal = terminal.downgrade();
+                cx.spawn(async move |this, cx| {
+                    for _ in 0..30 * 60 {
+                        smol::Timer::after(std::time::Duration::from_secs(1)).await;
+                        if expiring_terminal.upgrade().is_none() {
+                            break;
+                        }
+                    }
+                    expiring_server.shutdown();
+                    let _ =
+                        this.update(cx, |this, cx| {
+                            if this.web_share.as_ref().is_some_and(|active| {
+                                std::sync::Arc::ptr_eq(active, &expiring_server)
+                            }) {
+                                this.web_share = None;
+                                this.web_share_subscription = None;
+                                cx.notify();
+                            }
+                        });
+                })
+                .detach();
+            });
+        })
+        .detach();
     }
 }

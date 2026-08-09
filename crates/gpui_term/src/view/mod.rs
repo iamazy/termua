@@ -1058,6 +1058,7 @@ fn handle_terminal_event(
             cx.notify();
             cx.emit(Event::Wakeup);
         }
+        Event::ContentUpdated => {}
         Event::Bell => {
             terminal_view.has_bell = true;
             cx.emit(Event::Wakeup);

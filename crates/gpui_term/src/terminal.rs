@@ -79,6 +79,8 @@ pub enum Event {
     CloseTerminal,
     Bell,
     Wakeup,
+    /// The backend has synchronized its render snapshot, so `last_content()` is current.
+    ContentUpdated,
     BlinkChanged(bool),
     SelectionsChanged,
     NewNavigationTarget(Option<String>),
@@ -1413,6 +1415,7 @@ impl Terminal {
 
     pub fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.inner.sync(window, cx);
+        cx.emit(Event::ContentUpdated);
     }
 
     pub fn shutdown(&mut self, policy: TerminalShutdownPolicy, cx: &mut Context<Self>) {
@@ -1861,6 +1864,8 @@ mod sftp_upload_activity_tests {
             Box::new(cast_recording_tests::FakeBackend {
                 active: false,
                 stop_calls: Arc::new(AtomicUsize::new(0)),
+                content: TerminalContent::default(),
+                content_after_sync: None,
             }),
         );
 
@@ -1876,6 +1881,93 @@ mod sftp_upload_activity_tests {
 }
 
 #[cfg(test)]
+mod content_update_event_tests {
+    use std::{
+        cell::RefCell,
+        rc::Rc,
+        sync::{Arc, Mutex},
+    };
+
+    use gpui::AppContext;
+    use gpui_component::Root;
+
+    use super::*;
+
+    #[gpui::test]
+    fn sync_emits_content_updated_after_backend_snapshot_is_ready(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+
+        let terminal_slot: Rc<RefCell<Option<gpui::Entity<Terminal>>>> =
+            Rc::new(RefCell::new(None));
+        let terminal_slot_for_window = terminal_slot.clone();
+        let synchronized_prompt = TerminalContent {
+            cells: "$ "
+                .chars()
+                .enumerate()
+                .map(|(column, c)| IndexedCell {
+                    point: GridPoint::new(0, column),
+                    cell: crate::Cell {
+                        c,
+                        ..Default::default()
+                    },
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let observed_content = Arc::new(Mutex::new(String::new()));
+        let observed_content_for_subscription = observed_content.clone();
+        let subscription_slot: Rc<RefCell<Option<gpui::Subscription>>> =
+            Rc::new(RefCell::new(None));
+        let subscription_slot_for_window = subscription_slot.clone();
+        let (_root, window_cx) = cx.add_window_view(|window, cx| {
+            let terminal = cx.new(|_| {
+                Terminal::new(
+                    TerminalType::WezTerm,
+                    Box::new(super::cast_recording_tests::FakeBackend {
+                        active: false,
+                        stop_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                        content: TerminalContent::default(),
+                        content_after_sync: Some(synchronized_prompt),
+                    }),
+                )
+            });
+            *subscription_slot_for_window.borrow_mut() = Some(cx.subscribe(
+                &terminal,
+                move |_, terminal, event: &Event, cx| {
+                    if matches!(event, Event::ContentUpdated) {
+                        *observed_content_for_subscription.lock().unwrap() = terminal
+                            .read(cx)
+                            .last_content()
+                            .cells
+                            .iter()
+                            .map(|cell| cell.cell.c)
+                            .collect();
+                    }
+                },
+            ));
+            *terminal_slot_for_window.borrow_mut() = Some(terminal.clone());
+            let view = cx.new(|cx| crate::TerminalView::new(terminal, window, cx));
+            Root::new(view, window, cx)
+        });
+        let terminal = terminal_slot
+            .borrow()
+            .clone()
+            .expect("terminal should be created");
+
+        window_cx.update(|window, cx| {
+            terminal.update(cx, |terminal, cx| terminal.sync(window, cx));
+        });
+        cx.run_until_parked();
+
+        assert_eq!(
+            observed_content.lock().unwrap().as_str(),
+            "$ ",
+            "web observers must see the post-sync prompt, not the previous snapshot"
+        );
+    }
+}
+
+#[cfg(test)]
 mod cast_recording_tests {
     use std::sync::{
         Arc,
@@ -1887,6 +1979,8 @@ mod cast_recording_tests {
     pub(super) struct FakeBackend {
         pub(super) active: bool,
         pub(super) stop_calls: Arc<AtomicUsize>,
+        pub(super) content: TerminalContent,
+        pub(super) content_after_sync: Option<TerminalContent>,
     }
 
     impl TerminalBackend for FakeBackend {
@@ -1894,11 +1988,14 @@ mod cast_recording_tests {
             "fake"
         }
 
-        fn sync(&mut self, _window: &mut Window, _cx: &mut Context<Terminal>) {}
+        fn sync(&mut self, _window: &mut Window, _cx: &mut Context<Terminal>) {
+            if let Some(content) = self.content_after_sync.take() {
+                self.content = content;
+            }
+        }
 
         fn last_content(&self) -> &TerminalContent {
-            static CONTENT: std::sync::OnceLock<TerminalContent> = std::sync::OnceLock::new();
-            CONTENT.get_or_init(TerminalContent::default)
+            &self.content
         }
 
         fn matches(&self) -> &[RangeInclusive<GridPoint>] {
@@ -2038,6 +2135,8 @@ mod cast_recording_tests {
             Box::new(FakeBackend {
                 active: false,
                 stop_calls: Arc::clone(&stop_calls),
+                content: TerminalContent::default(),
+                content_after_sync: None,
             }),
         );
         assert!(!terminal.cast_recording_active());
@@ -2064,6 +2163,8 @@ mod cast_recording_tests {
                 Box::new(FakeBackend {
                     active: true,
                     stop_calls: Arc::clone(&stop_calls),
+                    content: TerminalContent::default(),
+                    content_after_sync: None,
                 }),
             );
         }
