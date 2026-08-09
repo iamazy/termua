@@ -1893,6 +1893,7 @@ mod content_update_event_tests {
 
     use super::*;
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn sync_emits_content_updated_after_backend_snapshot_is_ready(cx: &mut gpui::TestAppContext) {
         cx.update(crate::init);

@@ -591,6 +591,10 @@ mod tests {
         gpui_term::capture_terminal_screen(&content)
     }
 
+    fn loopback_addr(server: &WebShareServer) -> SocketAddr {
+        SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()))
+    }
+
     #[test]
     fn authenticated_clients_start_read_only() {
         let mut access = ShareAccess::new("secret".into());
@@ -720,7 +724,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let mut stream = smol::net::TcpStream::connect(server.local_addr())
+            let mut stream = smol::net::TcpStream::connect(loopback_addr(&server))
                 .await
                 .unwrap();
             stream
@@ -780,7 +784,7 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text(""))
                 .await
                 .unwrap();
-            let addr = server.local_addr();
+            let addr = loopback_addr(&server);
             server.shutdown();
             smol::Timer::after(std::time::Duration::from_millis(20)).await;
             assert!(smol::net::TcpStream::connect(addr).await.is_err());
