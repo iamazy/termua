@@ -460,7 +460,8 @@ async fn serve_http(mut stream: smol::net::TcpStream, terminal_page: &str) -> io
         ("404 Not Found", "text/plain; charset=utf-8", "Not Found")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: \
+         close\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(response.as_bytes()).await?;
@@ -562,9 +563,10 @@ impl ShareAccess {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use gpui_term::{Cell, GridPoint, IndexedCell, TerminalContent};
     use smol::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
 
     fn screen_with_text(text: &str) -> gpui_term::TerminalScreen {
         let mut content = TerminalContent::default();

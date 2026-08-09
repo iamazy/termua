@@ -48,7 +48,7 @@ pub trait ContextMenuProvider: Send + Sync + 'static {
         terminal: Entity<Terminal>,
         terminal_view: Entity<TerminalView>,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu;
 
     fn status_indicator(
@@ -999,7 +999,7 @@ impl TerminalView {
         context_menu_provider: Option<Arc<dyn ContextMenuProvider>>,
         menu: PopupMenu,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
         if !context_menu_enabled {
             return menu;
@@ -1043,19 +1043,22 @@ impl TerminalView {
             IconName::Copy,
             Box::new(Copy),
         )
-        .menu(
-            t!("Terminal.ContextMenu.Paste").to_string(),
-            Box::new(Paste),
+        .item(
+            PopupMenuItem::new(t!("Terminal.ContextMenu.Paste").to_string())
+                .icon(Icon::default().path(TermuaIcon::Paste))
+                .action(Box::new(Paste)),
         )
         .separator()
-        .menu(
-            t!("Terminal.ContextMenu.SelectAll").to_string(),
-            Box::new(SelectAll),
+        .item(
+            PopupMenuItem::new(t!("Terminal.ContextMenu.SelectAll").to_string())
+                .icon(Icon::default().path(TermuaIcon::Select))
+                .action(Box::new(SelectAll)),
         )
         .separator()
-        .menu(
-            t!("Terminal.ContextMenu.Clear").to_string(),
-            Box::new(Clear),
+        .item(
+            PopupMenuItem::new(t!("Terminal.ContextMenu.Clear").to_string())
+                .icon(Icon::default().path(TermuaIcon::Clear))
+                .action(Box::new(Clear)),
         )
     }
 }

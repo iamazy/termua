@@ -14,6 +14,7 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, ScrollWheelEvent,
     SharedString, Styled, Window, div,
 };
+use gpui_common::TermuaIcon;
 use gpui_component::input::InputState;
 use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
@@ -775,6 +776,8 @@ fn terminal_context_menu_labels_follow_the_active_locale() {
     assert_eq!(t!("Terminal.ContextMenu.Clear"), "清空");
     assert_eq!(t!("Terminal.ContextMenu.ShareWeb"), "在浏览器中分享");
     assert_eq!(t!("Terminal.ContextMenu.ShareWebActive"), "分享中");
+    assert_eq!(t!("Terminal.ContextMenu.CopyWebUrl"), "复制链接");
+    assert_eq!(t!("Terminal.ContextMenu.StopWebSharing"), "停止分享");
 
     crate::locale::set_locale("en");
     assert_eq!(t!("Terminal.ContextMenu.ShareWeb"), "Share in Web Browser");
@@ -782,6 +785,8 @@ fn terminal_context_menu_labels_follow_the_active_locale() {
         t!("Terminal.ContextMenu.ShareWebActive"),
         "Sharing in Web Browser"
     );
+    assert_eq!(t!("Terminal.ContextMenu.CopyWebUrl"), "Copy URL");
+    assert_eq!(t!("Terminal.ContextMenu.StopWebSharing"), "Stop Sharing");
 }
 
 #[gpui::test]
@@ -799,7 +804,7 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             super::state::web_share_menu_label_key(true),
             "Terminal.ContextMenu.ShareWebActive"
         );
-        assert_eq!(super::state::web_share_menu_icon_path(), "icons/global.svg");
+        assert_eq!(TermuaIcon::Global.path(), "icons/global.svg");
         assert_eq!(
             super::state::web_share_menu_icon_color(false, app),
             app.theme().muted_foreground
@@ -813,14 +818,21 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             .expect("active sharing should expose a terminal status indicator");
         assert_eq!(status.icon_path.as_ref(), "icons/global.svg");
         assert_eq!(status.color, app.theme().danger);
-
         let shared_terminal = app.new(|_| ());
         let other_terminal = app.new(|_| ());
         let indicator = super::state::WebShareIndicator::default();
-        indicator.activate(shared_terminal.entity_id());
-        indicator.activate(other_terminal.entity_id());
+        indicator.activate(shared_terminal.entity_id(), "http://host/one".into());
+        indicator.activate(other_terminal.entity_id(), "http://host/two".into());
         assert!(indicator.is_active_for(shared_terminal.entity_id()));
         assert!(indicator.is_active_for(other_terminal.entity_id()));
+        assert_eq!(
+            indicator.url_for(shared_terminal.entity_id()).as_deref(),
+            Some("http://host/one")
+        );
+        assert_eq!(
+            indicator.url_for(other_terminal.entity_id()).as_deref(),
+            Some("http://host/two")
+        );
         indicator.deactivate(other_terminal.entity_id());
         assert!(indicator.is_active_for(shared_terminal.entity_id()));
         assert!(!indicator.is_active_for(other_terminal.entity_id()));

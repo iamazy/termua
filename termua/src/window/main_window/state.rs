@@ -6,7 +6,9 @@ use std::{
     time::Duration,
 };
 
-use gpui::{App, AppContext, Context, Focusable, Hsla, Styled, Subscription, Window};
+use gpui::{
+    App, AppContext, ClipboardItem, Context, Focusable, Hsla, Styled, Subscription, Window,
+};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
 use gpui_dock::{
@@ -152,14 +154,14 @@ struct TermuaContextMenuProvider {
 }
 
 #[derive(Default)]
-pub(super) struct WebShareIndicator(Mutex<HashSet<gpui::EntityId>>);
+pub(super) struct WebShareIndicator(Mutex<HashMap<gpui::EntityId, String>>);
 
 impl WebShareIndicator {
-    pub(super) fn activate(&self, terminal_id: gpui::EntityId) {
+    pub(super) fn activate(&self, terminal_id: gpui::EntityId, url: String) {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
-            .insert(terminal_id);
+            .insert(terminal_id, url);
     }
 
     pub(super) fn deactivate(&self, terminal_id: gpui::EntityId) {
@@ -180,7 +182,15 @@ impl WebShareIndicator {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
-            .contains(&terminal_id)
+            .contains_key(&terminal_id)
+    }
+
+    pub(super) fn url_for(&self, terminal_id: gpui::EntityId) -> Option<String> {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .get(&terminal_id)
+            .cloned()
     }
 }
 
@@ -190,10 +200,6 @@ pub(super) fn web_share_menu_label_key(active: bool) -> &'static str {
     } else {
         "Terminal.ContextMenu.ShareWeb"
     }
-}
-
-pub(super) fn web_share_menu_icon_path() -> &'static str {
-    TermuaIcon::Global.path()
 }
 
 pub(super) fn web_share_menu_icon_color(active: bool, cx: &App) -> Hsla {
@@ -209,7 +215,7 @@ pub(super) fn web_share_terminal_status_indicator(
     cx: &App,
 ) -> Option<gpui_term::TerminalStatusIndicator> {
     active.then(|| gpui_term::TerminalStatusIndicator {
-        icon_path: web_share_menu_icon_path().into(),
+        icon_path: TermuaIcon::Global.path().into(),
         color: cx.theme().danger,
     })
 }
@@ -239,7 +245,7 @@ impl gpui_term::ContextMenuProvider for RecorderContextMenuProvider {
         _terminal: gpui::Entity<gpui_term::Terminal>,
         terminal_view: gpui::Entity<TerminalView>,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<gpui_component::menu::PopupMenu>,
     ) -> gpui_component::menu::PopupMenu {
         let focus = terminal_view.read(cx).focus_handle.clone();
         window.focus(&focus, cx);
@@ -250,9 +256,12 @@ impl gpui_term::ContextMenuProvider for RecorderContextMenuProvider {
             Box::new(CopyAction),
         )
         .separator()
-        .menu(
-            t!("Terminal.ContextMenu.SelectAll").to_string(),
-            Box::new(SelectAll),
+        .item(
+            gpui_component::menu::PopupMenuItem::new(
+                t!("Terminal.ContextMenu.SelectAll").to_string(),
+            )
+            .icon(Icon::default().path(TermuaIcon::Select))
+            .action(Box::new(SelectAll)),
         )
     }
 }
@@ -275,7 +284,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
         terminal: gpui::Entity<gpui_term::Terminal>,
         terminal_view: gpui::Entity<TerminalView>,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<gpui_component::menu::PopupMenu>,
     ) -> gpui_component::menu::PopupMenu {
         // Ensure context-menu actions target the terminal the user interacted with.
         let focus = terminal_view.read(cx).focus_handle.clone();
@@ -295,17 +304,21 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
         } else {
             "Terminal.ContextMenu.Recording"
         };
-        let web_share_active = self.web_share_indicator.is_active_for(terminal.entity_id());
+        let web_share_url = self.web_share_indicator.url_for(terminal.entity_id());
+        let web_share_active = web_share_url.is_some();
         let web_share_icon = Icon::default()
-            .path(web_share_menu_icon_path())
+            .path(TermuaIcon::Global.path())
             .text_color(web_share_menu_icon_color(web_share_active, cx));
 
         let has_sftp = terminal.read(cx).sftp().is_some();
 
         let mut menu = if has_sftp {
-            menu.menu(
-                t!("MainWindow.ContextMenu.OpenSftp").to_string(),
-                Box::new(OpenSftp),
+            menu.item(
+                gpui_component::menu::PopupMenuItem::new(
+                    t!("MainWindow.ContextMenu.OpenSftp").to_string(),
+                )
+                .icon(Icon::default().path(TermuaIcon::FolderTree))
+                .action(Box::new(OpenSftp)),
             )
             .separator()
         } else {
@@ -321,33 +334,77 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             )
             .separator();
 
-        menu = menu
-            .item(
+        menu = if let Some(url) = web_share_url {
+            let copy_url_label = t!("Terminal.ContextMenu.CopyWebUrl").to_string();
+            let stop_sharing_label = t!("Terminal.ContextMenu.StopWebSharing").to_string();
+            let stop_sharing_focus = focus.clone();
+            menu.submenu_with_icon(
+                Some(web_share_icon),
+                t!(web_share_menu_label_key(true)).to_string(),
+                window,
+                cx,
+                move |menu, _, _| {
+                    let copy_url_label = copy_url_label.clone();
+                    let copy_url = url.clone();
+                    let stop_sharing_label = stop_sharing_label.clone();
+                    let stop_sharing_focus = stop_sharing_focus.clone();
+                    menu.item(
+                        gpui_component::menu::PopupMenuItem::new(copy_url_label)
+                            .icon(Icon::new(IconName::Copy))
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy_url.clone()));
+                            }),
+                    )
+                    .separator()
+                    .item(
+                        gpui_component::menu::PopupMenuItem::new(stop_sharing_label)
+                            .on_click(move |_, window, cx| {
+                                window.focus(&stop_sharing_focus, cx);
+                                window.dispatch_action(Box::new(ShareTerminalWeb), cx);
+                            })
+                            .icon(Icon::default().path(TermuaIcon::Stop)),
+                    )
+                },
+            )
+        } else {
+            menu.item(
                 gpui_component::menu::PopupMenuItem::new(
-                    t!(web_share_menu_label_key(web_share_active)).to_string(),
+                    t!(web_share_menu_label_key(false)).to_string(),
                 )
                 .icon(web_share_icon)
                 .action(Box::new(ShareTerminalWeb)),
             )
+        };
+
+        menu = menu
             .separator()
             .menu_with_icon(
                 t!("Terminal.ContextMenu.Copy").to_string(),
                 IconName::Copy,
                 Box::new(CopyAction),
             )
-            .menu(
-                t!("Terminal.ContextMenu.Paste").to_string(),
-                Box::new(Paste),
+            .item(
+                gpui_component::menu::PopupMenuItem::new(
+                    t!("Terminal.ContextMenu.Paste").to_string(),
+                )
+                .icon(Icon::default().path(TermuaIcon::Paste))
+                .action(Box::new(Paste)),
             )
             .separator()
-            .menu(
-                t!("Terminal.ContextMenu.SelectAll").to_string(),
-                Box::new(SelectAll),
+            .item(
+                gpui_component::menu::PopupMenuItem::new(
+                    t!("Terminal.ContextMenu.SelectAll").to_string(),
+                )
+                .icon(Icon::default().path(TermuaIcon::Select))
+                .action(Box::new(SelectAll)),
             )
             .separator()
-            .menu(
-                t!("Terminal.ContextMenu.Clear").to_string(),
-                Box::new(Clear),
+            .item(
+                gpui_component::menu::PopupMenuItem::new(
+                    t!("Terminal.ContextMenu.Clear").to_string(),
+                )
+                .icon(Icon::default().path(TermuaIcon::Clear))
+                .action(Box::new(Clear)),
             );
 
         menu

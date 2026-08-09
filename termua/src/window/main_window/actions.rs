@@ -25,7 +25,8 @@ use crate::{
 
 pub(super) fn web_share_started_message(tab_label: &str, url: &str) -> String {
     format!(
-        "Web terminal sharing started for tab \"{tab_label}\" on the trusted LAN. URL copied:\n{url}"
+        "Web terminal sharing started for tab \"{tab_label}\" on the trusted LAN. URL \
+         copied:\n{url}"
     )
 }
 
@@ -146,9 +147,12 @@ impl TermuaWindow {
                         .border_color(app.theme().border.opacity(0.8))
                         .bg(app.theme().border.opacity(0.12))
                         .debug_selector(|| "termua-web-control-dialog-source".to_string())
-                        .child(div().text_sm().text_color(app.theme().muted_foreground).child(
-                            "Request source",
-                        ))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(app.theme().muted_foreground)
+                                .child("Request source"),
+                        )
                         .child(div().child(peer.to_string()));
                     let notice = h_flex()
                         .gap_2()
@@ -163,7 +167,8 @@ impl TermuaWindow {
                         .debug_selector(|| "termua-web-control-dialog-notice".to_string())
                         .child(Icon::default().path(TermuaIcon::AlertCircle))
                         .child(div().min_w_0().child(
-                            "If allowed, this browser can send keyboard input to the current terminal until sharing ends.",
+                            "If allowed, this browser can send keyboard input to the current \
+                             terminal until sharing ends.",
                         ));
 
                     dialog
@@ -172,27 +177,34 @@ impl TermuaWindow {
                         .child(
                             v_flex()
                                 .gap_3()
-                                .child("A browser on your local network is requesting control of this terminal.")
+                                .child(
+                                    "A browser on your local network is requesting control of \
+                                     this terminal.",
+                                )
                                 .child(source)
                                 .child(notice),
                         )
                         .footer(
                             DialogFooter::new()
-                                .child(DialogClose::new().child(
-                                    Button::new("termua-web-control-dialog-deny")
-                                        .label("Deny")
-                                        .debug_selector(|| {
-                                            "termua-web-control-dialog-deny".to_string()
-                                        }),
-                                ))
-                                .child(DialogAction::new().child(
-                                    Button::new("termua-web-control-dialog-allow")
-                                        .primary()
-                                        .label("Allow control")
-                                        .debug_selector(|| {
-                                            "termua-web-control-dialog-allow".to_string()
-                                        }),
-                                )),
+                                .child(
+                                    DialogClose::new().child(
+                                        Button::new("termua-web-control-dialog-deny")
+                                            .label("Deny")
+                                            .debug_selector(|| {
+                                                "termua-web-control-dialog-deny".to_string()
+                                            }),
+                                    ),
+                                )
+                                .child(
+                                    DialogAction::new().child(
+                                        Button::new("termua-web-control-dialog-allow")
+                                            .primary()
+                                            .label("Allow control")
+                                            .debug_selector(|| {
+                                                "termua-web-control-dialog-allow".to_string()
+                                            }),
+                                    ),
+                                ),
                         )
                         .on_ok(move |_, _window, _app| {
                             let _ = allow_tx.try_send(true);
@@ -468,7 +480,7 @@ impl TermuaWindow {
                         _subscription: subscription,
                     },
                 );
-                this.web_share_indicator.activate(terminal_id);
+                this.web_share_indicator.activate(terminal_id, url);
                 terminal_view.update(cx, |_, cx| cx.notify());
 
                 let expiring_server = this

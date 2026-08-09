@@ -300,6 +300,8 @@ Terminal:
     Clear: "Clear"
     ShareWeb: "Share in Web Browser"
     ShareWebActive: "Sharing in Web Browser"
+    CopyWebUrl: "Copy URL"
+    StopWebSharing: "Stop Sharing"
 
 MainWindow:
   QuitConfirm:
