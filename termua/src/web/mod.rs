@@ -563,7 +563,7 @@ impl ShareAccess {
         if self.controller == Some(client) {
             return Err(AccessError::ControllerAlreadyActive);
         }
-        if self.pending.values().any(|pending| *pending == client) {
+        if !self.pending.is_empty() {
             return Err(AccessError::RequestAlreadyPending);
         }
         let request = self.next_request_id;
@@ -782,6 +782,20 @@ mod tests {
         );
         access.deny(request);
         assert!(access.request_control(1).is_ok());
+    }
+
+    #[test]
+    fn only_one_control_request_can_be_pending() {
+        let mut access = ShareAccess::new("secret".into());
+        access.connect("secret", 1).unwrap();
+        access.connect("secret", 2).unwrap();
+
+        access.request_control(1).unwrap();
+
+        assert_eq!(
+            access.request_control(2),
+            Err(AccessError::RequestAlreadyPending)
+        );
     }
 
     #[test]
