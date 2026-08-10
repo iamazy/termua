@@ -38,6 +38,7 @@ struct ServerState {
 #[derive(Clone)]
 struct ClientConnection {
     messages: smol::channel::Sender<Message>,
+    shutdown: smol::channel::Sender<()>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -245,7 +246,9 @@ impl WebShareServer {
                     })
                     .collect();
                 for client_id in failed {
-                    state.clients.remove(&client_id);
+                    if let Some(client) = state.clients.remove(&client_id) {
+                        let _ = client.shutdown.try_send(());
+                    }
                     state.access.disconnect(client_id);
                 }
             }
@@ -313,7 +316,7 @@ impl WebShareServer {
         let _ = self.shutdown_tx.try_send(());
         let mut state = self.state.lock().expect("web share state poisoned");
         for client in state.clients.values() {
-            let _ = client.messages.try_send(Message::Close(None));
+            let _ = client.shutdown.try_send(());
         }
         state.clients.clear();
     }
@@ -384,16 +387,23 @@ async fn serve_websocket(
     let socket = async_tungstenite::accept_async(stream).await?;
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (out_tx, out_rx) = smol::channel::bounded::<Message>(64);
+    let (shutdown_tx, shutdown_rx) = smol::channel::bounded(1);
     let connection = ClientConnection {
         messages: out_tx.clone(),
+        shutdown: shutdown_tx,
     };
     let (mut sink, mut source) = socket.split();
     let mut authenticated = false;
 
     loop {
+        if shutdown_rx.try_recv().is_ok() {
+            sink.send(Message::Close(None)).await?;
+            break;
+        }
         let incoming = source.next().fuse();
         let outgoing = out_rx.recv().fuse();
-        futures::pin_mut!(incoming, outgoing);
+        let shutdown = shutdown_rx.recv().fuse();
+        futures::pin_mut!(incoming, outgoing, shutdown);
         futures::select! {
             incoming = incoming => {
                 let Some(incoming) = incoming else { break };
@@ -445,6 +455,12 @@ async fn serve_websocket(
             outgoing = outgoing => {
                 let Ok(outgoing) = outgoing else { break };
                 sink.send(outgoing).await?;
+            },
+            shutdown = shutdown => {
+                if shutdown.is_ok() {
+                    sink.send(Message::Close(None)).await?;
+                }
+                break;
             },
         }
     }
@@ -846,6 +862,128 @@ mod tests {
             server.shutdown();
             let message = socket.next().await.unwrap().unwrap();
             assert!(message.is_close());
+        });
+    }
+
+    #[test]
+    fn shutting_down_share_closes_websocket_when_output_queue_is_full() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
+            socket
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"secret"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let _ = socket.next().await;
+            let _ = socket.next().await;
+
+            let messages = server
+                .state
+                .lock()
+                .unwrap()
+                .clients
+                .values()
+                .next()
+                .unwrap()
+                .messages
+                .clone();
+            let payload = "x".repeat(256 * 1024);
+            while messages
+                .try_send(Message::Text(payload.clone().into()))
+                .is_ok()
+            {}
+
+            server.shutdown();
+            let closed = async {
+                while let Some(message) = socket.next().await {
+                    match message {
+                        Ok(message) if message.is_close() => return true,
+                        Err(_) => return false,
+                        _ => {}
+                    }
+                }
+                false
+            }
+            .fuse();
+            let timeout =
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(300)));
+            futures::pin_mut!(closed, timeout);
+            let closed = futures::select! {
+                closed = closed => closed,
+                _ = timeout => false,
+            };
+            assert!(closed, "shutdown close must bypass a full output queue");
+        });
+    }
+
+    #[test]
+    fn full_output_queue_disconnects_websocket_before_removing_client() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
+            socket
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"secret"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let _ = socket.next().await;
+            let _ = socket.next().await;
+
+            let messages = server
+                .state
+                .lock()
+                .unwrap()
+                .clients
+                .values()
+                .next()
+                .unwrap()
+                .messages
+                .clone();
+            let payload = "x".repeat(256 * 1024);
+            for attempt in 0..20 {
+                while messages
+                    .try_send(Message::Text(payload.clone().into()))
+                    .is_ok()
+                {}
+                server.update_snapshot(screen_with_text(&format!("screen-{attempt}")));
+                smol::Timer::after(std::time::Duration::from_millis(20)).await;
+                if server.state.lock().unwrap().clients.is_empty() {
+                    break;
+                }
+            }
+            assert!(
+                server.state.lock().unwrap().clients.is_empty(),
+                "a client with a full output queue must be removed"
+            );
+
+            let closed = async {
+                while let Some(message) = socket.next().await {
+                    match message {
+                        Ok(message) if message.is_close() => return true,
+                        Err(_) => return false,
+                        _ => {}
+                    }
+                }
+                false
+            }
+            .fuse();
+            let timeout =
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(500)));
+            futures::pin_mut!(closed, timeout);
+            let closed = futures::select! {
+                closed = closed => closed,
+                _ = timeout => false,
+            };
+            assert!(closed, "removing a slow client must close its websocket");
         });
     }
 
