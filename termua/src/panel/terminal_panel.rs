@@ -183,6 +183,11 @@ pub(crate) struct TerminalPanel {
     pending_sftp_upload: Option<PendingSftpUpload>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum TerminalPanelEvent {
+    Closed(gpui::EntityId),
+}
+
 impl TerminalPanel {
     #[cfg(test)]
     pub(crate) fn new(
@@ -547,6 +552,7 @@ impl Drop for TerminalPanel {
 }
 
 impl gpui::EventEmitter<PanelEvent> for TerminalPanel {}
+impl gpui::EventEmitter<TerminalPanelEvent> for TerminalPanel {}
 
 impl gpui::Focusable for TerminalPanel {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -586,6 +592,8 @@ impl Panel for TerminalPanel {
             self.id
         );
 
+        let terminal_id = self.terminal_view.read(cx).terminal.entity_id();
+        cx.emit(TerminalPanelEvent::Closed(terminal_id));
         Self::cleanup_runtime_state(self.id, cx);
 
         // Ensure the backend releases its PTY/process resources when the tab is explicitly closed.

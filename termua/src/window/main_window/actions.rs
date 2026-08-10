@@ -35,6 +35,19 @@ pub(super) fn web_share_stopped_message(tab_label: &str) -> String {
 }
 
 impl TermuaWindow {
+    pub(super) fn stop_web_share_for_terminal(
+        &mut self,
+        terminal_id: gpui::EntityId,
+    ) -> Option<WebShareEntry> {
+        self.web_shares_starting.remove(&terminal_id);
+        let share = self.web_shares.remove(&terminal_id);
+        if let Some(share) = &share {
+            share.server.shutdown();
+        }
+        self.web_share_indicator.deactivate(terminal_id);
+        share
+    }
+
     fn has_open_tabs(&self, cx: &App) -> bool {
         self.dock_area
             .read(cx)
@@ -366,9 +379,7 @@ impl TermuaWindow {
         let tab_label = self.terminal_tab_label(&terminal_view, cx);
         let terminal = terminal_view.read(cx).terminal.clone();
         let terminal_id = terminal.entity_id();
-        if let Some(share) = self.web_shares.remove(&terminal_id) {
-            share.server.shutdown();
-            self.web_share_indicator.deactivate(terminal_id);
+        if let Some(share) = self.stop_web_share_for_terminal(terminal_id) {
             terminal_view.update(cx, |_, cx| cx.notify());
             notification::notify_deferred(
                 notification::MessageKind::Info,
@@ -398,7 +409,12 @@ impl TermuaWindow {
             )
             .await;
             let _ = this.update_in(window, move |this, window, cx| {
-                this.web_shares_starting.remove(&terminal_id);
+                if !this.web_shares_starting.remove(&terminal_id) {
+                    if let Ok(server) = result {
+                        server.shutdown();
+                    }
+                    return;
+                }
                 let server = match result {
                     Ok(server) => std::sync::Arc::new(server),
                     Err(error) => {

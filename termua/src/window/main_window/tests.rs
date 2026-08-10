@@ -1682,6 +1682,89 @@ fn main_window_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
 
 #[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
+fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui_dock::Panel;
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_root = termua_slot.clone();
+    let (_root, window_cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| TermuaWindow::new(window, cx));
+        *slot_for_root.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let termua = termua_slot.borrow().as_ref().unwrap().clone();
+
+    let (panel, terminal_id) = window_cx.update(|window, app| {
+        let terminal = app.new(|_| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::new(Arc::new(AtomicBool::new(false)))),
+            )
+        });
+        let terminal_id = terminal.entity_id();
+        let panel = termua.update(app, |this, cx| {
+            this.build_wired_terminal_panel(
+                42,
+                crate::panel::PanelKind::Local,
+                "bash".into(),
+                None,
+                None,
+                terminal.clone(),
+                window,
+                cx,
+            )
+        });
+        let server = Arc::new(
+            smol::block_on(crate::web::WebShareServer::bind(
+                "secret".into(),
+                gpui_term::capture_terminal_screen(terminal.read(app).last_content()),
+            ))
+            .unwrap(),
+        );
+        termua.update(app, |this, cx| {
+            let subscription = cx.subscribe(&terminal, |_, _, _: &TerminalEvent, _| {});
+            this.web_shares.insert(
+                terminal_id,
+                super::state::WebShareEntry {
+                    server,
+                    tab_label: "bash".into(),
+                    _subscription: subscription,
+                },
+            );
+            this.web_share_indicator
+                .activate(terminal_id, "http://localhost/share".into());
+        });
+        (panel, terminal_id)
+    });
+
+    window_cx.update(|window, app| {
+        panel.update(app, |panel, cx| panel.on_close(window, cx));
+    });
+    window_cx.run_until_parked();
+
+    window_cx.update(|_, app| {
+        let termua = termua.read(app);
+        assert!(!termua.web_shares.contains_key(&terminal_id));
+        assert!(!termua.web_share_indicator.is_active_for(terminal_id));
+    });
+}
+
+#[cfg_attr(target_os = "macos", ignore)]
+#[gpui::test]
 fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
 
