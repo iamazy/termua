@@ -38,7 +38,7 @@ struct ServerState {
 #[derive(Clone)]
 struct ClientConnection {
     messages: smol::channel::Sender<Message>,
-    shutdown: smol::channel::Sender<()>,
+    socket: smol::net::TcpStream,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -247,7 +247,7 @@ impl WebShareServer {
                     .collect();
                 for client_id in failed {
                     if let Some(client) = state.clients.remove(&client_id) {
-                        let _ = client.shutdown.try_send(());
+                        let _ = client.socket.shutdown(std::net::Shutdown::Both);
                     }
                     state.access.disconnect(client_id);
                 }
@@ -316,7 +316,7 @@ impl WebShareServer {
         let _ = self.shutdown_tx.try_send(());
         let mut state = self.state.lock().expect("web share state poisoned");
         for client in state.clients.values() {
-            let _ = client.shutdown.try_send(());
+            let _ = client.socket.shutdown(std::net::Shutdown::Both);
         }
         state.clients.clear();
     }
@@ -384,26 +384,21 @@ async fn serve_websocket(
     peer: SocketAddr,
     state: Arc<Mutex<ServerState>>,
 ) -> Result<(), async_tungstenite::tungstenite::Error> {
+    let shutdown_socket = stream.clone();
     let socket = async_tungstenite::accept_async(stream).await?;
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (out_tx, out_rx) = smol::channel::bounded::<Message>(64);
-    let (shutdown_tx, shutdown_rx) = smol::channel::bounded(1);
     let connection = ClientConnection {
         messages: out_tx.clone(),
-        shutdown: shutdown_tx,
+        socket: shutdown_socket,
     };
     let (mut sink, mut source) = socket.split();
     let mut authenticated = false;
 
     loop {
-        if shutdown_rx.try_recv().is_ok() {
-            sink.send(Message::Close(None)).await?;
-            break;
-        }
         let incoming = source.next().fuse();
         let outgoing = out_rx.recv().fuse();
-        let shutdown = shutdown_rx.recv().fuse();
-        futures::pin_mut!(incoming, outgoing, shutdown);
+        futures::pin_mut!(incoming, outgoing);
         futures::select! {
             incoming = incoming => {
                 let Some(incoming) = incoming else { break };
@@ -455,12 +450,6 @@ async fn serve_websocket(
             outgoing = outgoing => {
                 let Ok(outgoing) = outgoing else { break };
                 sink.send(outgoing).await?;
-            },
-            shutdown = shutdown => {
-                if shutdown.is_ok() {
-                    sink.send(Message::Close(None)).await?;
-                }
-                break;
             },
         }
     }
@@ -617,6 +606,45 @@ mod tests {
 
     fn loopback_addr(server: &WebShareServer) -> SocketAddr {
         SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()))
+    }
+
+    async fn connect_authenticated(
+        server: &WebShareServer,
+    ) -> async_tungstenite::WebSocketStream<smol::net::TcpStream> {
+        let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+        let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"type":"authenticate","token":"secret"}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let _ = socket.next().await;
+        let _ = socket.next().await;
+        socket
+    }
+
+    async fn websocket_disconnects(
+        socket: &mut async_tungstenite::WebSocketStream<smol::net::TcpStream>,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let disconnected = async {
+            while let Some(message) = socket.next().await {
+                match message {
+                    Ok(message) if message.is_close() => return true,
+                    Err(_) => return true,
+                    _ => {}
+                }
+            }
+            true
+        }
+        .fuse();
+        let timeout = futures::FutureExt::fuse(smol::Timer::after(timeout));
+        futures::pin_mut!(disconnected, timeout);
+        futures::select! {
+            disconnected = disconnected => disconnected,
+            _ = timeout => false,
+        }
     }
 
     #[test]
@@ -783,6 +811,7 @@ mod tests {
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("xterm"));
             assert!(response.contains("request-control"));
+            assert!(response.contains(r#"id="request-control" disabled"#));
             assert!(response.contains(r#"<div id="line-numbers"></div>"#));
             assert!(response.contains("<title>bash &amp; &lt;tools&gt;</title>"));
             assert!(compact_response.contains("theme:{"));
@@ -794,6 +823,7 @@ mod tests {
             assert!(compact_response.contains("ws.onclose="));
             assert!(compact_response.contains("term.clear()"));
             assert!(compact_response.contains("requestControl.disabled=true"));
+            assert!(compact_response.contains("requestControl.disabled=false"));
             assert!(compact_response.contains("bytes[0]===2"));
             assert!(compact_response.contains("justify-content:center"));
             assert!(compact_response.contains("background:#000"));
@@ -848,20 +878,12 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
-            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
-            socket
-                .send(Message::Text(
-                    r#"{"type":"authenticate","token":"secret"}"#.into(),
-                ))
-                .await
-                .unwrap();
-            let _ = socket.next().await;
-            let _ = socket.next().await;
+            let mut socket = connect_authenticated(&server).await;
 
             server.shutdown();
-            let message = socket.next().await.unwrap().unwrap();
-            assert!(message.is_close());
+            assert!(
+                websocket_disconnects(&mut socket, std::time::Duration::from_millis(300)).await
+            );
         });
     }
 
@@ -871,16 +893,7 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
-            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
-            socket
-                .send(Message::Text(
-                    r#"{"type":"authenticate","token":"secret"}"#.into(),
-                ))
-                .await
-                .unwrap();
-            let _ = socket.next().await;
-            let _ = socket.next().await;
+            let mut socket = connect_authenticated(&server).await;
 
             let messages = server
                 .state
@@ -899,25 +912,10 @@ mod tests {
             {}
 
             server.shutdown();
-            let closed = async {
-                while let Some(message) = socket.next().await {
-                    match message {
-                        Ok(message) if message.is_close() => return true,
-                        Err(_) => return false,
-                        _ => {}
-                    }
-                }
-                false
-            }
-            .fuse();
-            let timeout =
-                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(300)));
-            futures::pin_mut!(closed, timeout);
-            let closed = futures::select! {
-                closed = closed => closed,
-                _ = timeout => false,
-            };
-            assert!(closed, "shutdown close must bypass a full output queue");
+            assert!(
+                websocket_disconnects(&mut socket, std::time::Duration::from_millis(300)).await,
+                "shutdown must bypass a full output queue"
+            );
         });
     }
 
@@ -927,16 +925,7 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
-            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
-            socket
-                .send(Message::Text(
-                    r#"{"type":"authenticate","token":"secret"}"#.into(),
-                ))
-                .await
-                .unwrap();
-            let _ = socket.next().await;
-            let _ = socket.next().await;
+            let mut socket = connect_authenticated(&server).await;
 
             let messages = server
                 .state
@@ -965,25 +954,10 @@ mod tests {
                 "a client with a full output queue must be removed"
             );
 
-            let closed = async {
-                while let Some(message) = socket.next().await {
-                    match message {
-                        Ok(message) if message.is_close() => return true,
-                        Err(_) => return false,
-                        _ => {}
-                    }
-                }
-                false
-            }
-            .fuse();
-            let timeout =
-                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(500)));
-            futures::pin_mut!(closed, timeout);
-            let closed = futures::select! {
-                closed = closed => closed,
-                _ = timeout => false,
-            };
-            assert!(closed, "removing a slow client must close its websocket");
+            assert!(
+                websocket_disconnects(&mut socket, std::time::Duration::from_millis(500)).await,
+                "removing a slow client must disconnect its websocket"
+            );
         });
     }
 

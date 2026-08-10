@@ -86,6 +86,7 @@ ws.onmessage = (e) => {
   const m = JSON.parse(e.data);
   if (m.type === "access") {
     statusNode.textContent = m.control ? "Control granted" : "Read-only";
+    requestControl.disabled = false;
   }
 };
 ws.onclose = () => {
@@ -106,6 +107,8 @@ terminalNode.addEventListener(
   },
   { passive: false, capture: true },
 );
-requestControl.onclick = () =>
-  ws.send(JSON.stringify({ type: "request_control" }));
+requestControl.onclick = () => {
+  if (ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: "request_control" }));
+};
 window.addEventListener("resize", layoutTerminal);

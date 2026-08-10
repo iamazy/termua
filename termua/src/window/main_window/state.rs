@@ -103,7 +103,7 @@ pub(crate) struct TermuaWindow {
     pub(super) terminal_context_menu_provider: Arc<dyn gpui_term::ContextMenuProvider>,
     pub(super) workspace_save_task: Option<gpui::Task<()>>,
     pub(super) web_shares: HashMap<gpui::EntityId, WebShareEntry>,
-    pub(super) web_share_indicator: Arc<WebShareIndicator>,
+    pub(super) web_share_indicator: WebShareIndicator,
     pub(super) web_shares_starting: HashSet<gpui::EntityId>,
     pub(super) _subscriptions: Vec<Subscription>,
 }
@@ -111,7 +111,7 @@ pub(crate) struct TermuaWindow {
 pub(super) struct WebShareEntry {
     pub(super) server: Arc<crate::web::WebShareServer>,
     pub(super) tab_label: gpui::SharedString,
-    pub(super) _subscription: Subscription,
+    pub(super) _subscriptions: Vec<Subscription>,
 }
 
 #[cfg(test)]
@@ -150,28 +150,30 @@ fn normalize_fixed_sidebar_panels(state: &mut DockAreaState) {
 }
 
 struct TermuaContextMenuProvider {
-    web_share_indicator: Arc<WebShareIndicator>,
+    web_share_indicator: WebShareIndicator,
 }
 
-#[derive(Default)]
-pub(super) struct WebShareIndicator(Mutex<HashMap<gpui::EntityId, String>>);
+#[derive(Clone, Default)]
+pub(crate) struct WebShareIndicator(Arc<Mutex<HashMap<gpui::EntityId, String>>>);
+
+impl gpui::Global for WebShareIndicator {}
 
 impl WebShareIndicator {
-    pub(super) fn activate(&self, terminal_id: gpui::EntityId, url: String) {
+    pub(crate) fn activate(&self, terminal_id: gpui::EntityId, url: String) {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
             .insert(terminal_id, url);
     }
 
-    pub(super) fn deactivate(&self, terminal_id: gpui::EntityId) {
+    pub(crate) fn deactivate(&self, terminal_id: gpui::EntityId) {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
             .remove(&terminal_id);
     }
 
-    pub(super) fn clear(&self) {
+    pub(crate) fn clear(&self) {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
@@ -191,6 +193,13 @@ impl WebShareIndicator {
             .expect("web share indicator lock poisoned")
             .get(&terminal_id)
             .cloned()
+    }
+
+    pub(crate) fn count(&self) -> usize {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .len()
     }
 }
 
@@ -483,9 +492,10 @@ impl TermuaWindow {
                 Box::new(right_sidebar.clone())
             }
         });
+        let web_share_indicator = WebShareIndicator::default();
+        cx.set_global(web_share_indicator.clone());
         let footbar = cx.new(FootbarView::new);
         let lock_overlay = lock_screen::overlay::LockOverlayState::new(window, cx);
-        let web_share_indicator = Arc::new(WebShareIndicator::default());
         let mut this = Self {
             dock_area: dock_area.clone(),
             sessions_sidebar: sessions_sidebar.clone(),
@@ -499,7 +509,7 @@ impl TermuaWindow {
             ssh_tab_label_counts: HashMap::new(),
             ssh_terminal_builder,
             terminal_context_menu_provider: Arc::new(TermuaContextMenuProvider {
-                web_share_indicator: Arc::clone(&web_share_indicator),
+                web_share_indicator: web_share_indicator.clone(),
             }),
             workspace_save_task: None,
             web_shares: HashMap::new(),
@@ -819,6 +829,7 @@ impl TermuaWindow {
                             share.server.shutdown();
                         }
                         this.web_share_indicator.clear();
+                        cx.set_global(this.web_share_indicator.clone());
                         this.web_shares_starting.clear();
                         this.lock_overlay.password_input.update(cx, |state, cx| {
                             state.set_masked(true, window, cx);
@@ -870,6 +881,10 @@ impl TermuaWindow {
             |this, dock_area, event: &DockEvent, window, cx| {
                 if matches!(event, DockEvent::LayoutChanged) {
                     this.schedule_workspace_save(dock_area.clone(), window, cx);
+                    let termua = cx.entity();
+                    window.defer(cx, move |_, cx| {
+                        termua.update(cx, |this, cx| this.stop_web_shares_without_tabs(cx));
+                    });
                 }
             },
         ));

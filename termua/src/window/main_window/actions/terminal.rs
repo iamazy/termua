@@ -531,12 +531,13 @@ impl TermuaWindow {
                 terminal_view,
             )
         });
-        self._subscriptions.push(
-            cx.subscribe(&panel, |this, _, event: &TerminalPanelEvent, _| {
+        self._subscriptions.push(cx.subscribe(
+            &panel,
+            |this, _, event: &TerminalPanelEvent, cx| {
                 let TerminalPanelEvent::Closed(terminal_id) = event;
-                this.stop_web_share_for_terminal(*terminal_id);
-            }),
-        );
+                this.stop_web_share_for_terminal(*terminal_id, cx);
+            },
+        ));
         panel
     }
 

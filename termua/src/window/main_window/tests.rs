@@ -1685,8 +1685,6 @@ fn main_window_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
 fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
 
-    use gpui_dock::Panel;
-
     cx.update(|app| {
         gpui_component::init(app);
         menubar::init(app);
@@ -1701,7 +1699,7 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
 
     let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
     let slot_for_root = termua_slot.clone();
-    let (_root, window_cx) = cx.add_window_view(|window, cx| {
+    let (root, window_cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| TermuaWindow::new(window, cx));
         *slot_for_root.borrow_mut() = Some(view.clone());
         gpui_component::Root::new(view, window, cx)
@@ -1717,7 +1715,7 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
         });
         let terminal_id = terminal.entity_id();
         let panel = termua.update(app, |this, cx| {
-            this.build_wired_terminal_panel(
+            let panel = this.build_wired_terminal_panel(
                 42,
                 crate::panel::PanelKind::Local,
                 "bash".into(),
@@ -1726,7 +1724,17 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
                 terminal.clone(),
                 window,
                 cx,
-            )
+            );
+            this.dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel.clone()) as Arc<dyn PanelView>,
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+            panel
         });
         let server = Arc::new(
             smol::block_on(crate::web::WebShareServer::bind(
@@ -1743,17 +1751,27 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
                 super::state::WebShareEntry {
                     server,
                     tab_label: "bash".into(),
-                    _subscription: subscription,
+                    _subscriptions: vec![subscription],
                 },
             );
             this.web_share_indicator
                 .activate(terminal_id, "http://localhost/share".into());
+            cx.set_global(this.web_share_indicator.clone());
         });
         (panel, terminal_id, server_addr)
     });
 
+    window_cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(900.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |_, _| div().size_full().child(root),
+    );
+    window_cx.run_until_parked();
     window_cx.update(|window, app| {
-        panel.update(app, |panel, cx| panel.on_close(window, cx));
+        window.dispatch_action(Box::new(gpui_dock::ClosePanel), app);
     });
     drop(panel);
     window_cx.run_until_parked();
@@ -1762,10 +1780,100 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
         let termua = termua.read(app);
         assert!(!termua.web_shares.contains_key(&terminal_id));
         assert!(!termua.web_share_indicator.is_active_for(terminal_id));
+        assert_eq!(app.global::<super::state::WebShareIndicator>().count(), 0);
     });
     smol::block_on(async {
         smol::Timer::after(Duration::from_millis(20)).await;
         assert!(smol::net::TcpStream::connect(server_addr).await.is_err());
+    });
+}
+
+#[cfg_attr(target_os = "macos", ignore)]
+#[gpui::test]
+fn dock_layout_change_cleans_share_without_a_terminal_tab(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+        app.set_global(lock_screen::LockState::new_for_test(Duration::from_secs(
+            60,
+        )));
+        app.set_global(notification::NotifyState::default());
+    });
+
+    let (termua, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    let terminal_id = window_cx.update(|_, app| {
+        let terminal = app.new(|_| {
+            Terminal::new(
+                TerminalType::WezTerm,
+                Box::new(FakeBackend::new(Arc::new(AtomicBool::new(false)))),
+            )
+        });
+        let terminal_id = terminal.entity_id();
+        let server = Arc::new(
+            smol::block_on(crate::web::WebShareServer::bind(
+                "secret".into(),
+                gpui_term::capture_terminal_screen(terminal.read(app).last_content()),
+            ))
+            .unwrap(),
+        );
+        termua.update(app, |this, cx| {
+            let subscription = cx.subscribe(&terminal, |_, _, _: &TerminalEvent, _| {});
+            this.web_shares.insert(
+                terminal_id,
+                super::state::WebShareEntry {
+                    server,
+                    tab_label: "orphan".into(),
+                    _subscriptions: vec![subscription],
+                },
+            );
+            this.web_share_indicator
+                .activate(terminal_id, "http://localhost/share".into());
+            cx.set_global(this.web_share_indicator.clone());
+            this.dock_area
+                .update(cx, |_, cx| cx.emit(gpui_dock::DockEvent::LayoutChanged));
+        });
+        terminal_id
+    });
+    window_cx.run_until_parked();
+
+    window_cx.update(|_, app| {
+        let termua = termua.read(app);
+        assert!(!termua.web_shares.contains_key(&terminal_id));
+        assert_eq!(app.global::<super::state::WebShareIndicator>().count(), 0);
+    });
+}
+
+#[test]
+fn web_share_toggle_does_not_restart_while_starting() {
+    use super::actions::{WebShareToggleAction, web_share_toggle_action};
+
+    assert_eq!(
+        web_share_toggle_action(false, true),
+        WebShareToggleAction::Wait
+    );
+    assert_eq!(
+        web_share_toggle_action(true, false),
+        WebShareToggleAction::Stop
+    );
+    assert_eq!(
+        web_share_toggle_action(false, false),
+        WebShareToggleAction::Start
+    );
+}
+
+#[gpui::test]
+fn web_line_numbers_follow_current_terminal_setting(cx: &mut gpui::TestAppContext) {
+    use super::actions::show_web_line_numbers;
+
+    cx.update(|app| {
+        gpui_term::init(app);
+        assert!(show_web_line_numbers(app));
+        app.global_mut::<gpui_term::TerminalSettings>()
+            .show_line_numbers = false;
+        assert!(!show_web_line_numbers(app));
     });
 }
 
