@@ -354,10 +354,16 @@ fn access_message(control: bool) -> Message {
 }
 
 fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -> Message {
-    let mut message = Vec::with_capacity(ansi.len() + 9);
+    let mut message = Vec::with_capacity(ansi.len() + 9 + screen.rows() * size_of::<u32>());
     message.push(kind);
     message.extend_from_slice(&(screen.columns() as u32).to_be_bytes());
     message.extend_from_slice(&(screen.rows() as u32).to_be_bytes());
+    for line_number in screen.line_numbers() {
+        let line_number = line_number
+            .and_then(|number| u32::try_from(number).ok())
+            .unwrap_or(0);
+        message.extend_from_slice(&line_number.to_be_bytes());
+    }
     message.extend(ansi);
     Message::Binary(message.into())
 }
@@ -598,6 +604,25 @@ mod tests {
     }
 
     #[test]
+    fn screen_message_reserves_a_line_number_for_each_app_row() {
+        let screen = screen_with_text("screen");
+        let Message::Binary(message) = screen_message(
+            0,
+            &screen,
+            gpui_term::serialize_terminal_screen_ansi(&screen),
+        ) else {
+            panic!("screen update must be binary");
+        };
+
+        let line_number_bytes = screen.rows() * size_of::<u32>();
+        assert_eq!(
+            &message[9..9 + line_number_bytes],
+            vec![0; line_number_bytes]
+        );
+        assert_eq!(message[9 + line_number_bytes], b'\x1b');
+    }
+
+    #[test]
     fn authenticated_clients_start_read_only() {
         let mut access = ShareAccess::new("secret".into());
         assert_eq!(access.connect("wrong", 1), Err(AccessError::InvalidToken));
@@ -742,9 +767,14 @@ mod tests {
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("xterm"));
             assert!(response.contains("request-control"));
+            assert!(response.contains(r#"<div id="line-numbers"></div>"#));
             assert!(response.contains("<title>bash &amp; &lt;tools&gt;</title>"));
             assert!(compact_response.contains("theme:{"));
             assert!(compact_response.contains("term.resize(columns,rows)"));
+            assert!(compact_response.contains("renderLineNumbers(lineNumbers)"));
+            assert!(compact_response.contains("lineNumbers.replaceChildren"));
+            assert!(compact_response.contains("view.getUint32(9+row*4)"));
+            assert!(compact_response.contains("bytes.slice(9+rows*4)"));
             assert!(compact_response.contains("bytes[0]===2"));
             assert!(compact_response.contains("justify-content:center"));
             assert!(compact_response.contains("background:#000"));

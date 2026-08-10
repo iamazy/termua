@@ -30,13 +30,34 @@ body {
     overflow: hidden;
     background: #000;
 }
-#terminal {
+#terminal-frame {
     flex: none;
-    width: 100%;
-    height: 100%;
+    display: flex;
     overflow: hidden;
     background: #000;
     transform-origin: center center;
+}
+#line-numbers {
+    flex: none;
+    box-sizing: border-box;
+    padding-top: 1px;
+    overflow: hidden;
+    color: #666;
+    font-family: monospace;
+    text-align: right;
+    user-select: none;
+}
+#line-numbers span {
+    display: block;
+    box-sizing: border-box;
+    height: var(--cell-height);
+    padding-right: 8px;
+    line-height: var(--cell-height);
+}
+#terminal {
+    flex: none;
+    overflow: hidden;
+    background: #000;
 }
 #terminal .xterm-viewport {
     overflow-y: hidden !important;

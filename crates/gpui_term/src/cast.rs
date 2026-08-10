@@ -130,6 +130,7 @@ pub struct TerminalScreen {
     columns: usize,
     rows: usize,
     cells: Vec<Cell>,
+    line_numbers: Vec<Option<usize>>,
     cursor: crate::Cursor,
     cursor_row: i32,
 }
@@ -141,6 +142,10 @@ impl TerminalScreen {
 
     pub fn rows(&self) -> usize {
         self.rows
+    }
+
+    pub fn line_numbers(&self) -> &[Option<usize>] {
+        &self.line_numbers
     }
 }
 
@@ -160,9 +165,32 @@ pub fn capture_terminal_screen(content: &crate::TerminalContent) -> TerminalScre
         columns,
         rows,
         cells,
+        line_numbers: vec![None; rows],
         cursor: content.cursor,
         cursor_row: content.cursor.point.line + content.display_offset as i32,
     }
+}
+
+pub fn capture_terminal_screen_with_line_numbers(
+    terminal: &crate::Terminal,
+    show_line_numbers: bool,
+) -> TerminalScreen {
+    let content = terminal.last_content();
+    let mut screen = capture_terminal_screen(content);
+    if !crate::view::line_number::should_show_line_numbers(show_line_numbers, content.mode) {
+        return screen;
+    }
+
+    if let Some(data) = crate::view::line_number::compute_line_number_paint_data(
+        terminal,
+        content.display_offset,
+        screen.rows,
+    ) {
+        for row in 0..=data.last_row_to_number.min(screen.rows.saturating_sub(1)) {
+            screen.line_numbers[row] = data.line_numbers.get(row).copied().flatten();
+        }
+    }
+    screen
 }
 
 pub fn serialize_terminal_content_ansi(content: &crate::TerminalContent) -> Vec<u8> {

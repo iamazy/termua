@@ -28,7 +28,8 @@ pub use backends::{
 };
 pub use builder::*;
 pub use cast::{
-    CastRecordingOptions, TerminalScreen, capture_terminal_screen, serialize_terminal_content_ansi,
+    CastRecordingOptions, TerminalScreen, capture_terminal_screen,
+    capture_terminal_screen_with_line_numbers, serialize_terminal_content_ansi,
     serialize_terminal_rows_ansi, serialize_terminal_screen_ansi,
     serialize_terminal_screen_update_ansi,
 };

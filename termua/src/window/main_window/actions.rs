@@ -5,8 +5,8 @@ mod ssh;
 mod terminal;
 
 use gpui::{
-    App, ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, px,
+    App, ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, ReadGlobal,
+    Styled, Window, div, px,
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
@@ -381,7 +381,11 @@ impl TermuaWindow {
         if !self.web_shares_starting.insert(terminal_id) {
             return;
         }
-        let snapshot = gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
+        let show_line_numbers = gpui_term::TerminalSettings::global(cx).show_line_numbers;
+        let snapshot = gpui_term::capture_terminal_screen_with_line_numbers(
+            terminal.read(cx),
+            show_line_numbers,
+        );
         let token = crate::web::generate_token();
         let xterm_theme = crate::web::XtermTheme::from_app_theme(cx.theme());
 
@@ -430,8 +434,10 @@ impl TermuaWindow {
                     if !matches!(event, gpui_term::Event::ContentUpdated) {
                         return;
                     }
-                    let snapshot =
-                        gpui_term::capture_terminal_screen(terminal.read(cx).last_content());
+                    let snapshot = gpui_term::capture_terminal_screen_with_line_numbers(
+                        terminal.read(cx),
+                        show_line_numbers,
+                    );
                     snapshot_server.update_snapshot(snapshot);
                 });
 

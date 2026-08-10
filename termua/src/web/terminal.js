@@ -1,4 +1,6 @@
 const terminalNode = document.getElementById("terminal"),
+  terminalFrame = document.getElementById("terminal-frame"),
+  lineNumbers = document.getElementById("line-numbers"),
   stage = document.getElementById("stage");
 const term = new Terminal({
   cursorBlink: true,
@@ -11,26 +13,55 @@ const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.binaryType = "arraybuffer";
 ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token }));
+let lineNumberSignature = "",
+  lineNumberDigits = 0;
+function renderLineNumbers(numbers) {
+  const signature = numbers.join(",");
+  if (signature === lineNumberSignature) return;
+  lineNumberSignature = signature;
+  lineNumberDigits = numbers.reduce(
+    (digits, number) => Math.max(digits, number ? String(number).length : 0),
+    0,
+  );
+  const fragment = document.createDocumentFragment();
+  for (const lineNumber of numbers) {
+    const number = document.createElement("span");
+    number.textContent = lineNumber || "";
+    fragment.appendChild(number);
+  }
+  lineNumbers.replaceChildren(fragment);
+}
 function layoutTerminal() {
   requestAnimationFrame(() => {
     const cell = term._core?._renderService?.dimensions?.css?.cell;
     if (!cell || !cell.width || !cell.height) return;
     const bounds = stage.getBoundingClientRect(),
-      wantedWidth = Math.ceil(cell.width * term.cols + 18),
+      terminalWidth = Math.ceil(cell.width * term.cols + 18),
       wantedHeight = Math.ceil(cell.height * term.rows + 2),
+      gutterWidth = lineNumberDigits
+        ? Math.ceil(cell.width * lineNumberDigits + 12)
+        : 0,
+      wantedWidth = terminalWidth + gutterWidth,
       scale = Math.min(
         1.15,
         bounds.width / wantedWidth,
         bounds.height / wantedHeight,
       );
-    terminalNode.style.width = `${wantedWidth}px`;
+    terminalFrame.style.width = `${wantedWidth}px`;
+    terminalFrame.style.height = `${wantedHeight}px`;
+    terminalFrame.style.transform = `scale(${scale})`;
+    lineNumbers.style.width = `${gutterWidth}px`;
+    lineNumbers.style.height = `${wantedHeight}px`;
+    lineNumbers.style.fontSize = `${term.options.fontSize}px`;
+    lineNumbers.style.setProperty("--cell-height", `${cell.height}px`);
+    terminalNode.style.width = `${terminalWidth}px`;
     terminalNode.style.height = `${wantedHeight}px`;
-    terminalNode.style.transform = `scale(${scale})`;
     term.refresh(0, term.rows - 1);
   });
 }
-function resizeTerminal(columns, rows) {
+function resizeTerminal(columns, rows, lineNumbers) {
   if (term.cols !== columns || term.rows !== rows) term.resize(columns, rows);
+  renderLineNumbers(lineNumbers);
   layoutTerminal();
 }
 ws.onmessage = (e) => {
@@ -40,8 +71,12 @@ ws.onmessage = (e) => {
     if (bytes[0] === 0 || bytes[0] === 2) {
       const columns = view.getUint32(1),
         rows = view.getUint32(5),
-        ansi = bytes.slice(9);
-      resizeTerminal(columns, rows);
+        lineNumbers = Array.from({ length: rows }, (_, row) => {
+          const number = view.getUint32(9 + row * 4);
+          return number || null;
+        }),
+        ansi = bytes.slice(9 + rows * 4);
+      resizeTerminal(columns, rows, lineNumbers);
       term.write(ansi);
     }
     return;

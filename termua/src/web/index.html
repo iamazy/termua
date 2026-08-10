@@ -17,7 +17,12 @@
             <span id="status">Connecting read-only…</span
             ><button id="request-control">Request control</button>
         </div>
-        <div id="stage"><div id="terminal"></div></div>
+        <div id="stage">
+            <div id="terminal-frame">
+                <div id="line-numbers"></div>
+                <div id="terminal"></div>
+            </div>
+        </div>
         <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
         <script data-termua-asset="terminal.js">
             __TERMUA_SCRIPT__;
