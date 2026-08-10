@@ -125,6 +125,197 @@ pub(crate) fn serialize_pre_cursor_cells(cells: &[Cell], cursor_style: &Cell) ->
     output
 }
 
+#[derive(Clone)]
+pub struct TerminalScreen {
+    columns: usize,
+    rows: usize,
+    cells: Vec<Cell>,
+    line_numbers: Vec<Option<usize>>,
+    cursor: crate::Cursor,
+    cursor_row: i32,
+}
+
+impl TerminalScreen {
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn line_numbers(&self) -> &[Option<usize>] {
+        &self.line_numbers
+    }
+}
+
+pub fn capture_terminal_screen(content: &crate::TerminalContent) -> TerminalScreen {
+    let columns = content.terminal_bounds.num_columns().max(1);
+    let rows = content.terminal_bounds.num_lines().max(1);
+    let blank = Cell::default();
+    let mut cells = vec![blank; columns.saturating_mul(rows)];
+    for cell in &content.cells {
+        let row = cell.point.line + content.display_offset as i32;
+        if row >= 0 && (row as usize) < rows && cell.point.column < columns {
+            cells[row as usize * columns + cell.point.column] = cell.cell.clone();
+        }
+    }
+
+    TerminalScreen {
+        columns,
+        rows,
+        cells,
+        line_numbers: vec![None; rows],
+        cursor: content.cursor,
+        cursor_row: content.cursor.point.line + content.display_offset as i32,
+    }
+}
+
+pub fn capture_terminal_screen_with_line_numbers(
+    terminal: &crate::Terminal,
+    show_line_numbers: bool,
+) -> TerminalScreen {
+    let content = terminal.last_content();
+    let mut screen = capture_terminal_screen(content);
+    if !crate::view::line_number::should_show_line_numbers(show_line_numbers, content.mode) {
+        return screen;
+    }
+
+    if let Some(data) = crate::view::line_number::compute_line_number_paint_data(
+        terminal,
+        content.display_offset,
+        screen.rows,
+    ) {
+        for row in 0..=data.last_row_to_number.min(screen.rows.saturating_sub(1)) {
+            screen.line_numbers[row] = data.line_numbers.get(row).copied().flatten();
+        }
+    }
+    screen
+}
+
+pub fn serialize_terminal_content_ansi(content: &crate::TerminalContent) -> Vec<u8> {
+    serialize_terminal_screen_ansi(&capture_terminal_screen(content))
+}
+
+pub fn serialize_terminal_screen_ansi(screen: &TerminalScreen) -> Vec<u8> {
+    let mut output = b"\x1b[2J\x1b[H".to_vec();
+    for row in 0..screen.rows {
+        output.extend_from_slice(format!("\x1b[{};1H", row + 1).as_bytes());
+        serialize_screen_row(&mut output, &screen.cells, screen.columns, row);
+    }
+    serialize_screen_cursor(&mut output, screen);
+    output
+}
+
+pub fn serialize_terminal_screen_update_ansi(
+    previous: &TerminalScreen,
+    current: &TerminalScreen,
+) -> Vec<u8> {
+    if previous.columns != current.columns || previous.rows != current.rows {
+        return serialize_terminal_screen_ansi(current);
+    }
+
+    let mut output = Vec::new();
+    for row in 0..current.rows {
+        let start = row * current.columns;
+        let end = start + current.columns;
+        if previous.cells[start..end]
+            .iter()
+            .zip(&current.cells[start..end])
+            .all(|(previous, current)| cells_equal(previous, current))
+        {
+            continue;
+        }
+        output.extend_from_slice(format!("\x1b[{};1H", row + 1).as_bytes());
+        serialize_screen_row(&mut output, &current.cells, current.columns, row);
+    }
+    serialize_screen_cursor(&mut output, current);
+    output
+}
+
+fn serialize_screen_row(output: &mut Vec<u8>, cells: &[Cell], columns: usize, row: usize) {
+    let mut active_style = None;
+    for cell in &cells[row * columns..(row + 1) * columns] {
+        if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+            continue;
+        }
+        let style = CellStyle::from(cell);
+        if active_style != Some(style) {
+            write_style(output, style);
+            active_style = Some(style);
+        }
+        push_char(output, cell.c);
+        if let Some(zerowidth) = cell.zerowidth() {
+            for character in zerowidth {
+                push_char(output, *character);
+            }
+        }
+    }
+}
+
+fn serialize_screen_cursor(output: &mut Vec<u8>, screen: &TerminalScreen) {
+    if screen.cursor.shape == crate::CursorRenderShape::Hidden {
+        output.extend_from_slice(b"\x1b[?25l");
+    } else {
+        output.extend_from_slice(b"\x1b[?25h");
+    }
+    output.extend_from_slice(
+        format!(
+            "\x1b[{};{}H",
+            screen.cursor_row + 1,
+            screen.cursor.point.column + 1
+        )
+        .as_bytes(),
+    );
+}
+
+fn cells_equal(left: &Cell, right: &Cell) -> bool {
+    left.c == right.c
+        && left.fg == right.fg
+        && left.bg == right.bg
+        && left.flags == right.flags
+        && left.hyperlink == right.hyperlink
+        && left.zerowidth == right.zerowidth
+}
+
+pub fn serialize_terminal_rows_ansi(
+    columns: usize,
+    rows: usize,
+    cells: &[crate::IndexedCell],
+) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut active_style = None;
+    let blank = Cell::default();
+    let mut indexed = vec![None; columns.saturating_mul(rows)];
+    for cell in cells {
+        if cell.point.line >= 0 && (cell.point.line as usize) < rows && cell.point.column < columns
+        {
+            indexed[cell.point.line as usize * columns + cell.point.column] = Some(&cell.cell);
+        }
+    }
+    for row in 0..rows {
+        for column in 0..columns {
+            let cell = indexed[row * columns + column].unwrap_or(&blank);
+            if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            let style = CellStyle::from(cell);
+            if active_style != Some(style) {
+                write_style(&mut output, style);
+                active_style = Some(style);
+            }
+            push_char(&mut output, cell.c);
+            if let Some(zerowidth) = cell.zerowidth() {
+                for character in zerowidth {
+                    push_char(&mut output, *character);
+                }
+            }
+        }
+        output.extend_from_slice(b"\r\n");
+    }
+    output
+}
+
 fn push_char(output: &mut Vec<u8>, character: char) {
     let mut buf = [0; 4];
     output.extend_from_slice(character.encode_utf8(&mut buf).as_bytes());

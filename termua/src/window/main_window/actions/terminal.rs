@@ -15,7 +15,9 @@ use crate::{
     SerialParams, TermuaAppState,
     env::{build_terminal_env, cast_player_child_env},
     lock_screen, notification,
-    panel::{PanelKind, TerminalLaunchState, TerminalPanel, terminal_panel_tab_name},
+    panel::{
+        PanelKind, TerminalLaunchState, TerminalPanel, TerminalPanelEvent, terminal_panel_tab_name,
+    },
     ssh::{dedupe_tab_label, ssh_tab_tooltip},
 };
 
@@ -519,7 +521,7 @@ impl TermuaWindow {
         let backend = terminal.read(cx).backend_type();
         crate::footbar::focus_terminal_backend(id, backend, cx);
 
-        cx.new(|_| {
+        let panel = cx.new(|_| {
             TerminalPanel::new_with_launch_state(
                 id,
                 kind,
@@ -528,7 +530,15 @@ impl TermuaWindow {
                 launch_state,
                 terminal_view,
             )
-        })
+        });
+        self._subscriptions.push(cx.subscribe(
+            &panel,
+            |this, _, event: &TerminalPanelEvent, cx| {
+                let TerminalPanelEvent::Closed(terminal_id) = event;
+                this.stop_web_share_for_terminal(*terminal_id, cx);
+            },
+        ));
+        panel
     }
 
     pub(super) fn build_ssh_panel_from_factory(

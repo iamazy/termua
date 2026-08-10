@@ -19,6 +19,7 @@ use crate::{
     lock_screen, notification,
     right_sidebar::{RightSidebarState, RightSidebarTab},
     settings::AssistantSettings,
+    window::main_window::WebShareIndicator,
 };
 
 mod transfers;
@@ -169,6 +170,7 @@ pub(crate) struct FootbarView {
     _observe_transfers: Subscription,
     _observe_terminal_backend: Subscription,
     _observe_sftp_status: Subscription,
+    _observe_web_shares: Subscription,
     transfers_open: bool,
 }
 
@@ -209,6 +211,7 @@ impl FootbarView {
         ensure_ctx_global::<TransferCenterState, _>(cx);
         ensure_ctx_global::<FocusedTerminalBackendState, _>(cx);
         ensure_ctx_global::<FocusedSftpStatusState, _>(cx);
+        ensure_ctx_global::<WebShareIndicator, _>(cx);
 
         // Keep the footbar reactive to global state changes.
         let app_state_sub = cx.observe_global::<TermuaAppState>(|_, cx| cx.notify());
@@ -218,6 +221,7 @@ impl FootbarView {
         let terminal_backend_sub =
             cx.observe_global::<FocusedTerminalBackendState>(|_, cx| cx.notify());
         let sftp_status_sub = cx.observe_global::<FocusedSftpStatusState>(|_, cx| cx.notify());
+        let web_shares_sub = cx.observe_global::<WebShareIndicator>(|_, cx| cx.notify());
         Self {
             _observe_app_state: app_state_sub,
             _observe_messages: messages_sub,
@@ -225,6 +229,7 @@ impl FootbarView {
             _observe_transfers: transfers_sub,
             _observe_terminal_backend: terminal_backend_sub,
             _observe_sftp_status: sftp_status_sub,
+            _observe_web_shares: web_shares_sub,
             transfers_open: false,
         }
     }
@@ -432,6 +437,7 @@ impl Render for FootbarView {
 
         let transfers_summary = self.render_transfers_summary(&transfers, cx);
         let sftp_status = cx.global::<FocusedSftpStatusState>().status();
+        let web_share_count = cx.global::<WebShareIndicator>().count();
 
         let backend = cx.global::<FocusedTerminalBackendState>().backend();
         let left_controls = self.render_controls_left(sessions_visible);
@@ -466,6 +472,31 @@ impl Render for FootbarView {
                             .min_w_0()
                             .items_center()
                             .justify_end()
+                            .when(web_share_count > 0, |this| {
+                                this.child(
+                                    h_flex()
+                                        .debug_selector(|| {
+                                            "termua-footbar-web-shares".to_string()
+                                        })
+                                        .gap_1()
+                                        .pr(px(10.0))
+                                        .text_xs()
+                                        .child(
+                                            Icon::default()
+                                                .path(TermuaIcon::Global)
+                                                .xsmall(),
+                                        )
+                                        .child(
+                                            div()
+                                                .debug_selector(move || {
+                                                    format!(
+                                                        "termua-footbar-web-share-count-{web_share_count}"
+                                                    )
+                                                })
+                                                .child(web_share_count.to_string()),
+                                        ),
+                                )
+                            })
                             .when_some(sftp_status, |this, status| {
                                 this.child(
                                     div()
@@ -502,6 +533,82 @@ mod tests {
     fn footbar_multi_exec_icon_paths_match_spec() {
         assert_eq!(FootbarView::multi_exec_icon_path(false), TermuaIcon::Dice1);
         assert_eq!(FootbarView::multi_exec_icon_path(true), TermuaIcon::Dice4);
+    }
+
+    #[gpui::test]
+    fn web_share_indicator_counts_active_terminals(cx: &mut gpui::TestAppContext) {
+        let indicator = crate::window::main_window::WebShareIndicator::default();
+        let first = cx.new(|_| ()).entity_id();
+        let second = cx.new(|_| ()).entity_id();
+        assert_eq!(indicator.count(), 0);
+        indicator.activate(first, "http://one".into());
+        indicator.activate(second, "http://two".into());
+        assert_eq!(indicator.count(), 2);
+        indicator.deactivate(first);
+        assert_eq!(indicator.count(), 1);
+        indicator.clear();
+        assert_eq!(indicator.count(), 0);
+    }
+
+    #[gpui::test]
+    fn footbar_shows_web_share_icon_and_count(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| {
+            gpui_component::init(app);
+            app.activate(true);
+            app.set_global(TermuaAppState::default());
+        });
+
+        struct Root {
+            footbar: gpui::Entity<FootbarView>,
+        }
+
+        impl Render for Root {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div().size_full().child(self.footbar.clone())
+            }
+        }
+
+        let (root, cx) = cx.add_window_view(|_window, cx| Root {
+            footbar: cx.new(FootbarView::new),
+        });
+        cx.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(
+                gpui::AvailableSpace::Definite(gpui::px(800.)),
+                gpui::AvailableSpace::Definite(gpui::px(200.)),
+            ),
+            move |_, _| div().size_full().child(root),
+        );
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-web-shares").is_none());
+
+        cx.update(|_, app| {
+            let indicator = crate::window::main_window::WebShareIndicator::default();
+            indicator.activate(app.new(|_| ()).entity_id(), "http://one".into());
+            indicator.activate(app.new(|_| ()).entity_id(), "http://two".into());
+            app.set_global(indicator);
+        });
+        cx.run_until_parked();
+
+        assert!(cx.debug_bounds("termua-footbar-web-shares").is_some());
+        assert!(
+            cx.debug_bounds("termua-footbar-web-share-count-2")
+                .is_some()
+        );
+
+        cx.update(|_, app| {
+            let indicator = app
+                .global::<crate::window::main_window::WebShareIndicator>()
+                .clone();
+            indicator.clear();
+            app.set_global(indicator);
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("termua-footbar-web-shares").is_none());
     }
 
     #[test]

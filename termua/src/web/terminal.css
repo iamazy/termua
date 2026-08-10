@@ -1,0 +1,69 @@
+html,
+body {
+    height: 100%;
+    margin: 0;
+    background: #000;
+    color: #ddd;
+    font: 14px system-ui;
+}
+body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#bar {
+    height: 42px;
+    box-sizing: border-box;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    background: #202124;
+}
+#stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #000;
+}
+#terminal-frame {
+    flex: none;
+    display: flex;
+    overflow: hidden;
+    background: #000;
+}
+#line-numbers {
+    flex: none;
+    box-sizing: border-box;
+    padding-top: 1px;
+    overflow: hidden;
+    color: #666;
+    font-family: monospace;
+    text-align: right;
+    user-select: none;
+}
+#line-numbers span {
+    display: block;
+    box-sizing: border-box;
+    height: var(--cell-height);
+    padding-right: 8px;
+    line-height: var(--cell-height);
+}
+#terminal {
+    flex: none;
+    overflow: hidden;
+    background: #000;
+}
+#terminal .xterm-viewport {
+    overflow-y: hidden !important;
+}
+button {
+    padding: 7px 12px;
+}
+#status {
+    flex: 1;
+}

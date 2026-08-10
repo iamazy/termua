@@ -24,13 +24,14 @@ mod settings;
 mod ssh;
 mod static_suggestions;
 mod theme_manager;
+mod web;
 mod window;
 mod workspace;
 
 pub(crate) use app_state::{PendingCommand, SerialParams, SshParams, TermuaAppState};
 pub(crate) use menu::{
-    NewLocalTerminal, OpenNewSession, OpenSftp, PlayCast, ToggleAssistantSidebar,
-    ToggleMessagesSidebar, ToggleMultiExec, ToggleSessionsSidebar,
+    NewLocalTerminal, OpenNewSession, OpenSftp, PlayCast, RevokeWebControl, ShareTerminalWeb,
+    ToggleAssistantSidebar, ToggleMessagesSidebar, ToggleMultiExec, ToggleSessionsSidebar,
 };
 pub use session::store;
 pub use window::{new_session, settings as config};

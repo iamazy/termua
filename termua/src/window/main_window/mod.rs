@@ -4,7 +4,7 @@ mod actions;
 mod render;
 mod state;
 
-pub(crate) use state::TermuaWindow;
+pub(crate) use state::{TermuaWindow, WebShareIndicator};
 
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>__TERMUA_TAB_NAME__</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css"
+        />
+        <style data-termua-asset="terminal.css">
+            __TERMUA_STYLE__
+        </style>
+    </head>
+    <body>
+        <div id="bar">
+            <span id="status">Connecting read-only…</span
+            ><button id="request-control" disabled>Request control</button>
+        </div>
+        <div id="stage">
+            <div id="terminal-frame">
+                <div id="line-numbers"></div>
+                <div id="terminal"></div>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+        <script data-termua-asset="terminal.js">
+            __TERMUA_SCRIPT__;
+        </script>
+    </body>
+</html>
