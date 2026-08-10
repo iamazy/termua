@@ -301,6 +301,7 @@ Terminal:
     ShareWeb: "Share in Web Browser"
     ShareWebActive: "Sharing in Web Browser"
     CopyWebUrl: "Copy URL"
+    RevokeWebControl: "Revoke Control"
     StopWebSharing: "Stop Sharing"
 
 MainWindow:

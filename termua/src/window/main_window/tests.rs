@@ -777,6 +777,7 @@ fn terminal_context_menu_labels_follow_the_active_locale() {
     assert_eq!(t!("Terminal.ContextMenu.ShareWeb"), "在浏览器中分享");
     assert_eq!(t!("Terminal.ContextMenu.ShareWebActive"), "分享中");
     assert_eq!(t!("Terminal.ContextMenu.CopyWebUrl"), "复制链接");
+    assert_eq!(t!("Terminal.ContextMenu.RevokeWebControl"), "回收控制权");
     assert_eq!(t!("Terminal.ContextMenu.StopWebSharing"), "停止分享");
 
     crate::locale::set_locale("en");
@@ -786,6 +787,10 @@ fn terminal_context_menu_labels_follow_the_active_locale() {
         "Sharing in Web Browser"
     );
     assert_eq!(t!("Terminal.ContextMenu.CopyWebUrl"), "Copy URL");
+    assert_eq!(
+        t!("Terminal.ContextMenu.RevokeWebControl"),
+        "Revoke Control"
+    );
     assert_eq!(t!("Terminal.ContextMenu.StopWebSharing"), "Stop Sharing");
 }
 
@@ -975,6 +980,7 @@ fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::
         termua.update(app, |this, cx| {
             this.open_web_control_request_dialog(
                 "192.168.1.20:54321".parse().unwrap(),
+                "bash 2".to_string(),
                 decision_tx,
                 window,
                 cx,
@@ -994,6 +1000,7 @@ fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::
 
     for selector in [
         "termua-web-control-dialog-title",
+        "termua-web-control-dialog-tab-name",
         "termua-web-control-dialog-source",
         "termua-web-control-dialog-notice",
         "termua-web-control-dialog-deny",

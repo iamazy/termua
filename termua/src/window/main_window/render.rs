@@ -125,6 +125,7 @@ impl Render for TermuaWindow {
             .on_action(cx.listener(Self::on_new_local_terminal))
             .on_action(cx.listener(Self::on_play_cast))
             .on_action(cx.listener(Self::on_open_sftp))
+            .on_action(cx.listener(Self::on_revoke_web_control))
             .on_action(cx.listener(Self::on_share_terminal_web))
             .child(titlebar)
             .child(main_content)

@@ -23,7 +23,7 @@ use gpui_transfer::TransferCenterState;
 use rust_i18n::t;
 
 use crate::{
-    OpenSftp, ShareTerminalWeb, TermuaAppState,
+    OpenSftp, RevokeWebControl, ShareTerminalWeb, TermuaAppState,
     footbar::FootbarView,
     globals::{ensure_ctx_global, ensure_ctx_global_with},
     lock_screen, notification,
@@ -345,7 +345,9 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
 
         menu = if let Some(url) = web_share_url {
             let copy_url_label = t!("Terminal.ContextMenu.CopyWebUrl").to_string();
+            let revoke_control_label = t!("Terminal.ContextMenu.RevokeWebControl").to_string();
             let stop_sharing_label = t!("Terminal.ContextMenu.StopWebSharing").to_string();
+            let revoke_control_focus = focus.clone();
             let stop_sharing_focus = focus.clone();
             menu.submenu_with_icon(
                 Some(web_share_icon),
@@ -355,6 +357,8 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
                 move |menu, _, _| {
                     let copy_url_label = copy_url_label.clone();
                     let copy_url = url.clone();
+                    let revoke_control_label = revoke_control_label.clone();
+                    let revoke_control_focus = revoke_control_focus.clone();
                     let stop_sharing_label = stop_sharing_label.clone();
                     let stop_sharing_focus = stop_sharing_focus.clone();
                     menu.item(
@@ -363,6 +367,15 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_url.clone()));
                             }),
+                    )
+                    .separator()
+                    .item(
+                        gpui_component::menu::PopupMenuItem::new(revoke_control_label)
+                            .on_click(move |_, window, cx| {
+                                window.focus(&revoke_control_focus, cx);
+                                window.dispatch_action(Box::new(RevokeWebControl), cx);
+                            })
+                            .icon(Icon::default().path(TermuaIcon::LockOpen)),
                     )
                     .separator()
                     .item(

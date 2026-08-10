@@ -19,8 +19,8 @@ use rust_i18n::t;
 
 use super::{TermuaWindow, state::WebShareEntry};
 use crate::{
-    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, ShareTerminalWeb, TermuaAppState,
-    lock_screen, notification, panel::TerminalPanel,
+    NewLocalTerminal, OpenSftp, PendingCommand, PlayCast, RevokeWebControl, ShareTerminalWeb,
+    TermuaAppState, lock_screen, notification, panel::TerminalPanel,
 };
 
 pub(super) fn web_share_started_message(tab_label: &str, url: &str) -> String {
@@ -171,6 +171,7 @@ impl TermuaWindow {
     pub(crate) fn open_web_control_request_dialog(
         &mut self,
         peer: std::net::SocketAddr,
+        tab_label: String,
         decision_tx: smol::channel::Sender<bool>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -195,7 +196,12 @@ impl TermuaWindow {
                                 .path(TermuaIcon::LockOpen)
                                 .text_color(app.theme().warning),
                         )
-                        .child("Browser control request")
+                        .child("Browser control request — ")
+                        .child(
+                            div()
+                                .debug_selector(|| "termua-web-control-dialog-tab-name".to_string())
+                                .child(tab_label.clone()),
+                        )
                         .into_any_element();
                     let source = v_flex()
                         .gap_1()
@@ -400,6 +406,25 @@ impl TermuaWindow {
         self.open_sftp_for_terminal_view(focused, window, cx);
     }
 
+    pub(super) fn on_revoke_web_control(
+        &mut self,
+        _: &RevokeWebControl,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(terminal_id) = self
+            .focused_terminal_view
+            .as_ref()
+            .and_then(|view| view.upgrade())
+            .map(|view| view.read(cx).terminal.entity_id())
+        else {
+            return;
+        };
+        if let Some(share) = self.web_shares.get(&terminal_id) {
+            share.server.revoke_control();
+        }
+    }
+
     pub(super) fn on_share_terminal_web(
         &mut self,
         _: &ShareTerminalWeb,
@@ -536,12 +561,15 @@ impl TermuaWindow {
 
                 let control_rx = server.control_requests();
                 let approval_server = std::sync::Arc::clone(&server);
+                let approval_tab_label = tab_label.to_string();
                 cx.spawn_in(window, async move |this, window| {
                     while let Ok(request) = control_rx.recv().await {
                         let (decision_tx, decision_rx) = smol::channel::bounded(1);
+                        let request_tab_label = approval_tab_label.clone();
                         let opened = this.update_in(window, move |this, window, cx| {
                             this.open_web_control_request_dialog(
                                 request.peer,
+                                request_tab_label,
                                 decision_tx,
                                 window,
                                 cx,

@@ -16,7 +16,8 @@ const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.binaryType = "arraybuffer";
 ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token }));
 let lineNumberSignature = "",
-  lineNumberDigits = 0;
+  lineNumberDigits = 0,
+  hasControl = false;
 function renderLineNumbers(numbers) {
   const signature = numbers.join(",");
   if (signature === lineNumberSignature) return;
@@ -85,8 +86,17 @@ ws.onmessage = (e) => {
   }
   const m = JSON.parse(e.data);
   if (m.type === "access") {
-    statusNode.textContent = m.control ? "Control granted" : "Read-only";
+    hasControl = m.control;
+    statusNode.textContent = hasControl ? "Control granted" : "Read-only";
+    requestControl.textContent = hasControl
+      ? "Release control"
+      : "Request control";
     requestControl.disabled = false;
+  } else if (m.type === "control_request") {
+    statusNode.textContent =
+      m.status === "pending"
+        ? "Control request pending"
+        : "Control is already in use";
   }
 };
 ws.onclose = () => {
@@ -108,7 +118,8 @@ terminalNode.addEventListener(
   { passive: false, capture: true },
 );
 requestControl.onclick = () => {
-  if (ws.readyState === WebSocket.OPEN)
-    ws.send(JSON.stringify({ type: "request_control" }));
+  if (ws.readyState !== WebSocket.OPEN) return;
+  if (hasControl) ws.send(JSON.stringify({ type: "release_control" }));
+  else ws.send(JSON.stringify({ type: "request_control" }));
 };
 window.addEventListener("resize", layoutTerminal);

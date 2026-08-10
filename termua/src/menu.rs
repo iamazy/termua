@@ -25,6 +25,7 @@ actions!(
         OpenSettings,
         OpenSftp,
         ShareTerminalWeb,
+        RevokeWebControl,
         ToggleSessionsSidebar,
         ToggleMessagesSidebar,
         ToggleAssistantSidebar,

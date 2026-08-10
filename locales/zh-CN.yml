@@ -300,6 +300,7 @@ Terminal:
     ShareWeb: "在浏览器中分享"
     ShareWebActive: "分享中"
     CopyWebUrl: "复制链接"
+    RevokeWebControl: "回收控制权"
     StopWebSharing: "停止分享"
 
 MainWindow:

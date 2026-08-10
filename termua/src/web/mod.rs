@@ -84,6 +84,7 @@ pub struct WebInput {
 enum ClientMessage {
     Authenticate { token: String },
     RequestControl,
+    ReleaseControl,
     Input { data: String },
 }
 
@@ -344,6 +345,15 @@ impl WebShareServer {
             .deny(request);
     }
 
+    pub fn revoke_control(&self) -> bool {
+        let mut state = self.state.lock().expect("web share state poisoned");
+        let revoked = state.access.revoke_control();
+        if revoked {
+            broadcast_access(&state);
+        }
+        revoked
+    }
+
     pub fn update_snapshot(&self, snapshot: gpui_term::TerminalScreen) {
         let mut state = self.state.lock().expect("web share state poisoned");
         state.snapshot = snapshot;
@@ -354,6 +364,10 @@ impl WebShareServer {
 
 fn access_message(control: bool) -> Message {
     Message::Text(format!(r#"{{"type":"access","control":{control}}}"#).into())
+}
+
+fn control_request_message(status: &str) -> Message {
+    Message::Text(format!(r#"{{"type":"control_request","status":"{status}"}}"#).into())
 }
 
 fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -> Message {
@@ -427,13 +441,28 @@ async fn serve_websocket(
                         authenticated = true;
                     }
                     ClientMessage::RequestControl if authenticated => {
-                        let request = {
+                        let result = {
                             let mut state = state.lock().expect("web share state poisoned");
-                            state.access.request_control(client_id).ok().map(|request_id| {
+                            state.access.request_control(client_id).map(|request_id| {
                                 (state.control_tx.clone(), ControlRequest { request_id, client_id, peer })
                             })
                         };
-                        if let Some((tx, request)) = request { let _ = tx.send(request).await; }
+                        match result {
+                            Ok((tx, request)) => { let _ = tx.send(request).await; }
+                            Err(AccessError::ControllerAlreadyActive) => {
+                                let _ = out_tx.try_send(control_request_message("unavailable"));
+                            }
+                            Err(AccessError::RequestAlreadyPending) => {
+                                let _ = out_tx.try_send(control_request_message("pending"));
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    ClientMessage::ReleaseControl if authenticated => {
+                        let mut state = state.lock().expect("web share state poisoned");
+                        if state.access.release_control(client_id) {
+                            broadcast_access(&state);
+                        }
                     }
                     ClientMessage::Input { data } if authenticated => {
                         let tx = {
@@ -531,7 +560,7 @@ impl ShareAccess {
         if !self.clients.contains(&client) {
             return Err(AccessError::UnknownClient);
         }
-        if self.controller.is_some() {
+        if self.controller == Some(client) {
             return Err(AccessError::ControllerAlreadyActive);
         }
         if self.pending.values().any(|pending| *pending == client) {
@@ -544,9 +573,6 @@ impl ShareAccess {
     }
 
     pub fn approve(&mut self, request: ControlRequestId) -> Result<(), AccessError> {
-        if self.controller.is_some() {
-            return Err(AccessError::ControllerAlreadyActive);
-        }
         let client = self
             .pending
             .remove(&request)
@@ -561,6 +587,19 @@ impl ShareAccess {
 
     pub fn deny(&mut self, request: ControlRequestId) {
         self.pending.remove(&request);
+    }
+
+    pub fn revoke_control(&mut self) -> bool {
+        self.controller.take().is_some()
+    }
+
+    pub fn release_control(&mut self, client: ClientId) -> bool {
+        if self.controller == Some(client) {
+            self.controller = None;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn disconnect(&mut self, client: ClientId) {
@@ -675,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn control_requires_approval_and_is_exclusive() {
+    fn approving_later_request_transfers_exclusive_control() {
         let mut access = ShareAccess::new("secret".into());
         access.connect("secret", 1).unwrap();
         access.connect("secret", 2).unwrap();
@@ -684,10 +723,13 @@ mod tests {
         assert!(!access.can_input(1));
         assert_eq!(access.approve(request), Ok(()));
         assert!(access.can_input(1));
-        assert_eq!(
-            access.request_control(2),
-            Err(AccessError::ControllerAlreadyActive)
-        );
+
+        let later_request = access.request_control(2).unwrap();
+        assert!(access.can_input(1));
+        assert!(!access.can_input(2));
+        assert_eq!(access.approve(later_request), Ok(()));
+        assert!(!access.can_input(1));
+        assert!(access.can_input(2));
     }
 
     #[test]
@@ -700,6 +742,33 @@ mod tests {
 
         access.connect("secret", 2).unwrap();
         assert!(access.request_control(2).is_ok());
+    }
+
+    #[test]
+    fn revoking_control_returns_controller_to_read_only() {
+        let mut access = ShareAccess::new("secret".into());
+        access.connect("secret", 1).unwrap();
+        let request = access.request_control(1).unwrap();
+        access.approve(request).unwrap();
+        assert!(access.can_input(1));
+
+        assert!(access.revoke_control());
+        assert!(!access.can_input(1));
+        assert!(!access.revoke_control());
+    }
+
+    #[test]
+    fn controller_can_release_only_its_own_control() {
+        let mut access = ShareAccess::new("secret".into());
+        access.connect("secret", 1).unwrap();
+        access.connect("secret", 2).unwrap();
+        let request = access.request_control(1).unwrap();
+        access.approve(request).unwrap();
+
+        assert!(!access.release_control(2));
+        assert!(access.can_input(1));
+        assert!(access.release_control(1));
+        assert!(!access.can_input(1));
     }
 
     #[test]
@@ -812,6 +881,8 @@ mod tests {
             assert!(response.contains("xterm"));
             assert!(response.contains("request-control"));
             assert!(response.contains(r#"id="request-control" disabled"#));
+            assert!(response.contains("Release control"));
+            assert!(response.contains(r#"type: "release_control""#));
             assert!(response.contains(r#"<div id="line-numbers"></div>"#));
             assert!(response.contains("<title>bash &amp; &lt;tools&gt;</title>"));
             assert!(compact_response.contains("theme:{"));
@@ -824,6 +895,8 @@ mod tests {
             assert!(compact_response.contains("term.clear()"));
             assert!(compact_response.contains("requestControl.disabled=true"));
             assert!(compact_response.contains("requestControl.disabled=false"));
+            assert!(compact_response.contains(r#"m.type==="control_request""#));
+            assert!(compact_response.contains("Controlisalreadyinuse"));
             assert!(compact_response.contains("bytes[0]===2"));
             assert!(compact_response.contains("justify-content:center"));
             assert!(compact_response.contains("background:#000"));
@@ -1008,6 +1081,157 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(server.inputs().recv().await.unwrap().data, b"allowed");
+        });
+    }
+
+    #[test]
+    fn approving_later_web_request_transfers_control() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let mut controller = connect_authenticated(&server).await;
+            let mut viewer = connect_authenticated(&server).await;
+
+            controller
+                .send(Message::Text(r#"{"type":"request_control"}"#.into()))
+                .await
+                .unwrap();
+            let request = server.control_requests().recv().await.unwrap();
+            server.approve_control(request.request_id).unwrap();
+            assert!(
+                controller
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .into_text()
+                    .unwrap()
+                    .contains(r#""control":true"#)
+            );
+            assert!(
+                viewer
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .into_text()
+                    .unwrap()
+                    .contains(r#""control":false"#)
+            );
+
+            viewer
+                .send(Message::Text(r#"{"type":"request_control"}"#.into()))
+                .await
+                .unwrap();
+            let control_requests = server.control_requests();
+            let later_request = control_requests.recv().fuse();
+            let timeout =
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(100)));
+            futures::pin_mut!(later_request, timeout);
+            let later_request = futures::select! {
+                request = later_request => request.ok(),
+                _ = timeout => None,
+            }
+            .expect("later control request must reach the desktop for approval");
+            server.approve_control(later_request.request_id).unwrap();
+
+            let previous_access = controller
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .into_text()
+                .unwrap();
+            let later_access = viewer.next().await.unwrap().unwrap().into_text().unwrap();
+            assert!(previous_access.contains(r#""control":false"#));
+            assert!(later_access.contains(r#""control":true"#));
+        });
+    }
+
+    #[test]
+    fn revoking_control_notifies_the_controller_and_blocks_input() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let mut controller = connect_authenticated(&server).await;
+            controller
+                .send(Message::Text(r#"{"type":"request_control"}"#.into()))
+                .await
+                .unwrap();
+            let request = server.control_requests().recv().await.unwrap();
+            server.approve_control(request.request_id).unwrap();
+            let granted = controller
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .into_text()
+                .unwrap();
+            assert!(granted.contains(r#""control":true"#));
+
+            assert!(server.revoke_control());
+            let revoked = controller
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .into_text()
+                .unwrap();
+            assert!(revoked.contains(r#""control":false"#));
+            controller
+                .send(Message::Text(
+                    r#"{"type":"input","data":"blocked-again"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            smol::Timer::after(std::time::Duration::from_millis(20)).await;
+            assert!(server.inputs().try_recv().is_err());
+        });
+    }
+
+    #[test]
+    fn controller_can_release_control_from_the_websocket() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let mut controller = connect_authenticated(&server).await;
+            controller
+                .send(Message::Text(r#"{"type":"request_control"}"#.into()))
+                .await
+                .unwrap();
+            let request = server.control_requests().recv().await.unwrap();
+            server.approve_control(request.request_id).unwrap();
+            let granted = controller
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .into_text()
+                .unwrap();
+            assert!(granted.contains(r#""control":true"#));
+
+            controller
+                .send(Message::Text(r#"{"type":"release_control"}"#.into()))
+                .await
+                .unwrap();
+            let response = controller.next().fuse();
+            let timeout =
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(100)));
+            futures::pin_mut!(response, timeout);
+            let released = futures::select! {
+                response = response => response
+                    .and_then(Result::ok)
+                    .and_then(|message| message.into_text().ok()),
+                _ = timeout => None,
+            };
+            assert!(
+                released
+                    .as_deref()
+                    .is_some_and(|message| message.contains(r#""control":false"#))
+            );
         });
     }
 
