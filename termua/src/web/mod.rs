@@ -900,7 +900,9 @@ mod tests {
             assert!(compact_response.contains("bytes[0]===2"));
             assert!(compact_response.contains("justify-content:center"));
             assert!(compact_response.contains("background:#000"));
-            assert!(compact_response.contains("transform=`scale(${scale})`"));
+            assert!(compact_response.contains("term.options.fontSize=baseFontSize*scale"));
+            assert!(!compact_response.contains("terminalFrame.style.zoom"));
+            assert!(!compact_response.contains("transform=`scale(${scale})`"));
             assert!(compact_response.contains("Math.min(1.15,"));
             assert!(!compact_response.contains("Math.min(wantedWidth,bounds.width)"));
             assert!(compact_response.contains("scrollback:0"));

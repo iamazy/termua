@@ -11,6 +11,7 @@ const term = new Terminal({
   theme: __TERMUA_THEME__,
 });
 term.open(terminalNode);
+const baseFontSize = term.options.fontSize;
 const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.binaryType = "arraybuffer";
@@ -38,21 +39,34 @@ function layoutTerminal() {
   requestAnimationFrame(() => {
     const cell = term._core?._renderService?.dimensions?.css?.cell;
     if (!cell || !cell.width || !cell.height) return;
+    const fontSize = term.options.fontSize,
+      baseCellWidth = (cell.width * baseFontSize) / fontSize,
+      baseCellHeight = (cell.height * baseFontSize) / fontSize,
+      baseGutterWidth = lineNumberDigits
+        ? Math.ceil(baseCellWidth * lineNumberDigits + 12)
+        : 0;
     const bounds = stage.getBoundingClientRect(),
-      terminalWidth = Math.ceil(cell.width * term.cols + 18),
+      baseTerminalWidth = Math.ceil(baseCellWidth * term.cols + 18),
+      baseWantedHeight = Math.ceil(baseCellHeight * term.rows + 2),
+      baseWantedWidth = baseTerminalWidth + baseGutterWidth,
+      scale = Math.min(
+        1.15,
+        bounds.width / baseWantedWidth,
+        bounds.height / baseWantedHeight,
+      );
+    if (Math.abs(fontSize - baseFontSize * scale) > 0.01) {
+      term.options.fontSize = baseFontSize * scale;
+      layoutTerminal();
+      return;
+    }
+    const terminalWidth = Math.ceil(cell.width * term.cols + 18),
       wantedHeight = Math.ceil(cell.height * term.rows + 2),
       gutterWidth = lineNumberDigits
         ? Math.ceil(cell.width * lineNumberDigits + 12)
         : 0,
-      wantedWidth = terminalWidth + gutterWidth,
-      scale = Math.min(
-        1.15,
-        bounds.width / wantedWidth,
-        bounds.height / wantedHeight,
-      );
+      wantedWidth = terminalWidth + gutterWidth;
     terminalFrame.style.width = `${wantedWidth}px`;
     terminalFrame.style.height = `${wantedHeight}px`;
-    terminalFrame.style.transform = `scale(${scale})`;
     lineNumbers.style.width = `${gutterWidth}px`;
     lineNumbers.style.height = `${wantedHeight}px`;
     lineNumbers.style.fontSize = `${term.options.fontSize}px`;
