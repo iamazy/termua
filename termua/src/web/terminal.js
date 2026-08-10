@@ -1,7 +1,9 @@
 const terminalNode = document.getElementById("terminal"),
   terminalFrame = document.getElementById("terminal-frame"),
   lineNumbers = document.getElementById("line-numbers"),
-  stage = document.getElementById("stage");
+  stage = document.getElementById("stage"),
+  statusNode = document.getElementById("status"),
+  requestControl = document.getElementById("request-control");
 const term = new Terminal({
   cursorBlink: true,
   scrollback: 0,
@@ -83,10 +85,14 @@ ws.onmessage = (e) => {
   }
   const m = JSON.parse(e.data);
   if (m.type === "access") {
-    document.getElementById("status").textContent = m.control
-      ? "Control granted"
-      : "Read-only";
+    statusNode.textContent = m.control ? "Control granted" : "Read-only";
   }
+};
+ws.onclose = () => {
+  term.clear();
+  lineNumbers.replaceChildren();
+  statusNode.textContent = "Sharing ended";
+  requestControl.disabled = true;
 };
 term.onData(
   (data) =>
@@ -100,6 +106,6 @@ terminalNode.addEventListener(
   },
   { passive: false, capture: true },
 );
-document.getElementById("request-control").onclick = () =>
+requestControl.onclick = () =>
   ws.send(JSON.stringify({ type: "request_control" }));
 window.addEventListener("resize", layoutTerminal);

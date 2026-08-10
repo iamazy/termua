@@ -1708,7 +1708,7 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
     });
     let termua = termua_slot.borrow().as_ref().unwrap().clone();
 
-    let (panel, terminal_id) = window_cx.update(|window, app| {
+    let (panel, terminal_id, server_addr) = window_cx.update(|window, app| {
         let terminal = app.new(|_| {
             Terminal::new(
                 TerminalType::WezTerm,
@@ -1735,6 +1735,7 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
             ))
             .unwrap(),
         );
+        let server_addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()));
         termua.update(app, |this, cx| {
             let subscription = cx.subscribe(&terminal, |_, _, _: &TerminalEvent, _| {});
             this.web_shares.insert(
@@ -1748,18 +1749,23 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
             this.web_share_indicator
                 .activate(terminal_id, "http://localhost/share".into());
         });
-        (panel, terminal_id)
+        (panel, terminal_id, server_addr)
     });
 
     window_cx.update(|window, app| {
         panel.update(app, |panel, cx| panel.on_close(window, cx));
     });
+    drop(panel);
     window_cx.run_until_parked();
 
     window_cx.update(|_, app| {
         let termua = termua.read(app);
         assert!(!termua.web_shares.contains_key(&terminal_id));
         assert!(!termua.web_share_indicator.is_active_for(terminal_id));
+    });
+    smol::block_on(async {
+        smol::Timer::after(Duration::from_millis(20)).await;
+        assert!(smol::net::TcpStream::connect(server_addr).await.is_err());
     });
 }
 

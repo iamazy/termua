@@ -775,6 +775,9 @@ mod tests {
             assert!(compact_response.contains("lineNumbers.replaceChildren"));
             assert!(compact_response.contains("view.getUint32(9+row*4)"));
             assert!(compact_response.contains("bytes.slice(9+rows*4)"));
+            assert!(compact_response.contains("ws.onclose="));
+            assert!(compact_response.contains("term.clear()"));
+            assert!(compact_response.contains("requestControl.disabled=true"));
             assert!(compact_response.contains("bytes[0]===2"));
             assert!(compact_response.contains("justify-content:center"));
             assert!(compact_response.contains("background:#000"));
@@ -820,6 +823,29 @@ mod tests {
             server.shutdown();
             smol::Timer::after(std::time::Duration::from_millis(20)).await;
             assert!(smol::net::TcpStream::connect(addr).await.is_err());
+        });
+    }
+
+    #[test]
+    fn shutting_down_share_closes_connected_websocket() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+            let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
+            socket
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"secret"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let _ = socket.next().await;
+            let _ = socket.next().await;
+
+            server.shutdown();
+            let message = socket.next().await.unwrap().unwrap();
+            assert!(message.is_close());
         });
     }
 
