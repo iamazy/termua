@@ -6,9 +6,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{
-    App, AppContext, ClipboardItem, Context, Focusable, Hsla, Styled, Subscription, Window,
-};
+use gpui::{App, AppContext, ClipboardItem, Context, Focusable, Styled, Subscription, Window};
 use gpui_common::TermuaIcon;
 use gpui_component::{ActiveTheme, Icon, IconName};
 use gpui_dock::{
@@ -211,14 +209,6 @@ pub(super) fn web_share_menu_label_key(active: bool) -> &'static str {
     }
 }
 
-pub(super) fn web_share_menu_icon_color(active: bool, cx: &App) -> Hsla {
-    if active {
-        cx.theme().danger
-    } else {
-        cx.theme().muted_foreground
-    }
-}
-
 pub(super) fn web_share_terminal_status_indicator(
     active: bool,
     cx: &App,
@@ -314,10 +304,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             "Terminal.ContextMenu.Recording"
         };
         let web_share_url = self.web_share_indicator.url_for(terminal.entity_id());
-        let web_share_active = web_share_url.is_some();
-        let web_share_icon = Icon::default()
-            .path(TermuaIcon::Global.path())
-            .text_color(web_share_menu_icon_color(web_share_active, cx));
+        let web_share_icon = Icon::default().path(TermuaIcon::Global.path());
 
         let has_sftp = terminal.read(cx).sftp().is_some();
 
@@ -347,6 +334,7 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
             let copy_url_label = t!("Terminal.ContextMenu.CopyWebUrl").to_string();
             let revoke_control_label = t!("Terminal.ContextMenu.RevokeWebControl").to_string();
             let stop_sharing_label = t!("Terminal.ContextMenu.StopWebSharing").to_string();
+            let stop_sharing_color = cx.theme().danger;
             let revoke_control_focus = focus.clone();
             let stop_sharing_focus = focus.clone();
             menu.submenu_with_icon(
@@ -384,7 +372,11 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
                                 window.focus(&stop_sharing_focus, cx);
                                 window.dispatch_action(Box::new(ShareTerminalWeb), cx);
                             })
-                            .icon(Icon::default().path(TermuaIcon::Stop)),
+                            .icon(
+                                Icon::default()
+                                    .path(TermuaIcon::Stop)
+                                    .text_color(stop_sharing_color),
+                            ),
                     )
                 },
             )

@@ -810,14 +810,6 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             "Terminal.ContextMenu.ShareWebActive"
         );
         assert_eq!(TermuaIcon::Global.path(), "icons/global.svg");
-        assert_eq!(
-            super::state::web_share_menu_icon_color(false, app),
-            app.theme().muted_foreground
-        );
-        assert_eq!(
-            super::state::web_share_menu_icon_color(true, app),
-            app.theme().danger
-        );
         assert!(super::state::web_share_terminal_status_indicator(false, app).is_none());
         let status = super::state::web_share_terminal_status_indicator(true, app)
             .expect("active sharing should expose a terminal status indicator");
