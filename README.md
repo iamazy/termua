@@ -30,6 +30,7 @@
 - [x] Multiple themes: supports theme switching, plus creating and editing themes with the theme editor
 - [x] Lock screen: application lock screen and automatic lock on idle timeout
 - [x] Static suggestions: preconfigured static command suggestions with wildcard support
+- [x] Web Sharing: Share terminal session within web browser
 
 ### Quick Start
 
