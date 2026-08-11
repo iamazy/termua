@@ -4,6 +4,8 @@ mod sftp;
 mod ssh;
 mod terminal;
 
+use std::sync::Arc;
+
 use gpui::{
     App, ClipboardItem, Context, InteractiveElement, IntoElement, ParentElement, ReadGlobal,
     Styled, Window, div, px,
@@ -32,6 +34,24 @@ pub(super) fn web_share_started_message(tab_label: &str, url: &str) -> String {
 
 pub(super) fn web_share_stopped_message(tab_label: &str) -> String {
     format!("Web terminal sharing stopped for tab \"{tab_label}\".")
+}
+
+pub(super) fn web_share_start_failed_message(
+    tab_label: &str,
+    port: u16,
+    error: &std::io::Error,
+) -> String {
+    if error.kind() == std::io::ErrorKind::AddrInUse {
+        format!(
+            "Failed to share terminal \"{tab_label}\": port {port} is already in use. Change it in Terminal / Sharing."
+        )
+    } else {
+        format!("Failed to share terminal \"{tab_label}\": {error}")
+    }
+}
+
+pub(super) fn web_share_idle_timeout(minutes: u16) -> std::time::Duration {
+    std::time::Duration::from_secs(u64::from(minutes) * 60)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -478,9 +498,23 @@ impl TermuaWindow {
         );
         let token = crate::web::generate_token();
         let xterm_theme = crate::web::XtermTheme::from_app_theme(cx.theme());
+        let web_share_manager = Arc::clone(&self.web_share_manager);
+        let (web_share_port, web_share_timeout_minutes) =
+            if cx.has_global::<crate::settings::WebSharingSettings>() {
+                let settings = cx.global::<crate::settings::WebSharingSettings>();
+                (settings.port, settings.timeout_minutes)
+            } else {
+                (
+                    crate::settings::DEFAULT_WEB_SHARING_PORT,
+                    crate::settings::DEFAULT_WEB_SHARING_TIMEOUT_MINUTES,
+                )
+            };
+        let web_share_timeout = web_share_idle_timeout(web_share_timeout_minutes);
 
         cx.spawn_in(window, async move |this, window| {
-            let result = crate::web::WebShareServer::bind_with_theme(
+            let result = crate::web::WebShareServer::bind_with_manager(
+                &web_share_manager,
+                web_share_port,
                 token.clone(),
                 snapshot,
                 xterm_theme,
@@ -499,7 +533,11 @@ impl TermuaWindow {
                     Err(error) => {
                         notification::notify_deferred(
                             notification::MessageKind::Error,
-                            format!("Failed to start web terminal: {error}"),
+                            web_share_start_failed_message(
+                                tab_label.as_ref(),
+                                web_share_port,
+                                &error,
+                            ),
                             window,
                             cx,
                         );
@@ -512,9 +550,10 @@ impl TermuaWindow {
                 }
 
                 let url = format!(
-                    "http://{}:{}/#token={token}",
+                    "http://{}:{}{}#token={token}",
                     crate::web::local_network_ip(),
-                    server.local_addr().port()
+                    server.local_addr().port(),
+                    server.session_path()
                 );
                 cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
                 notification::notify_deferred(
@@ -607,9 +646,12 @@ impl TermuaWindow {
                 let expiring_terminal = terminal.downgrade();
                 let expiring_terminal_view = terminal_view.downgrade();
                 cx.spawn(async move |this, cx| {
-                    for _ in 0..30 * 60 {
+                    loop {
                         smol::Timer::after(std::time::Duration::from_secs(1)).await;
-                        if expiring_terminal.upgrade().is_none() {
+                        if expiring_server.is_closed()
+                            || expiring_terminal.upgrade().is_none()
+                            || expiring_server.is_inactive_for(web_share_timeout)
+                        {
                             break;
                         }
                     }

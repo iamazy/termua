@@ -129,6 +129,7 @@ pub enum SettingsPage {
     TerminalRendering,
     TerminalBehavior,
     TerminalSftp,
+    TerminalSharing,
     TerminalSuggestions,
     RecordingCast,
     Logging,
@@ -197,6 +198,15 @@ const SETTINGS_PAGE_SPECS: &[SettingsPageSpec] = &[
         page: SettingsPage::TerminalSftp,
         nav_item_id: "nav.page.terminal.sftp",
         heading_key: "Settings.Terminal.Sftp",
+        hint_key: None,
+        is_sidebar_item: true,
+    },
+    SettingsPageSpec {
+        section: SettingsNavSection::Terminal,
+        item_label_key: "Settings.Terminal.Sharing",
+        page: SettingsPage::TerminalSharing,
+        nav_item_id: "nav.page.terminal.sharing",
+        heading_key: "Settings.Terminal.Sharing",
         hint_key: None,
         is_sidebar_item: true,
     },
@@ -343,12 +353,21 @@ fn nav_item_sort_key(page: SettingsPage) -> &'static str {
         SettingsPage::TerminalRendering => "Rendering",
         SettingsPage::TerminalBehavior => "Behavior",
         SettingsPage::TerminalSftp => "SFTP",
+        SettingsPage::TerminalSharing => "Sharing",
         SettingsPage::TerminalSuggestions => "Suggestions",
         SettingsPage::RecordingCast => "Cast Recording",
         SettingsPage::Logging => "General",
         SettingsPage::Assistant => "ZeroClaw",
         SettingsPage::SecurityLockScreen => "Lock screen",
     }
+}
+
+pub(super) fn parse_web_sharing_port(value: &str) -> Option<u16> {
+    value
+        .trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|port| crate::settings::is_valid_web_sharing_port(*port))
 }
 
 pub(super) fn sidebar_nav_specs() -> Vec<SidebarNavGroup> {
@@ -775,6 +794,7 @@ pub struct SettingsWindow {
         Entity<SelectState<SearchableVec<TerminalBackendSelectItem>>>,
     pub(super) terminal_ssh_backend_select:
         Entity<SelectState<SearchableVec<SshBackendSelectItem>>>,
+    pub(super) web_sharing_port_input: Entity<InputState>,
     pub(super) terminal_keybinding_focus: [FocusHandle; 10],
     pub(super) logging_path_input: Entity<InputState>,
     pub(super) recording_playback_speed_select:
@@ -1167,6 +1187,25 @@ impl SettingsWindow {
         )
     }
 
+    fn web_sharing_port_input(
+        settings: &SettingsFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<InputState> {
+        let input = Self::new_configured_input(window, cx, "7681".into(), |input| {
+            input.validate(|value, _cx| {
+                value.len() <= 5 && value.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        });
+        Self::set_input_value(
+            &input,
+            &settings.terminal.web_sharing_port.to_string(),
+            window,
+            cx,
+        );
+        input
+    }
+
     fn recording_playback_speed_select(
         settings: &SettingsFile,
         window: &mut Window,
@@ -1271,6 +1310,7 @@ impl SettingsWindow {
 
         let lock_overlay = crate::lock_screen::overlay::LockOverlayState::new(window, cx);
         let logging_path_input = Self::logging_path_input(&settings, window, cx);
+        let web_sharing_port_input = Self::web_sharing_port_input(&settings, window, cx);
         let recording_playback_speed_select =
             Self::recording_playback_speed_select(&settings, window, cx);
 
@@ -1309,6 +1349,7 @@ impl SettingsWindow {
             font_family_select,
             terminal_default_backend_select,
             terminal_ssh_backend_select,
+            web_sharing_port_input,
             terminal_keybinding_focus,
             logging_path_input,
             recording_playback_speed_select,
@@ -1526,6 +1567,15 @@ impl SettingsWindow {
     }
 
     fn install_terminal_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self._subscriptions
+            .push(cx.subscribe_in(&self.web_sharing_port_input, window, {
+                move |_this, _input, event, _window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                }
+            }));
+
         let font_family_select = self.font_family_select.clone();
         self.subscribe_select_confirm(
             &font_family_select,

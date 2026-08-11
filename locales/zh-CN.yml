@@ -380,6 +380,7 @@ Settings:
     Terminal: "终端"
     Behavior: "行为"
     Sftp: "SFTP"
+    Sharing: "共享"
     Suggestions: "建议"
     Cursor: "光标"
     Font: "字体"
@@ -447,6 +448,15 @@ Settings:
       ssh_backend:
         Title: "SSH 后端"
         Description: "用于 SSH 终端和 SFTP 的 SSH 后端。"
+      web_sharing_port:
+        Title: "Web 共享端口"
+        Description: "新建 Web 终端共享所使用的端口，已有共享继续使用当前端口。"
+      web_sharing_timeout_minutes:
+        Title: "Web 共享空闲超时"
+        Description: "新建 Web 共享使用的空闲超时时间，已有共享继续使用当前超时设置。"
+        Minutes30: "30 分钟"
+        Hour1: "1 小时"
+        Hours2: "2 小时"
       font_family:
         Title: "字体名称"
         Description: "终端文本的字体名称。"

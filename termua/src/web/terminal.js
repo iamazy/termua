@@ -13,7 +13,7 @@ const term = new Terminal({
 term.open(terminalNode);
 const baseFontSize = term.options.fontSize;
 const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
-const ws = new WebSocket(`ws://${location.host}/ws`);
+const ws = new WebSocket(`ws://${location.host}${location.pathname}ws`);
 ws.binaryType = "arraybuffer";
 ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token }));
 let lineNumberSignature = "",
@@ -119,6 +119,15 @@ ws.onclose = () => {
   statusNode.textContent = "Sharing ended";
   requestControl.disabled = true;
 };
+const reportActivity = () =>
+  ws.readyState === WebSocket.OPEN &&
+  ws.send(JSON.stringify({ type: "activity" }));
+["pointerdown", "wheel", "touchstart"].forEach((eventName) =>
+  document.addEventListener(eventName, reportActivity, {
+    passive: true,
+    capture: true,
+  }),
+);
 term.onData(
   (data) =>
     ws.readyState === 1 && ws.send(JSON.stringify({ type: "input", data })),

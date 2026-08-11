@@ -3,9 +3,10 @@ use std::{
     io,
     net::SocketAddr,
     sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use async_tungstenite::tungstenite::Message;
@@ -14,16 +15,38 @@ use serde::{Deserialize, Serialize};
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 
 const TERMINAL_PAGE: &str = include_str!("index.html");
+const XTERM_STYLE: &str = include_str!("../../../assets/xterm/xterm.css");
+const XTERM_SCRIPT: &str = include_str!("../../../assets/xterm/xterm.js");
 const TERMINAL_STYLE: &str = include_str!("terminal.css");
 const TERMINAL_SCRIPT: &str = include_str!("terminal.js");
 
 pub struct WebShareServer {
     addr: SocketAddr,
+    session_id: String,
+    hub: Arc<WebShareHub>,
     state: Arc<Mutex<ServerState>>,
     control_rx: smol::channel::Receiver<ControlRequest>,
     input_rx: smol::channel::Receiver<WebInput>,
     snapshot_tx: smol::channel::Sender<()>,
+    closed: AtomicBool,
+}
+
+#[derive(Default)]
+pub struct WebShareManager {
+    hubs: smol::lock::Mutex<HashMap<u16, Weak<WebShareHub>>>,
+}
+
+struct WebShareHub {
+    addr: SocketAddr,
+    sessions: Arc<Mutex<HashMap<String, HubSession>>>,
     shutdown_tx: smol::channel::Sender<()>,
+    closed: AtomicBool,
+}
+
+#[derive(Clone)]
+struct HubSession {
+    state: Arc<Mutex<ServerState>>,
+    terminal_page: Arc<str>,
 }
 
 struct ServerState {
@@ -33,6 +56,7 @@ struct ServerState {
     clients: HashMap<ClientId, ClientConnection>,
     control_tx: smol::channel::Sender<ControlRequest>,
     input_tx: smol::channel::Sender<WebInput>,
+    last_activity: Instant,
 }
 
 #[derive(Clone)]
@@ -83,6 +107,7 @@ pub struct WebInput {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMessage {
     Authenticate { token: String },
+    Activity,
     RequestControl,
     ReleaseControl,
     Input { data: String },
@@ -98,6 +123,16 @@ pub fn generate_token() -> String {
         let _ = write!(token, "{byte:02x}");
     }
     token
+}
+
+fn generate_session_id() -> String {
+    let bytes: [u8; 16] = rand::random();
+    let mut id = String::with_capacity(32);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(id, "{byte:02x}");
+    }
+    id
 }
 
 impl XtermTheme {
@@ -189,6 +224,104 @@ pub fn local_network_ip() -> std::net::IpAddr {
         .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
 }
 
+impl WebShareManager {
+    async fn hub(&self, port: u16) -> io::Result<Arc<WebShareHub>> {
+        let mut hubs = self.hubs.lock().await;
+        if let Some(hub) = hubs.get(&port).and_then(Weak::upgrade)
+            && !hub.closed.load(Ordering::Acquire)
+        {
+            return Ok(hub);
+        }
+
+        let hub = WebShareHub::bind(port).await?;
+        hubs.insert(port, Arc::downgrade(&hub));
+        Ok(hub)
+    }
+}
+
+impl WebShareHub {
+    async fn bind(port: u16) -> io::Result<Arc<Self>> {
+        let listener = smol::net::TcpListener::bind(("0.0.0.0", port)).await?;
+        let addr = listener.local_addr()?;
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let (shutdown_tx, shutdown_rx) = smol::channel::bounded(1);
+        let hub = Arc::new(Self {
+            addr,
+            sessions: Arc::clone(&sessions),
+            shutdown_tx,
+            closed: AtomicBool::new(false),
+        });
+
+        smol::spawn(async move {
+            loop {
+                let accept = listener.accept().fuse();
+                let shutdown = shutdown_rx.recv().fuse();
+                futures::pin_mut!(accept, shutdown);
+                let accepted = futures::select! {
+                    accepted = accept => accepted.ok(),
+                    _ = shutdown => None,
+                };
+                let Some((stream, peer)) = accepted else {
+                    break;
+                };
+                let sessions = Arc::clone(&sessions);
+                smol::spawn(async move {
+                    let mut peek = [0; 2048];
+                    let Ok(read) = stream.peek(&mut peek).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&peek[..read]);
+                    let is_websocket = request.to_ascii_lowercase().contains("upgrade: websocket");
+                    let session = {
+                        let sessions = sessions.lock().expect("web share sessions poisoned");
+                        session_for_request(&request, &sessions)
+                    };
+                    let Some(session) = session else {
+                        let _ = serve_http(stream, None).await;
+                        return;
+                    };
+                    if is_websocket {
+                        let _ = serve_websocket(stream, peer, session.state).await;
+                    } else {
+                        let _ = serve_http(stream, Some(&session.terminal_page)).await;
+                    }
+                })
+                .detach();
+            }
+        })
+        .detach();
+        Ok(hub)
+    }
+
+    fn remove_session(&self, session_id: &str) {
+        let empty = {
+            let mut sessions = self.sessions.lock().expect("web share sessions poisoned");
+            sessions.remove(session_id);
+            sessions.is_empty()
+        };
+        if empty && !self.closed.swap(true, Ordering::AcqRel) {
+            let _ = self.shutdown_tx.try_send(());
+        }
+    }
+}
+
+fn session_for_request(
+    request: &str,
+    sessions: &HashMap<String, HubSession>,
+) -> Option<HubSession> {
+    let path = request.lines().next()?.split_whitespace().nth(1)?;
+    if let Some(session_id) = path
+        .strip_prefix("/s/")
+        .and_then(|path| path.split('/').next())
+        && let Some(session) = sessions.get(session_id)
+    {
+        return Some(session.clone());
+    }
+    (sessions.len() == 1 && matches!(path, "/" | "/ws"))
+        .then(|| sessions.values().next().cloned())
+        .flatten()
+}
+
 impl WebShareServer {
     #[cfg(test)]
     pub async fn bind(token: String, snapshot: gpui_term::TerminalScreen) -> io::Result<Self> {
@@ -201,18 +334,36 @@ impl WebShareServer {
         .await
     }
 
+    #[cfg(test)]
     pub async fn bind_with_theme(
         token: String,
         snapshot: gpui_term::TerminalScreen,
         theme: XtermTheme,
         tab_name: String,
     ) -> io::Result<Self> {
-        let listener = smol::net::TcpListener::bind(("0.0.0.0", 0)).await?;
-        let addr = listener.local_addr()?;
+        Self::bind_with_manager(
+            &WebShareManager::default(),
+            0,
+            token,
+            snapshot,
+            theme,
+            tab_name,
+        )
+        .await
+    }
+
+    pub async fn bind_with_manager(
+        manager: &WebShareManager,
+        port: u16,
+        token: String,
+        snapshot: gpui_term::TerminalScreen,
+        theme: XtermTheme,
+        tab_name: String,
+    ) -> io::Result<Self> {
+        let hub = manager.hub(port).await?;
         let (control_tx, control_rx) = smol::channel::bounded(16);
         let (input_tx, input_rx) = smol::channel::bounded(256);
         let (snapshot_tx, snapshot_rx) = smol::channel::bounded(1);
-        let (shutdown_tx, shutdown_rx) = smol::channel::bounded(1);
         let state = Arc::new(Mutex::new(ServerState {
             access: ShareAccess::new(token),
             broadcast_screen: snapshot.clone(),
@@ -220,8 +371,8 @@ impl WebShareServer {
             clients: HashMap::new(),
             control_tx,
             input_tx,
+            last_activity: Instant::now(),
         }));
-        let listener_state = Arc::clone(&state);
         let broadcaster_state = Arc::clone(&state);
         smol::spawn(async move {
             while snapshot_rx.recv().await.is_ok() {
@@ -256,6 +407,8 @@ impl WebShareServer {
         })
         .detach();
         let terminal_page: Arc<str> = TERMINAL_PAGE
+            .replace("__XTERM_STYLE__", XTERM_STYLE)
+            .replace("__XTERM_SCRIPT__", XTERM_SCRIPT)
             .replace("__TERMUA_STYLE__", TERMINAL_STYLE)
             .replace("__TERMUA_SCRIPT__", TERMINAL_SCRIPT)
             .replace(
@@ -264,48 +417,26 @@ impl WebShareServer {
             )
             .replace("__TERMUA_TAB_NAME__", &escape_html_text(&tab_name))
             .into();
-        smol::spawn(async move {
-            loop {
-                let accept = listener.accept().fuse();
-                let shutdown = shutdown_rx.recv().fuse();
-                futures::pin_mut!(accept, shutdown);
-                let accepted = futures::select! {
-                    accepted = accept => accepted.ok(),
-                    _ = shutdown => None,
-                };
-                let Some((stream, peer)) = accepted else {
-                    break;
-                };
-                let state = Arc::clone(&listener_state);
-                let terminal_page = Arc::clone(&terminal_page);
-                smol::spawn(async move {
-                    let mut peek = [0; 2048];
-                    let is_websocket = stream
-                        .peek(&mut peek)
-                        .await
-                        .map(|n| {
-                            String::from_utf8_lossy(&peek[..n])
-                                .to_ascii_lowercase()
-                                .contains("upgrade: websocket")
-                        })
-                        .unwrap_or(false);
-                    if is_websocket {
-                        let _ = serve_websocket(stream, peer, state).await;
-                    } else {
-                        let _ = serve_http(stream, &terminal_page).await;
-                    }
-                })
-                .detach();
-            }
-        })
-        .detach();
+        let session_id = generate_session_id();
+        hub.sessions
+            .lock()
+            .expect("web share sessions poisoned")
+            .insert(
+                session_id.clone(),
+                HubSession {
+                    state: Arc::clone(&state),
+                    terminal_page,
+                },
+            );
         Ok(Self {
-            addr,
+            addr: hub.addr,
+            session_id,
+            hub,
             state,
             control_rx,
             input_rx,
             snapshot_tx,
-            shutdown_tx,
+            closed: AtomicBool::new(false),
         })
     }
 
@@ -313,13 +444,21 @@ impl WebShareServer {
         self.addr
     }
 
+    pub fn session_path(&self) -> String {
+        format!("/s/{}/", self.session_id)
+    }
+
     pub fn shutdown(&self) {
-        let _ = self.shutdown_tx.try_send(());
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let mut state = self.state.lock().expect("web share state poisoned");
         for client in state.clients.values() {
             let _ = client.socket.shutdown(std::net::Shutdown::Both);
         }
         state.clients.clear();
+        drop(state);
+        self.hub.remove_session(&self.session_id);
     }
 
     pub fn control_requests(&self) -> smol::channel::Receiver<ControlRequest> {
@@ -356,9 +495,32 @@ impl WebShareServer {
 
     pub fn update_snapshot(&self, snapshot: gpui_term::TerminalScreen) {
         let mut state = self.state.lock().expect("web share state poisoned");
+        if state.snapshot == snapshot {
+            return;
+        }
         state.snapshot = snapshot;
+        state.last_activity = Instant::now();
         drop(state);
         let _ = self.snapshot_tx.try_send(());
+    }
+
+    pub fn is_inactive_for(&self, timeout: Duration) -> bool {
+        self.state
+            .lock()
+            .expect("web share state poisoned")
+            .last_activity
+            .elapsed()
+            >= timeout
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for WebShareServer {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -420,12 +582,16 @@ async fn serve_websocket(
                 if message.is_close() { break; }
                 let Ok(text) = message.into_text() else { continue };
                 let Ok(message) = serde_json::from_str::<ClientMessage>(&text) else { continue };
+                if authenticated {
+                    state.lock().expect("web share state poisoned").last_activity = Instant::now();
+                }
                 match message {
                     ClientMessage::Authenticate { token } if !authenticated => {
                         let result = {
                             let mut state = state.lock().expect("web share state poisoned");
                             let result = state.access.connect(&token, client_id);
                             if result.is_ok() {
+                                state.last_activity = Instant::now();
                                 state.clients.insert(client_id, connection.clone());
                                 let _ = out_tx.try_send(access_message(false));
                                 let snapshot = screen_message(
@@ -440,6 +606,7 @@ async fn serve_websocket(
                         if result.is_err() { break; }
                         authenticated = true;
                     }
+                    ClientMessage::Activity if authenticated => {}
                     ClientMessage::RequestControl if authenticated => {
                         let result = {
                             let mut state = state.lock().expect("web share state poisoned");
@@ -490,12 +657,18 @@ async fn serve_websocket(
     Ok(())
 }
 
-async fn serve_http(mut stream: smol::net::TcpStream, terminal_page: &str) -> io::Result<()> {
+async fn serve_http(
+    mut stream: smol::net::TcpStream,
+    terminal_page: Option<&str>,
+) -> io::Result<()> {
     let mut request = vec![0; 8192];
     let read = stream.read(&mut request).await?;
     let request = String::from_utf8_lossy(&request[..read]);
-    let (status, content_type, body) = if request.starts_with("GET / ") {
-        ("200 OK", "text/html; charset=utf-8", terminal_page)
+    let (status, content_type, body) = if request.starts_with("GET ") {
+        terminal_page.map_or(
+            ("404 Not Found", "text/plain; charset=utf-8", "Not Found"),
+            |page| ("200 OK", "text/html; charset=utf-8", page),
+        )
     } else {
         ("404 Not Found", "text/plain; charset=utf-8", "Not Found")
     };
@@ -650,7 +823,11 @@ mod tests {
     async fn connect_authenticated(
         server: &WebShareServer,
     ) -> async_tungstenite::WebSocketStream<smol::net::TcpStream> {
-        let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+        let url = format!(
+            "ws://127.0.0.1:{}{}ws",
+            server.local_addr().port(),
+            server.session_path()
+        );
         let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
         socket
             .send(Message::Text(
@@ -881,10 +1058,11 @@ mod tests {
             let mut stream = smol::net::TcpStream::connect(loopback_addr(&server))
                 .await
                 .unwrap();
-            stream
-                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-                .await
-                .unwrap();
+            let request = format!(
+                "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                server.session_path()
+            );
+            stream.write_all(request.as_bytes()).await.unwrap();
             let mut response = String::new();
             stream.read_to_string(&mut response).await.unwrap();
             let compact_response: String = response
@@ -893,6 +1071,10 @@ mod tests {
                 .collect();
             assert!(response.starts_with("HTTP/1.1 200 OK"));
             assert!(response.contains("xterm"));
+            assert!(!response.contains("cdn.jsdelivr.net"));
+            assert!(response.contains(r#"data-termua-asset="xterm.css""#));
+            assert!(response.contains(r#"data-termua-asset="xterm.js""#));
+            assert!(response.contains("Copyright (c) 2014 The xterm.js authors"));
             assert!(response.contains("request-control"));
             assert!(response.contains(r#"id="request-control" disabled"#));
             assert!(response.contains("Release control"));
@@ -925,9 +1107,270 @@ mod tests {
             assert!(compact_response.contains("event.stopImmediatePropagation()"));
             assert!(!compact_response.contains("term.onScroll("));
             assert!(!compact_response.contains(r#"type:"history""#));
+            assert!(compact_response.contains(r#"type:"activity""#));
+            assert!(compact_response.contains(r#"["pointerdown","wheel","touchstart"]"#));
             assert!(response.contains(r#"<style data-termua-asset="terminal.css">"#));
             assert!(response.contains(r#"<script data-termua-asset="terminal.js">"#));
             assert!(!response.contains("__TERMUA_"));
+        });
+    }
+
+    #[test]
+    fn manager_reuses_one_listener_for_multiple_terminal_sessions() {
+        smol::block_on(async {
+            let manager = WebShareManager::default();
+            let first = WebShareServer::bind_with_manager(
+                &manager,
+                0,
+                "first-token".into(),
+                screen_with_text("first"),
+                XtermTheme::default(),
+                "first tab".into(),
+            )
+            .await
+            .unwrap();
+            let second = WebShareServer::bind_with_manager(
+                &manager,
+                0,
+                "second-token".into(),
+                screen_with_text("second"),
+                XtermTheme::default(),
+                "second tab".into(),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(first.local_addr(), second.local_addr());
+            assert_ne!(first.session_path(), second.session_path());
+
+            let mut stream = smol::net::TcpStream::connect(loopback_addr(&first))
+                .await
+                .unwrap();
+            let request = format!(
+                "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                second.session_path()
+            );
+            stream.write_all(request.as_bytes()).await.unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.unwrap();
+            assert!(response.contains("<title>second tab</title>"));
+            assert!(!response.contains("<title>first tab</title>"));
+
+            first.shutdown();
+            let mut stream = smol::net::TcpStream::connect(loopback_addr(&second))
+                .await
+                .expect("stopping one session must keep the shared listener alive");
+            let request = format!(
+                "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                second.session_path()
+            );
+            stream.write_all(request.as_bytes()).await.unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.unwrap();
+            assert!(response.contains("<title>second tab</title>"));
+        });
+    }
+
+    #[test]
+    fn shared_listener_keeps_websocket_sessions_and_tokens_isolated() {
+        smol::block_on(async {
+            let manager = WebShareManager::default();
+            let first = WebShareServer::bind_with_manager(
+                &manager,
+                0,
+                "first-token".into(),
+                screen_with_text("first"),
+                XtermTheme::default(),
+                "first".into(),
+            )
+            .await
+            .unwrap();
+            let second = WebShareServer::bind_with_manager(
+                &manager,
+                0,
+                "second-token".into(),
+                screen_with_text("second"),
+                XtermTheme::default(),
+                "second".into(),
+            )
+            .await
+            .unwrap();
+
+            let first_url = format!(
+                "ws://127.0.0.1:{}{}ws",
+                first.local_addr().port(),
+                first.session_path()
+            );
+            let (mut wrong_session, _) = async_tungstenite::smol::connect_async(&first_url)
+                .await
+                .unwrap();
+            wrong_session
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"second-token"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            assert!(
+                websocket_disconnects(&mut wrong_session, std::time::Duration::from_millis(300))
+                    .await,
+                "a token from another session must not authenticate"
+            );
+
+            let (mut first_socket, _) = async_tungstenite::smol::connect_async(first_url)
+                .await
+                .unwrap();
+            first_socket
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"first-token"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let _access = first_socket.next().await.unwrap().unwrap();
+            let first_screen = first_socket.next().await.unwrap().unwrap().into_data();
+            assert!(
+                first_screen
+                    .windows(b"first".len())
+                    .any(|bytes| bytes == b"first")
+            );
+
+            let second_url = format!(
+                "ws://127.0.0.1:{}{}ws",
+                second.local_addr().port(),
+                second.session_path()
+            );
+            let (mut second_socket, _) = async_tungstenite::smol::connect_async(second_url)
+                .await
+                .unwrap();
+            second_socket
+                .send(Message::Text(
+                    r#"{"type":"authenticate","token":"second-token"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let _access = second_socket.next().await.unwrap().unwrap();
+            let second_screen = second_socket.next().await.unwrap().unwrap().into_data();
+            assert!(
+                second_screen
+                    .windows(b"second".len())
+                    .any(|bytes| bytes == b"second")
+            );
+        });
+    }
+
+    #[test]
+    fn manager_uses_requested_port_for_new_hubs() {
+        smol::block_on(async {
+            let reserve_port = || {
+                let listener = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+                let port = listener.local_addr().unwrap().port();
+                drop(listener);
+                port
+            };
+            let first_port = reserve_port();
+            let mut second_port = reserve_port();
+            while second_port == first_port {
+                second_port = reserve_port();
+            }
+
+            let manager = WebShareManager::default();
+            let first = WebShareServer::bind_with_manager(
+                &manager,
+                first_port,
+                "first-token".into(),
+                screen_with_text("first"),
+                XtermTheme::default(),
+                "first".into(),
+            )
+            .await
+            .unwrap();
+            let second = WebShareServer::bind_with_manager(
+                &manager,
+                second_port,
+                "second-token".into(),
+                screen_with_text("second"),
+                XtermTheme::default(),
+                "second".into(),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(first.local_addr().port(), first_port);
+            assert_eq!(second.local_addr().port(), second_port);
+        });
+    }
+
+    #[test]
+    fn manager_reports_requested_port_conflicts_without_random_fallback() {
+        smol::block_on(async {
+            let occupied = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+            let port = occupied.local_addr().unwrap().port();
+            let manager = WebShareManager::default();
+
+            let result = WebShareServer::bind_with_manager(
+                &manager,
+                port,
+                "secret".into(),
+                screen_with_text("screen"),
+                XtermTheme::default(),
+                "tab".into(),
+            )
+            .await;
+            let Err(error) = result else {
+                panic!("an occupied configured port must not fall back to a random port");
+            };
+
+            assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+        });
+    }
+
+    #[test]
+    fn terminal_updates_refresh_web_share_activity() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("before"))
+                .await
+                .unwrap();
+            let idle_timeout = std::time::Duration::from_millis(10);
+
+            smol::Timer::after(std::time::Duration::from_millis(20)).await;
+            assert!(server.is_inactive_for(idle_timeout));
+
+            server.update_snapshot(screen_with_text("after"));
+            assert!(!server.is_inactive_for(idle_timeout));
+        });
+    }
+
+    #[test]
+    fn identical_terminal_updates_do_not_refresh_web_share_activity() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("same"))
+                .await
+                .unwrap();
+            let idle_timeout = Duration::from_millis(10);
+
+            smol::Timer::after(Duration::from_millis(20)).await;
+            server.update_snapshot(screen_with_text("same"));
+
+            assert!(server.is_inactive_for(idle_timeout));
+        });
+    }
+
+    #[test]
+    fn authenticated_web_activity_refreshes_idle_timeout() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            let mut socket = connect_authenticated(&server).await;
+            server.state.lock().unwrap().last_activity = Instant::now() - Duration::from_secs(1);
+            assert!(server.is_inactive_for(Duration::from_millis(500)));
+
+            socket
+                .send(Message::Text(r#"{"type":"activity"}"#.into()))
+                .await
+                .unwrap();
+            smol::Timer::after(Duration::from_millis(10)).await;
+
+            assert!(!server.is_inactive_for(Duration::from_millis(500)));
         });
     }
 
@@ -1056,7 +1499,11 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+            let url = format!(
+                "ws://127.0.0.1:{}{}ws",
+                server.local_addr().port(),
+                server.session_path()
+            );
             let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
             socket
                 .send(async_tungstenite::tungstenite::Message::Text(
@@ -1257,7 +1704,11 @@ mod tests {
             let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
                 .await
                 .unwrap();
-            let url = format!("ws://127.0.0.1:{}/ws", server.local_addr().port());
+            let url = format!(
+                "ws://127.0.0.1:{}{}ws",
+                server.local_addr().port(),
+                server.session_path()
+            );
             let (mut socket, _) = async_tungstenite::smol::connect_async(url).await.unwrap();
             socket
                 .send(async_tungstenite::tungstenite::Message::Text(

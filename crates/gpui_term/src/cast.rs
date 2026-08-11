@@ -125,7 +125,7 @@ pub(crate) fn serialize_pre_cursor_cells(cells: &[Cell], cursor_style: &Cell) ->
     output
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TerminalScreen {
     columns: usize,
     rows: usize,

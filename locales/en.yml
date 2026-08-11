@@ -381,6 +381,7 @@ Settings:
     Terminal: "Terminal"
     Behavior: "Behavior"
     Sftp: "SFTP"
+    Sharing: "Sharing"
     Suggestions: "Suggestions"
     Cursor: "Cursor"
     Font: "Font"
@@ -448,6 +449,15 @@ Settings:
       ssh_backend:
         Title: "SSH Backend"
         Description: "Used for SSH terminals and SFTP."
+      web_sharing_port:
+        Title: "Web sharing port"
+        Description: "Port used by newly shared web terminals. Existing shares keep their current port."
+      web_sharing_timeout_minutes:
+        Title: "Web sharing idle timeout"
+        Description: "Idle timeout for new web shares. Existing shares keep their current timeout."
+        Minutes30: "30 minutes"
+        Hour1: "1 hour"
+        Hours2: "2 hours"
       font_family:
         Title: "Font family"
         Description: "Font family for terminal text."

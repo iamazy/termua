@@ -197,6 +197,22 @@ static ALL_SETTINGS_META: &[SettingMeta] = &[
         page: SettingsPage::TerminalSftp,
     },
     SettingMeta {
+        id: "terminal.web_sharing_port",
+        title: "Web sharing port",
+        description: "Port used by newly shared web terminals.",
+        keywords: &["terminal", "web", "sharing", "share", "port", "firewall"],
+        section: SettingsNavSection::Terminal,
+        page: SettingsPage::TerminalSharing,
+    },
+    SettingMeta {
+        id: "terminal.web_sharing_timeout_minutes",
+        title: "Web sharing idle timeout",
+        description: "Idle timeout for new web shares. Existing shares keep their current timeout.",
+        keywords: &["terminal", "web", "sharing", "timeout", "idle"],
+        section: SettingsNavSection::Terminal,
+        page: SettingsPage::TerminalSharing,
+    },
+    SettingMeta {
         id: "terminal.suggestions_enabled",
         title: "Suggestions",
         description: "Show inline command suggestions in shell-like contexts.",

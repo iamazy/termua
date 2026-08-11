@@ -246,7 +246,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Cell {
     pub c: char,
     pub fg: TermColor,
