@@ -18,7 +18,8 @@ ws.binaryType = "arraybuffer";
 ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token }));
 let lineNumberSignature = "",
   lineNumberDigits = 0,
-  hasControl = false;
+  hasControl = false,
+  hasMirroredSelection = false;
 function renderLineNumbers(numbers) {
   const signature = numbers.join(",");
   if (signature === lineNumberSignature) return;
@@ -92,9 +93,21 @@ ws.onmessage = (e) => {
           const number = view.getUint32(9 + row * 4);
           return number || null;
         }),
-        ansi = bytes.slice(9 + rows * 4);
+        selectionOffset = 9 + rows * 4,
+        selectionColumn = view.getUint32(selectionOffset),
+        selectionRow = view.getUint32(selectionOffset + 4),
+        selectionLength = view.getUint32(selectionOffset + 8),
+        ansi = bytes.slice(selectionOffset + 12);
       resizeTerminal(columns, rows, lineNumbers);
-      term.write(ansi);
+      term.write(ansi, () => {
+        if (selectionLength) {
+          term.select(selectionColumn, selectionRow, selectionLength);
+          hasMirroredSelection = true;
+        } else if (hasMirroredSelection) {
+          term.clearSelection();
+          hasMirroredSelection = false;
+        }
+      });
     }
     return;
   }

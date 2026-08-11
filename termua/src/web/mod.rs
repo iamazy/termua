@@ -533,7 +533,7 @@ fn control_request_message(status: &str) -> Message {
 }
 
 fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -> Message {
-    let mut message = Vec::with_capacity(ansi.len() + 9 + screen.rows() * size_of::<u32>());
+    let mut message = Vec::with_capacity(ansi.len() + 21 + screen.rows() * size_of::<u32>());
     message.push(kind);
     message.extend_from_slice(&(screen.columns() as u32).to_be_bytes());
     message.extend_from_slice(&(screen.rows() as u32).to_be_bytes());
@@ -542,6 +542,11 @@ fn screen_message(kind: u8, screen: &gpui_term::TerminalScreen, ansi: Vec<u8>) -
             .and_then(|number| u32::try_from(number).ok())
             .unwrap_or(0);
         message.extend_from_slice(&line_number.to_be_bytes());
+    }
+    let (selection_column, selection_row, selection_length) =
+        screen.selection().unwrap_or_default();
+    for value in [selection_column, selection_row, selection_length] {
+        message.extend_from_slice(&u32::try_from(value).unwrap_or(u32::MAX).to_be_bytes());
     }
     message.extend(ansi);
     Message::Binary(message.into())
@@ -786,7 +791,7 @@ impl ShareAccess {
 
 #[cfg(test)]
 mod tests {
-    use gpui_term::{Cell, GridPoint, IndexedCell, TerminalContent};
+    use gpui_term::{Cell, GridPoint, IndexedCell, SelectionRange, TerminalContent};
     use smol::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
@@ -879,7 +884,34 @@ mod tests {
             &message[9..9 + line_number_bytes],
             vec![0; line_number_bytes]
         );
-        assert_eq!(message[9 + line_number_bytes], b'\x1b');
+        assert_eq!(message[21 + line_number_bytes], b'\x1b');
+    }
+
+    #[test]
+    fn screen_message_contains_the_visible_app_selection() {
+        let mut content = TerminalContent::default();
+        content.terminal_bounds = gpui_term::TerminalBounds::new(
+            gpui::px(10.),
+            gpui::px(10.),
+            gpui::Bounds {
+                origin: gpui::Point::default(),
+                size: gpui::size(gpui::px(50.), gpui::px(20.)),
+            },
+        );
+        content.selection = Some(SelectionRange {
+            start: GridPoint::new(0, 1),
+            end: GridPoint::new(1, 2),
+        });
+        let screen = gpui_term::capture_terminal_screen(&content);
+        let Message::Binary(message) = screen_message(0, &screen, Vec::new()) else {
+            panic!("screen update must be binary");
+        };
+
+        let selection_offset = 9 + screen.rows() * size_of::<u32>();
+        assert_eq!(
+            &message[selection_offset..selection_offset + 12],
+            &[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 7]
+        );
     }
 
     #[test]
@@ -1086,7 +1118,11 @@ mod tests {
             assert!(compact_response.contains("renderLineNumbers(lineNumbers)"));
             assert!(compact_response.contains("lineNumbers.replaceChildren"));
             assert!(compact_response.contains("view.getUint32(9+row*4)"));
-            assert!(compact_response.contains("bytes.slice(9+rows*4)"));
+            assert!(compact_response.contains("bytes.slice(selectionOffset+12)"));
+            assert!(
+                compact_response
+                    .contains("term.select(selectionColumn,selectionRow,selectionLength)")
+            );
             assert!(compact_response.contains("ws.onclose="));
             assert!(compact_response.contains("term.clear()"));
             assert!(compact_response.contains("requestControl.disabled=true"));

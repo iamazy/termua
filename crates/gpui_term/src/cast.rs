@@ -131,6 +131,7 @@ pub struct TerminalScreen {
     rows: usize,
     cells: Vec<Cell>,
     line_numbers: Vec<Option<usize>>,
+    selection: Option<(usize, usize, usize)>,
     cursor: crate::Cursor,
     cursor_row: i32,
 }
@@ -147,6 +148,47 @@ impl TerminalScreen {
     pub fn line_numbers(&self) -> &[Option<usize>] {
         &self.line_numbers
     }
+
+    pub fn selection(&self) -> Option<(usize, usize, usize)> {
+        self.selection
+    }
+}
+
+fn visible_selection(
+    selection: Option<&crate::SelectionRange>,
+    display_offset: usize,
+    columns: usize,
+    rows: usize,
+) -> Option<(usize, usize, usize)> {
+    let selection = selection?;
+    let start = selection.start.min(selection.end);
+    let end = selection.start.max(selection.end);
+    let offset = display_offset as i64;
+    let start_row = i64::from(start.line) + offset;
+    let end_row = i64::from(end.line) + offset;
+    if end_row < 0 || start_row >= rows as i64 {
+        return None;
+    }
+
+    let visible_start_row = start_row.max(0) as usize;
+    let visible_end_row = end_row.min(rows.saturating_sub(1) as i64) as usize;
+    let visible_start_column = if start_row < 0 {
+        0
+    } else {
+        start.column.min(columns.saturating_sub(1))
+    };
+    let visible_end_column = if end_row >= rows as i64 {
+        columns.saturating_sub(1)
+    } else {
+        end.column.min(columns.saturating_sub(1))
+    };
+    let start_index = visible_start_row * columns + visible_start_column;
+    let end_index = visible_end_row * columns + visible_end_column;
+    Some((
+        visible_start_column,
+        visible_start_row,
+        end_index.checked_sub(start_index)? + 1,
+    ))
 }
 
 pub fn capture_terminal_screen(content: &crate::TerminalContent) -> TerminalScreen {
@@ -166,6 +208,12 @@ pub fn capture_terminal_screen(content: &crate::TerminalContent) -> TerminalScre
         rows,
         cells,
         line_numbers: vec![None; rows],
+        selection: visible_selection(
+            content.selection.as_ref(),
+            content.display_offset,
+            columns,
+            rows,
+        ),
         cursor: content.cursor,
         cursor_row: content.cursor.point.line + content.display_offset as i32,
     }
