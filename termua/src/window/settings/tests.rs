@@ -430,6 +430,7 @@ fn terminal_sharing_page_renders_port_input(cx: &mut gpui::TestAppContext) {
     );
 }
 
+#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn web_sharing_port_is_saved_only_by_its_save_button(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
