@@ -125,6 +125,37 @@ pub fn generate_token() -> String {
     token
 }
 
+pub fn xterm_font_family(settings: &gpui_term::TerminalSettings) -> String {
+    let mut families = Vec::new();
+    let mut push = |family: &str| {
+        let family = family.trim();
+        if !family.is_empty() && !families.iter().any(|existing| existing == family) {
+            families.push(family.to_string());
+        }
+    };
+    push(settings.font_family.as_ref());
+    if let Some(fallbacks) = &settings.font_fallbacks {
+        for fallback in fallbacks.fallback_list() {
+            push(fallback);
+        }
+    }
+    for fallback in [
+        "Symbols Nerd Font Mono",
+        "Symbols Nerd Font",
+        "Noto Sans Symbols 2",
+        "Apple Symbols",
+        "Segoe UI Symbol",
+    ] {
+        push(fallback);
+    }
+    families
+        .into_iter()
+        .map(|family| format!("\"{}\"", family.replace('\\', "\\\\").replace('"', "\\\"")))
+        .chain(std::iter::once("monospace".to_string()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn generate_session_id() -> String {
     let bytes: [u8; 16] = rand::random();
     let mut id = String::with_capacity(32);
@@ -352,12 +383,34 @@ impl WebShareServer {
         .await
     }
 
+    #[cfg(test)]
     pub async fn bind_with_manager(
         manager: &WebShareManager,
         port: u16,
         token: String,
         snapshot: gpui_term::TerminalScreen,
         theme: XtermTheme,
+        tab_name: String,
+    ) -> io::Result<Self> {
+        Self::bind_with_manager_and_font(
+            manager,
+            port,
+            token,
+            snapshot,
+            theme,
+            xterm_font_family(&gpui_term::TerminalSettings::default()),
+            tab_name,
+        )
+        .await
+    }
+
+    pub async fn bind_with_manager_and_font(
+        manager: &WebShareManager,
+        port: u16,
+        token: String,
+        snapshot: gpui_term::TerminalScreen,
+        theme: XtermTheme,
+        font_family: String,
         tab_name: String,
     ) -> io::Result<Self> {
         let hub = manager.hub(port).await?;
@@ -414,6 +467,11 @@ impl WebShareServer {
             .replace(
                 "__TERMUA_THEME__",
                 &serde_json::to_string(&theme).expect("web terminal theme must serialize"),
+            )
+            .replace(
+                "__TERMUA_FONT_FAMILY__",
+                &serde_json::to_string(&font_family)
+                    .expect("web terminal font family must serialize"),
             )
             .replace("__TERMUA_TAB_NAME__", &escape_html_text(&tab_name))
             .into();
@@ -1114,6 +1172,8 @@ mod tests {
             assert!(response.contains(r#"<div id="line-numbers"></div>"#));
             assert!(response.contains("<title>bash &amp; &lt;tools&gt;</title>"));
             assert!(compact_response.contains("theme:{"));
+            assert!(compact_response.contains("fontFamily:"));
+            assert!(response.contains("Symbols Nerd Font Mono"));
             assert!(compact_response.contains("term.resize(columns,rows)"));
             assert!(compact_response.contains("renderLineNumbers(lineNumbers)"));
             assert!(compact_response.contains("lineNumbers.replaceChildren"));

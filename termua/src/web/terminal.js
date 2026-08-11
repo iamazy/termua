@@ -8,6 +8,7 @@ const term = new Terminal({
   cursorBlink: true,
   scrollback: 0,
   convertEol: false,
+  fontFamily: __TERMUA_FONT_FAMILY__,
   theme: __TERMUA_THEME__,
 });
 term.open(terminalNode);

@@ -498,6 +498,8 @@ impl TermuaWindow {
         );
         let token = crate::web::generate_token();
         let xterm_theme = crate::web::XtermTheme::from_app_theme(cx.theme());
+        let xterm_font_family =
+            crate::web::xterm_font_family(gpui_term::TerminalSettings::global(cx));
         let web_share_manager = Arc::clone(&self.web_share_manager);
         let (web_share_port, web_share_timeout_minutes) =
             if cx.has_global::<crate::settings::WebSharingSettings>() {
@@ -512,12 +514,13 @@ impl TermuaWindow {
         let web_share_timeout = web_share_idle_timeout(web_share_timeout_minutes);
 
         cx.spawn_in(window, async move |this, window| {
-            let result = crate::web::WebShareServer::bind_with_manager(
+            let result = crate::web::WebShareServer::bind_with_manager_and_font(
                 &web_share_manager,
                 web_share_port,
                 token.clone(),
                 snapshot,
                 xterm_theme,
+                xterm_font_family,
                 tab_label.to_string(),
             )
             .await;
