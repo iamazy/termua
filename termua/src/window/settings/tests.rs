@@ -345,6 +345,221 @@ fn terminal_suggestions_settings_are_present_in_settings_meta_and_supported() {
 }
 
 #[test]
+fn terminal_sharing_port_is_present_in_settings_meta_and_sidebar() {
+    let entry = SettingMeta::all()
+        .iter()
+        .find(|meta| meta.id == "terminal.web_sharing_port")
+        .expect("expected terminal.web_sharing_port in SettingMeta::all");
+    assert_eq!(entry.page, SettingsPage::TerminalSharing);
+    assert!(SettingsWindow::supports_setting_id(entry.id));
+    let timeout = SettingMeta::all()
+        .iter()
+        .find(|meta| meta.id == "terminal.web_sharing_timeout_minutes")
+        .expect("expected terminal.web_sharing_timeout_minutes in SettingMeta::all");
+    assert_eq!(timeout.page, SettingsPage::TerminalSharing);
+    assert!(SettingsWindow::supports_setting_id(timeout.id));
+
+    let terminal = sidebar_nav_specs()
+        .into_iter()
+        .find(|group| group.section == SettingsNavSection::Terminal)
+        .expect("expected Terminal settings group");
+    assert!(
+        terminal
+            .items
+            .iter()
+            .any(|item| item.page == SettingsPage::TerminalSharing)
+    );
+}
+
+#[test]
+fn web_sharing_timeout_option_labels_are_translated() {
+    let _guard = crate::locale::lock();
+
+    crate::locale::set_locale("en");
+    assert_eq!(
+        t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Title"),
+        "Web sharing idle timeout"
+    );
+    assert_eq!(
+        t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Minutes30"),
+        "30 minutes"
+    );
+    assert_eq!(
+        t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Hour1"),
+        "1 hour"
+    );
+    assert_eq!(
+        t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Hours2"),
+        "2 hours"
+    );
+
+    crate::locale::set_locale("zh-CN");
+    assert_eq!(
+        t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Minutes30"),
+        "30 分钟"
+    );
+}
+
+#[gpui::test]
+fn terminal_sharing_page_renders_port_input(cx: &mut gpui::TestAppContext) {
+    let _guard = override_settings_page("terminal-sharing-page", "nav.page.terminal.sharing");
+    init_settings_test_app(cx);
+
+    let cx = cx.add_empty_window();
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| SettingsWindow::new(window, cx));
+            assert_eq!(view.read(app).selected_page, SettingsPage::TerminalSharing);
+            div().size_full().child(view)
+        },
+    );
+
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("termua-settings-web-sharing-port")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("termua-settings-web-sharing-timeout")
+            .is_some()
+    );
+}
+
+#[cfg_attr(target_os = "macos", ignore)]
+#[gpui::test]
+fn web_sharing_port_is_saved_only_by_its_save_button(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
+    let _guard = override_settings_json(
+        "terminal-sharing-port-edit",
+        r#"{
+          "ui": { "last_settings_page": "nav.page.terminal.sharing" },
+          "terminal": { "web_sharing_port": 7681 }
+        }"#,
+    );
+    init_settings_test_app(cx);
+
+    let settings_slot: Rc<RefCell<Option<Entity<SettingsWindow>>>> = Rc::new(RefCell::new(None));
+    let slot_for_window = settings_slot.clone();
+    let (root, cx) = cx.add_window_view(move |window, cx| {
+        let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+        *slot_for_window.borrow_mut() = Some(settings.clone());
+        gpui_component::Root::new(settings, window, cx)
+    });
+    draw_test_root(root, cx);
+
+    let input_bounds = cx
+        .debug_bounds("termua-settings-web-sharing-port")
+        .expect("web sharing port input should exist");
+    cx.simulate_click(input_bounds.center(), gpui::Modifiers::none());
+    cx.update(|window, app| {
+        let input: Entity<InputState> = window
+            .focused_input(app)
+            .expect("web sharing port input should be focused");
+        input.update(app, |state, cx| state.set_value("", window, cx));
+    });
+
+    cx.simulate_input("9");
+    let first_digit = cx.update(|window, app| {
+        let input: Entity<InputState> = window
+            .focused_input(app)
+            .expect("web sharing port input should remain focused");
+        input.read(app).value().to_string()
+    });
+    assert_eq!(first_digit, "9", "a partial port must remain editable");
+
+    cx.simulate_input("000");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+
+    let settings = settings_slot
+        .borrow()
+        .clone()
+        .expect("settings view should be created");
+    let saved_port =
+        cx.update(|_window, app| settings.read(app).settings.terminal.web_sharing_port);
+    assert_eq!(saved_port, 7681, "Enter must not save the edited port");
+
+    let save_bounds = cx
+        .debug_bounds("termua-settings-web-sharing-port-save")
+        .expect("save button should appear after editing the port");
+    cx.simulate_click(save_bounds.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+
+    let saved_port =
+        cx.update(|_window, app| settings.read(app).settings.terminal.web_sharing_port);
+    assert_eq!(saved_port, 9000);
+    assert!(
+        cx.debug_bounds("termua-settings-web-sharing-port-save")
+            .is_none(),
+        "save button should disappear after saving"
+    );
+
+    cx.update(|window, app| {
+        let input = settings.read(app).web_sharing_port_input.clone();
+        input.update(app, |state, cx| {
+            state.set_value("9001", window, cx);
+            cx.emit(InputEvent::Change);
+        });
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("termua-settings-web-sharing-port-save")
+            .is_some(),
+        "save button should reappear after another edit"
+    );
+}
+
+#[gpui::test]
+fn enter_does_not_save_or_revert_an_invalid_web_sharing_port(cx: &mut gpui::TestAppContext) {
+    let _guard = override_settings_json(
+        "terminal-sharing-invalid-port",
+        r#"{
+          "ui": { "last_settings_page": "nav.page.terminal.sharing" },
+          "terminal": { "web_sharing_port": 7681 }
+        }"#,
+    );
+    init_settings_test_app(cx);
+
+    let cx = cx.add_empty_window();
+    let (settings, input) = cx.update(|window, app| {
+        let settings = app.new(|cx| SettingsWindow::new(window, cx));
+        let input = settings.read(app).web_sharing_port_input.clone();
+        (settings, input)
+    });
+    cx.update(|window, app| {
+        input.update(app, |state, cx| {
+            state.set_value("9", window, cx);
+            cx.emit(InputEvent::PressEnter {
+                secondary: false,
+                shift: false,
+            });
+        });
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        settings.read_with(cx, |this, _app| this.settings.terminal.web_sharing_port),
+        7681
+    );
+    assert_eq!(input.read_with(cx, |state, _app| state.value()), "9");
+}
+
+#[test]
+fn web_sharing_port_validation_accepts_only_unprivileged_ports() {
+    assert_eq!(super::state::parse_web_sharing_port("1024"), Some(1024));
+    assert_eq!(super::state::parse_web_sharing_port("65535"), Some(65535));
+    assert_eq!(super::state::parse_web_sharing_port("1023"), None);
+    assert_eq!(super::state::parse_web_sharing_port("65536"), None);
+    assert_eq!(super::state::parse_web_sharing_port("not-a-port"), None);
+}
+
+#[test]
 fn terminal_ligatures_setting_is_present_in_settings_meta_and_supported() {
     let entries = SettingMeta::all();
     assert!(

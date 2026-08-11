@@ -319,7 +319,39 @@ pub struct TerminalSettings {
     pub settings: TermSettings,
     pub default_backend: TerminalBackend,
     pub ssh_backend: SshBackend,
+    pub web_sharing_port: u16,
+    pub web_sharing_timeout_minutes: u16,
 }
+
+pub const DEFAULT_WEB_SHARING_PORT: u16 = 7681;
+pub const DEFAULT_WEB_SHARING_TIMEOUT_MINUTES: u16 = 30;
+
+pub fn is_valid_web_sharing_port(port: u16) -> bool {
+    port >= 1024
+}
+
+fn configured_web_sharing_port(port: Option<u16>) -> u16 {
+    port.filter(|port| is_valid_web_sharing_port(*port))
+        .unwrap_or(DEFAULT_WEB_SHARING_PORT)
+}
+
+pub fn is_valid_web_sharing_timeout_minutes(minutes: u16) -> bool {
+    matches!(minutes, 30 | 60 | 120)
+}
+
+fn configured_web_sharing_timeout_minutes(minutes: Option<u16>) -> u16 {
+    minutes
+        .filter(|minutes| is_valid_web_sharing_timeout_minutes(*minutes))
+        .unwrap_or(DEFAULT_WEB_SHARING_TIMEOUT_MINUTES)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WebSharingSettings {
+    pub port: u16,
+    pub timeout_minutes: u16,
+}
+
+impl gpui::Global for WebSharingSettings {}
 
 impl std::ops::Deref for TerminalSettings {
     type Target = TermSettings;
@@ -344,6 +376,8 @@ impl Default for TerminalSettings {
             settings,
             default_backend: TerminalBackend::default(),
             ssh_backend: SshBackend::default(),
+            web_sharing_port: DEFAULT_WEB_SHARING_PORT,
+            web_sharing_timeout_minutes: DEFAULT_WEB_SHARING_TIMEOUT_MINUTES,
         }
     }
 }
@@ -365,6 +399,14 @@ impl Serialize for TerminalSettings {
         map.insert(
             "ssh_backend".into(),
             serde_json::to_value(self.ssh_backend).map_err(serde::ser::Error::custom)?,
+        );
+        map.insert(
+            "web_sharing_port".into(),
+            serde_json::Value::from(self.web_sharing_port),
+        );
+        map.insert(
+            "web_sharing_timeout_minutes".into(),
+            serde_json::Value::from(self.web_sharing_timeout_minutes),
         );
         map.insert(
             "ligatures".into(),
@@ -469,6 +511,8 @@ struct SettingsFilePatch {
 struct TerminalSettingsPatch {
     default_backend: Option<TerminalBackend>,
     ssh_backend: Option<SshBackend>,
+    web_sharing_port: Option<u16>,
+    web_sharing_timeout_minutes: Option<u16>,
     ligatures: Option<bool>,
     font_size: Option<gpui::Pixels>,
     font_family: Option<gpui::SharedString>,
@@ -563,6 +607,13 @@ impl<'de> Deserialize<'de> for TerminalSettings {
         if let Some(ssh_backend) = patch.ssh_backend {
             terminal.ssh_backend = ssh_backend;
         }
+        if let Some(web_sharing_port) = patch.web_sharing_port {
+            terminal.web_sharing_port = configured_web_sharing_port(Some(web_sharing_port));
+        }
+        if let Some(timeout_minutes) = patch.web_sharing_timeout_minutes {
+            terminal.web_sharing_timeout_minutes =
+                configured_web_sharing_timeout_minutes(Some(timeout_minutes));
+        }
         Ok(terminal)
     }
 }
@@ -578,6 +629,10 @@ impl SettingsFile {
             settings: terminal.settings,
             default_backend: patch.terminal.default_backend.unwrap_or_default(),
             ssh_backend: patch.terminal.ssh_backend.unwrap_or_default(),
+            web_sharing_port: configured_web_sharing_port(patch.terminal.web_sharing_port),
+            web_sharing_timeout_minutes: configured_web_sharing_timeout_minutes(
+                patch.terminal.web_sharing_timeout_minutes,
+            ),
         };
 
         Ok(Self {
@@ -635,6 +690,16 @@ impl SettingsFile {
             *cx.global_mut::<TermSettings>() = self.terminal.settings.clone();
         } else {
             cx.set_global(self.terminal.settings.clone());
+        }
+
+        let web_sharing = WebSharingSettings {
+            port: self.terminal.web_sharing_port,
+            timeout_minutes: self.terminal.web_sharing_timeout_minutes,
+        };
+        if cx.has_global::<WebSharingSettings>() {
+            *cx.global_mut::<WebSharingSettings>() = web_sharing;
+        } else {
+            cx.set_global(web_sharing);
         }
 
         if cx.has_global::<SshBackendPreference>() {
@@ -1199,6 +1264,59 @@ mod tests {
     }
 
     #[test]
+    fn terminal_web_sharing_port_defaults_and_roundtrips() {
+        assert_eq!(SettingsFile::default().terminal.web_sharing_port, 7681);
+
+        let settings = SettingsFile::load_from_str_lenient(
+            r#"
+            {
+              "terminal": {
+                "web_sharing_port": 9000
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.terminal.web_sharing_port, 9000);
+        let json = settings.to_json_pretty().unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["terminal"]["web_sharing_port"], 9000);
+
+        let invalid =
+            SettingsFile::load_from_str_lenient(r#"{ "terminal": { "web_sharing_port": 80 } }"#)
+                .unwrap();
+        assert_eq!(invalid.terminal.web_sharing_port, DEFAULT_WEB_SHARING_PORT);
+    }
+
+    #[test]
+    fn terminal_web_sharing_timeout_defaults_and_roundtrips() {
+        assert_eq!(
+            SettingsFile::default().terminal.web_sharing_timeout_minutes,
+            30
+        );
+
+        let settings = SettingsFile::load_from_str_lenient(
+            r#"{ "terminal": { "web_sharing_timeout_minutes": 60 } }"#,
+        )
+        .unwrap();
+        assert_eq!(settings.terminal.web_sharing_timeout_minutes, 60);
+
+        let json = settings.to_json_pretty().unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["terminal"]["web_sharing_timeout_minutes"], 60);
+
+        let invalid = SettingsFile::load_from_str_lenient(
+            r#"{ "terminal": { "web_sharing_timeout_minutes": 45 } }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            invalid.terminal.web_sharing_timeout_minutes,
+            DEFAULT_WEB_SHARING_TIMEOUT_MINUTES
+        );
+    }
+
+    #[test]
     fn terminal_ligatures_bool_setting_is_leniently_parsed_and_roundtripped() {
         let settings = SettingsFile::load_from_str_lenient(
             r#"
@@ -1329,10 +1447,14 @@ mod tests {
         settings.recording.include_input_by_default = true;
         settings.recording.playback_speed = 1.5;
         settings.terminal.font_size = px(20.0);
+        settings.terminal.web_sharing_port = 9000;
+        settings.terminal.web_sharing_timeout_minutes = 120;
 
         settings.apply_to_app(None, &mut app);
 
         assert_eq!(app.global::<TermSettings>().font_size, px(20.0));
+        assert_eq!(app.global::<WebSharingSettings>().port, 9000);
+        assert_eq!(app.global::<WebSharingSettings>().timeout_minutes, 120);
         assert_eq!(theme_mode(&app), ThemeMode::Dark);
         assert_eq!(
             app.global::<gpui_term::cast::CastRecordingConfig>()

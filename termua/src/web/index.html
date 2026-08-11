@@ -4,10 +4,9 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <title>__TERMUA_TAB_NAME__</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css"
-        />
+        <style data-termua-asset="xterm.css">
+            __XTERM_STYLE__
+        </style>
         <style data-termua-asset="terminal.css">
             __TERMUA_STYLE__
         </style>
@@ -23,7 +22,9 @@
                 <div id="terminal"></div>
             </div>
         </div>
-        <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+        <script data-termua-asset="xterm.js">
+            __XTERM_SCRIPT__
+        </script>
         <script data-termua-asset="terminal.js">
             __TERMUA_SCRIPT__;
         </script>

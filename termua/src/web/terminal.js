@@ -8,17 +8,19 @@ const term = new Terminal({
   cursorBlink: true,
   scrollback: 0,
   convertEol: false,
+  fontFamily: __TERMUA_FONT_FAMILY__,
   theme: __TERMUA_THEME__,
 });
 term.open(terminalNode);
 const baseFontSize = term.options.fontSize;
 const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
-const ws = new WebSocket(`ws://${location.host}/ws`);
+const ws = new WebSocket(`ws://${location.host}${location.pathname}ws`);
 ws.binaryType = "arraybuffer";
 ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token }));
 let lineNumberSignature = "",
   lineNumberDigits = 0,
-  hasControl = false;
+  hasControl = false,
+  hasMirroredSelection = false;
 function renderLineNumbers(numbers) {
   const signature = numbers.join(",");
   if (signature === lineNumberSignature) return;
@@ -92,9 +94,21 @@ ws.onmessage = (e) => {
           const number = view.getUint32(9 + row * 4);
           return number || null;
         }),
-        ansi = bytes.slice(9 + rows * 4);
+        selectionOffset = 9 + rows * 4,
+        selectionColumn = view.getUint32(selectionOffset),
+        selectionRow = view.getUint32(selectionOffset + 4),
+        selectionLength = view.getUint32(selectionOffset + 8),
+        ansi = bytes.slice(selectionOffset + 12);
       resizeTerminal(columns, rows, lineNumbers);
-      term.write(ansi);
+      term.write(ansi, () => {
+        if (selectionLength) {
+          term.select(selectionColumn, selectionRow, selectionLength);
+          hasMirroredSelection = true;
+        } else if (hasMirroredSelection) {
+          term.clearSelection();
+          hasMirroredSelection = false;
+        }
+      });
     }
     return;
   }
@@ -119,6 +133,15 @@ ws.onclose = () => {
   statusNode.textContent = "Sharing ended";
   requestControl.disabled = true;
 };
+const reportActivity = () =>
+  ws.readyState === WebSocket.OPEN &&
+  ws.send(JSON.stringify({ type: "activity" }));
+["pointerdown", "wheel", "touchstart"].forEach((eventName) =>
+  document.addEventListener(eventName, reportActivity, {
+    passive: true,
+    capture: true,
+  }),
+);
 term.onData(
   (data) =>
     ws.readyState === 1 && ws.send(JSON.stringify({ type: "input", data })),

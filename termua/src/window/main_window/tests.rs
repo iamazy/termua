@@ -850,6 +850,28 @@ fn web_share_notifications_identify_the_terminal_tab() {
     );
 }
 
+#[test]
+fn web_share_port_conflict_message_identifies_tab_port_and_setting() {
+    let error = std::io::Error::new(std::io::ErrorKind::AddrInUse, "address in use");
+    let message = super::actions::web_share_start_failed_message("bash 2", 7681, &error);
+
+    assert!(message.contains("bash 2"));
+    assert!(message.contains("7681"));
+    assert!(message.contains("Terminal / Sharing"));
+}
+
+#[test]
+fn web_share_idle_timeout_uses_configured_minutes() {
+    assert_eq!(
+        super::actions::web_share_idle_timeout(30),
+        std::time::Duration::from_secs(30 * 60)
+    );
+    assert_eq!(
+        super::actions::web_share_idle_timeout(120),
+        std::time::Duration::from_secs(2 * 60 * 60)
+    );
+}
+
 #[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppContext) {

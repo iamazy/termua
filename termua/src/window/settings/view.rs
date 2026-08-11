@@ -5,8 +5,9 @@ use gpui::{
     MouseButton, ParentElement, Render, Styled, Window, WindowControlArea, div,
     prelude::FluentBuilder, px,
 };
+use gpui_common::TermuaIcon;
 use gpui_component::{
-    ActiveTheme, Disableable, IconName, Sizable, StyledExt, TitleBar, WindowExt,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, StyledExt, TitleBar, WindowExt,
     button::{Button, ButtonVariants},
     dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
@@ -30,7 +31,7 @@ use super::{
     keybindings::{
         is_modifier_only_key, keybinding_clear_button_enabled, normalize_keybinding_value,
     },
-    state::AssistantModelSelectItem,
+    state::{AssistantModelSelectItem, parse_web_sharing_port},
 };
 use crate::{
     notification,
@@ -79,6 +80,8 @@ macro_rules! settings_supported_id_matches {
                 | "terminal.option_as_meta"
                 | "terminal.copy_on_select"
                 | "terminal.sftp_upload_max_concurrency"
+                | "terminal.web_sharing_port"
+                | "terminal.web_sharing_timeout_minutes"
                 | "terminal.suggestions_enabled"
                 | "terminal.suggestions_max_items"
                 | "terminal.suggestions_json_dir"
@@ -1052,6 +1055,58 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn render_web_sharing_timeout_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.settings.terminal.web_sharing_timeout_minutes;
+        let items = [
+            (
+                t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Minutes30").to_string(),
+                30,
+            ),
+            (
+                t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Hour1").to_string(),
+                60,
+            ),
+            (
+                t!("Settings.Meta.terminal.web_sharing_timeout_minutes.Hours2").to_string(),
+                120,
+            ),
+        ];
+        let label = items
+            .iter()
+            .find(|(_, minutes)| *minutes == current)
+            .map(|(label, _)| label.clone())
+            .unwrap_or_else(|| items[0].0.clone());
+        let this = cx.entity();
+
+        div()
+            .debug_selector(|| "termua-settings-web-sharing-timeout".to_string())
+            .child(
+                Button::new("termua-settings-web-sharing-timeout-button")
+                    .label(label)
+                    .dropdown_menu(move |menu, _window, _cx| {
+                        items.iter().fold(menu, |menu, (label, minutes)| {
+                            let minutes = *minutes;
+                            menu.item(
+                                PopupMenuItem::new(label.clone())
+                                    .checked(current == minutes)
+                                    .on_click({
+                                        let this = this.clone();
+                                        move |_, window, cx| {
+                                            this.update(cx, |this, cx| {
+                                                this.settings
+                                                    .terminal
+                                                    .web_sharing_timeout_minutes = minutes;
+                                                this.apply_and_save(window, cx);
+                                            });
+                                        }
+                                    }),
+                            )
+                        })
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn render_appearance_theme_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let current = self.settings.appearance.theme;
         let label = match current {
@@ -1618,6 +1673,49 @@ impl SettingsWindow {
             )),
             "terminal.sftp_upload_max_concurrency" => {
                 Some(self.render_terminal_sftp_upload_max_concurrency_control(cx))
+            }
+            "terminal.web_sharing_port" => {
+                let value = self.web_sharing_port_input.read(cx).value().to_string();
+                let changed = value != self.settings.terminal.web_sharing_port.to_string();
+                let valid = parse_web_sharing_port(&value).is_some();
+                let this = cx.entity();
+                Some(
+                    div()
+                        .w(px(160.))
+                        .debug_selector(|| "termua-settings-web-sharing-port".to_string())
+                        .child(
+                            Input::new(&self.web_sharing_port_input).when(changed, |input| {
+                                input.suffix(
+                                    Button::new("termua-settings-web-sharing-port-save")
+                                        .debug_selector(|| {
+                                            "termua-settings-web-sharing-port-save".to_string()
+                                        })
+                                        .icon(Icon::default().path(TermuaIcon::Check))
+                                        .xsmall()
+                                        .ghost()
+                                        .tab_stop(false)
+                                        .disabled(!valid)
+                                        .on_click(move |_, window, cx| {
+                                            this.update(cx, |this, cx| {
+                                                let value = this
+                                                    .web_sharing_port_input
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string();
+                                                if let Some(port) = parse_web_sharing_port(&value) {
+                                                    this.settings.terminal.web_sharing_port = port;
+                                                    this.apply_and_save(window, cx);
+                                                }
+                                            });
+                                        }),
+                                )
+                            }),
+                        )
+                        .into_any_element(),
+                )
+            }
+            "terminal.web_sharing_timeout_minutes" => {
+                Some(self.render_web_sharing_timeout_control(cx))
             }
             "terminal.suggestions_enabled" => Some(self.render_bool_switch(
                 "settings-suggestions-enabled",
