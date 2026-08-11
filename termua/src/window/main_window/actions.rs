@@ -514,7 +514,7 @@ impl TermuaWindow {
         let web_share_timeout = web_share_idle_timeout(web_share_timeout_minutes);
 
         cx.spawn_in(window, async move |this, window| {
-            let result = crate::web::WebShareServer::bind_with_manager_and_font(
+            let result = crate::web::WebShareServer::bind_with_manager(
                 &web_share_manager,
                 web_share_port,
                 token.clone(),

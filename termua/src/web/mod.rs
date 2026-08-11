@@ -126,31 +126,14 @@ pub fn generate_token() -> String {
 }
 
 pub fn xterm_font_family(settings: &gpui_term::TerminalSettings) -> String {
-    let mut families = Vec::new();
-    let mut push = |family: &str| {
-        let family = family.trim();
-        if !family.is_empty() && !families.iter().any(|existing| existing == family) {
-            families.push(family.to_string());
-        }
-    };
-    push(settings.font_family.as_ref());
+    let mut families = vec![settings.font_family.as_ref()];
     if let Some(fallbacks) = &settings.font_fallbacks {
-        for fallback in fallbacks.fallback_list() {
-            push(fallback);
-        }
+        families.extend(fallbacks.fallback_list().iter().map(String::as_str));
     }
-    for fallback in [
-        "Symbols Nerd Font Mono",
-        "Symbols Nerd Font",
-        "Noto Sans Symbols 2",
-        "Apple Symbols",
-        "Segoe UI Symbol",
-    ] {
-        push(fallback);
-    }
+    families.extend(["Symbols Nerd Font Mono", "Symbols Nerd Font"]);
     families
         .into_iter()
-        .map(|family| format!("\"{}\"", family.replace('\\', "\\\\").replace('"', "\\\"")))
+        .map(|family| serde_json::to_string(family).expect("font family must serialize"))
         .chain(std::iter::once("monospace".to_string()))
         .collect::<Vec<_>>()
         .join(", ")
@@ -378,33 +361,13 @@ impl WebShareServer {
             token,
             snapshot,
             theme,
-            tab_name,
-        )
-        .await
-    }
-
-    #[cfg(test)]
-    pub async fn bind_with_manager(
-        manager: &WebShareManager,
-        port: u16,
-        token: String,
-        snapshot: gpui_term::TerminalScreen,
-        theme: XtermTheme,
-        tab_name: String,
-    ) -> io::Result<Self> {
-        Self::bind_with_manager_and_font(
-            manager,
-            port,
-            token,
-            snapshot,
-            theme,
             xterm_font_family(&gpui_term::TerminalSettings::default()),
             tab_name,
         )
         .await
     }
 
-    pub async fn bind_with_manager_and_font(
+    pub async fn bind_with_manager(
         manager: &WebShareManager,
         port: u16,
         token: String,
@@ -1221,6 +1184,7 @@ mod tests {
                 "first-token".into(),
                 screen_with_text("first"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "first tab".into(),
             )
             .await
@@ -1231,6 +1195,7 @@ mod tests {
                 "second-token".into(),
                 screen_with_text("second"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "second tab".into(),
             )
             .await
@@ -1277,6 +1242,7 @@ mod tests {
                 "first-token".into(),
                 screen_with_text("first"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "first".into(),
             )
             .await
@@ -1287,6 +1253,7 @@ mod tests {
                 "second-token".into(),
                 screen_with_text("second"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "second".into(),
             )
             .await
@@ -1375,6 +1342,7 @@ mod tests {
                 "first-token".into(),
                 screen_with_text("first"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "first".into(),
             )
             .await
@@ -1385,6 +1353,7 @@ mod tests {
                 "second-token".into(),
                 screen_with_text("second"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "second".into(),
             )
             .await
@@ -1408,6 +1377,7 @@ mod tests {
                 "secret".into(),
                 screen_with_text("screen"),
                 XtermTheme::default(),
+                "monospace".into(),
                 "tab".into(),
             )
             .await;
