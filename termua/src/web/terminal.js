@@ -48,7 +48,7 @@ function layoutTerminal() {
         ? Math.ceil(baseCellWidth * lineNumberDigits + 12)
         : 0;
     const bounds = stage.getBoundingClientRect(),
-      baseTerminalWidth = Math.ceil(baseCellWidth * term.cols + 18),
+      baseTerminalWidth = Math.ceil(baseCellWidth * term.cols),
       baseWantedHeight = Math.ceil(baseCellHeight * term.rows + 2),
       baseWantedWidth = baseTerminalWidth + baseGutterWidth,
       scale = Math.min(
@@ -61,7 +61,7 @@ function layoutTerminal() {
       layoutTerminal();
       return;
     }
-    const terminalWidth = Math.ceil(cell.width * term.cols + 18),
+    const terminalWidth = Math.ceil(cell.width * term.cols),
       wantedHeight = Math.ceil(cell.height * term.rows + 2),
       gutterWidth = lineNumberDigits
         ? Math.ceil(cell.width * lineNumberDigits + 12)
