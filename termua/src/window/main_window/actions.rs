@@ -651,6 +651,16 @@ impl TermuaWindow {
                 cx.spawn(async move |this, cx| {
                     loop {
                         smol::Timer::after(std::time::Duration::from_secs(1)).await;
+                        let client_count = expiring_server.client_count();
+                        let _ = this.update(cx, |this, cx| {
+                            if this
+                                .web_share_indicator
+                                .set_client_count(terminal_id, client_count)
+                                && let Some(terminal_view) = expiring_terminal_view.upgrade()
+                            {
+                                terminal_view.update(cx, |_, cx| cx.notify());
+                            }
+                        });
                         if expiring_server.is_closed()
                             || expiring_terminal.upgrade().is_none()
                             || expiring_server.is_inactive_for(web_share_timeout)

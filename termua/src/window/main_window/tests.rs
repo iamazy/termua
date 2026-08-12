@@ -810,11 +810,19 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             "Terminal.ContextMenu.ShareWebActive"
         );
         assert_eq!(TermuaIcon::Global.path(), "icons/global.svg");
-        assert!(super::state::web_share_terminal_status_indicator(false, app).is_none());
-        let status = super::state::web_share_terminal_status_indicator(true, app)
+        assert!(super::state::web_share_terminal_status_indicator(false, 0, app).is_none());
+        let status = super::state::web_share_terminal_status_indicator(true, 0, app)
             .expect("active sharing should expose a terminal status indicator");
         assert_eq!(status.icon_path.as_ref(), "icons/global.svg");
         assert_eq!(status.color, app.theme().danger);
+        assert_eq!(status.label, None);
+        assert_eq!(
+            super::state::web_share_terminal_status_indicator(true, 2, app)
+                .expect("connected sharing should expose a terminal status indicator")
+                .label
+                .as_deref(),
+            Some("2")
+        );
         let shared_terminal = app.new(|_| ());
         let other_terminal = app.new(|_| ());
         let indicator = super::state::WebShareIndicator::default();
@@ -830,6 +838,10 @@ fn web_share_context_menu_presentation_tracks_sharing_state(cx: &mut gpui::TestA
             indicator.url_for(other_terminal.entity_id()).as_deref(),
             Some("http://host/two")
         );
+        assert_eq!(indicator.client_count_for(shared_terminal.entity_id()), 0);
+        assert!(indicator.set_client_count(shared_terminal.entity_id(), 2));
+        assert!(!indicator.set_client_count(shared_terminal.entity_id(), 2));
+        assert_eq!(indicator.client_count_for(shared_terminal.entity_id()), 2);
         indicator.deactivate(other_terminal.entity_id());
         assert!(indicator.is_active_for(shared_terminal.entity_id()));
         assert!(!indicator.is_active_for(other_terminal.entity_id()));
