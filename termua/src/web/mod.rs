@@ -1138,6 +1138,7 @@ mod tests {
             assert!(compact_response.contains("fontFamily:"));
             assert!(response.contains("Symbols Nerd Font Mono"));
             assert!(compact_response.contains("term.resize(columns,rows)"));
+            assert!(!compact_response.contains("term.cols+18"));
             assert!(compact_response.contains("renderLineNumbers(lineNumbers)"));
             assert!(compact_response.contains("lineNumbers.replaceChildren"));
             assert!(compact_response.contains("view.getUint32(9+row*4)"));
