@@ -64,6 +64,7 @@ pub trait ContextMenuProvider: Send + Sync + 'static {
 pub struct TerminalStatusIndicator {
     pub icon_path: SharedString,
     pub color: Hsla,
+    pub label: Option<SharedString>,
 }
 
 pub struct ImeState {

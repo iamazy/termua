@@ -152,8 +152,14 @@ struct TermuaContextMenuProvider {
     web_share_indicator: WebShareIndicator,
 }
 
+#[derive(Clone)]
+struct WebShareStatus {
+    url: String,
+    client_count: usize,
+}
+
 #[derive(Clone, Default)]
-pub(crate) struct WebShareIndicator(Arc<Mutex<HashMap<gpui::EntityId, String>>>);
+pub(crate) struct WebShareIndicator(Arc<Mutex<HashMap<gpui::EntityId, WebShareStatus>>>);
 
 impl gpui::Global for WebShareIndicator {}
 
@@ -162,7 +168,13 @@ impl WebShareIndicator {
         self.0
             .lock()
             .expect("web share indicator lock poisoned")
-            .insert(terminal_id, url);
+            .insert(
+                terminal_id,
+                WebShareStatus {
+                    url,
+                    client_count: 0,
+                },
+            );
     }
 
     pub(crate) fn deactivate(&self, terminal_id: gpui::EntityId) {
@@ -191,7 +203,31 @@ impl WebShareIndicator {
             .lock()
             .expect("web share indicator lock poisoned")
             .get(&terminal_id)
-            .cloned()
+            .map(|status| status.url.clone())
+    }
+
+    pub(super) fn client_count_for(&self, terminal_id: gpui::EntityId) -> usize {
+        self.0
+            .lock()
+            .expect("web share indicator lock poisoned")
+            .get(&terminal_id)
+            .map_or(0, |status| status.client_count)
+    }
+
+    pub(super) fn set_client_count(
+        &self,
+        terminal_id: gpui::EntityId,
+        client_count: usize,
+    ) -> bool {
+        let mut shares = self.0.lock().expect("web share indicator lock poisoned");
+        let Some(status) = shares.get_mut(&terminal_id) else {
+            return false;
+        };
+        if status.client_count == client_count {
+            return false;
+        }
+        status.client_count = client_count;
+        true
     }
 
     pub(crate) fn count(&self) -> usize {
@@ -212,11 +248,13 @@ pub(super) fn web_share_menu_label_key(active: bool) -> &'static str {
 
 pub(super) fn web_share_terminal_status_indicator(
     active: bool,
+    client_count: usize,
     cx: &App,
 ) -> Option<gpui_term::TerminalStatusIndicator> {
     active.then(|| gpui_term::TerminalStatusIndicator {
         icon_path: TermuaIcon::Global.path().into(),
         color: cx.theme().danger,
+        label: (client_count > 0).then(|| client_count.to_string().into()),
     })
 }
 
@@ -274,6 +312,8 @@ impl gpui_term::ContextMenuProvider for TermuaContextMenuProvider {
     ) -> Option<gpui_term::TerminalStatusIndicator> {
         web_share_terminal_status_indicator(
             self.web_share_indicator.is_active_for(terminal.entity_id()),
+            self.web_share_indicator
+                .client_count_for(terminal.entity_id()),
             cx,
         )
     }

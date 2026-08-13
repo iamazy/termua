@@ -537,6 +537,14 @@ impl WebShareServer {
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
+
+    pub fn client_count(&self) -> usize {
+        self.state
+            .lock()
+            .expect("web share state poisoned")
+            .clients
+            .len()
+    }
 }
 
 impl Drop for WebShareServer {
@@ -941,6 +949,26 @@ mod tests {
         assert_eq!(access.connect("wrong", 1), Err(AccessError::InvalidToken));
         assert_eq!(access.connect("secret", 1), Ok(ClientAccess::ReadOnly));
         assert!(!access.can_input(1));
+    }
+
+    #[test]
+    fn web_share_reports_authenticated_client_count() {
+        smol::block_on(async {
+            let server = WebShareServer::bind("secret".into(), screen_with_text("screen"))
+                .await
+                .unwrap();
+            assert_eq!(server.client_count(), 0);
+            let mut socket = connect_authenticated(&server).await;
+            assert_eq!(server.client_count(), 1);
+            socket.close(None).await.unwrap();
+            for _ in 0..20 {
+                if server.client_count() == 0 {
+                    break;
+                }
+                smol::Timer::after(std::time::Duration::from_millis(10)).await;
+            }
+            assert_eq!(server.client_count(), 0);
+        });
     }
 
     #[test]

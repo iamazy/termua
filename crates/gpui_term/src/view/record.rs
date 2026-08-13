@@ -1,6 +1,9 @@
 // Recording-specific UI helpers for `TerminalView`.
 
-use gpui::{AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
+use gpui::{
+    AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div,
+    prelude::FluentBuilder, px,
+};
 use gpui_component::{Icon, Theme};
 
 use super::TerminalStatusIndicator;
@@ -52,6 +55,7 @@ pub(crate) fn render_terminal_status_indicator(
         .right(px(if recording_active { 72.0 } else { 12.0 }))
         .flex()
         .items_center()
+        .gap(px(4.0))
         .p(px(4.0))
         .bg(theme.background.opacity(0.65))
         .border_1()
@@ -62,6 +66,9 @@ pub(crate) fn render_terminal_status_indicator(
                 .path(indicator.icon_path)
                 .text_color(indicator.color),
         )
+        .when_some(indicator.label, |this, label| {
+            this.child(div().text_xs().text_color(indicator.color).child(label))
+        })
         .into_any_element()
 }
 
