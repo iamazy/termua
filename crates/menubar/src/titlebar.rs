@@ -1,4 +1,6 @@
-use gpui::{Entity, IntoElement, ParentElement, Render, Styled as _};
+use gpui::{
+    Entity, InteractiveElement as _, IntoElement, MouseButton, ParentElement, Render, Styled as _,
+};
 
 /// Convenience wrapper to build a titlebar that includes the in-window menubar (Linux/Windows).
 pub struct MenubarTitleBar;
@@ -38,7 +40,14 @@ impl MenubarTitleBar {
             let state = window.use_state(cx, |window, cx| MenubarTitleBarState {
                 menubar: crate::FoldableAppMenuBar::new(window, cx),
             });
-            tb = tb.child(state.read(cx).menubar.clone());
+            tb = tb.child(state.read(cx).menubar.clone()).child(
+                gpui::div()
+                    .h_full()
+                    .flex_1()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        gpui_component::GlobalState::suppress_text_selection(cx);
+                    }),
+            );
         }
 
         // On macOS we use the native OS menubar, so the in-window titlebar is usually redundant.
@@ -57,12 +66,20 @@ impl MenubarTitleBar {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use gpui::{
-        AvailableSpace, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-        Styled as _, Window, point, px, size,
+        AppContext as _, AvailableSpace, Context, InteractiveElement as _, IntoElement, Modifiers,
+        MouseButton, ParentElement as _, Render, Styled as _, Window, point, px, size,
+    };
+    use gpui_component::{
+        Root, WindowExt as _,
+        text::{TextView, TextViewState},
     };
 
     use super::{FORCE_MACOS_ENV, MenubarTitleBar};
+
+    static MACOS_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct TitlebarTestView;
 
@@ -76,8 +93,35 @@ mod tests {
         }
     }
 
+    struct SelectableContentTestView {
+        text: gpui::Entity<TextViewState>,
+    }
+
+    impl SelectableContentTestView {
+        fn new(cx: &mut Context<Self>) -> Self {
+            Self {
+                text: cx.new(|cx| TextViewState::markdown("notification message", cx)),
+            }
+        }
+    }
+
+    impl Render for SelectableContentTestView {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            gpui::div()
+                .size_full()
+                .child(MenubarTitleBar::build(window, cx))
+                .child(
+                    gpui::div()
+                        .h(px(40.))
+                        .child(TextView::new(&self.text).selectable(true)),
+                )
+        }
+    }
+
     #[gpui::test]
     fn macos_fullscreen_hides_titlebar(cx: &mut gpui::TestAppContext) {
+        let _env_guard = MACOS_ENV_LOCK.lock().unwrap();
+
         cx.update(|app| {
             gpui_component::init(app);
             crate::init(app);
@@ -116,5 +160,44 @@ mod tests {
         unsafe {
             std::env::remove_var(FORCE_MACOS_ENV);
         }
+    }
+
+    #[gpui::test]
+    fn dragging_titlebar_does_not_start_text_selection(cx: &mut gpui::TestAppContext) {
+        let _env_guard = MACOS_ENV_LOCK.lock().unwrap();
+
+        cx.update(|app| {
+            gpui_component::init(app);
+            crate::init(app);
+            app.activate(true);
+        });
+
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let content = cx.new(SelectableContentTestView::new);
+            Root::new(content, window, cx)
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+
+        // Native window movement can consume the matching mouse-up. Moving back over selectable
+        // content must not extend a selection that accidentally began in the titlebar.
+        cx.simulate_mouse_down(
+            point(px(400.), px(17.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_move(
+            point(px(140.), px(50.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+
+        let selected = cx.update(|window, cx| window.selected_text(cx));
+        assert_eq!(selected, "");
     }
 }
