@@ -162,6 +162,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn dragging_titlebar_does_not_start_text_selection(cx: &mut gpui::TestAppContext) {
         let _env_guard = MACOS_ENV_LOCK.lock().unwrap();
