@@ -13,6 +13,7 @@ use crate::store::Session;
 #[derive(Clone, Debug)]
 pub enum SessionsSidebarEvent {
     OpenSession(i64),
+    LayoutChanged,
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +46,7 @@ pub struct SessionsSidebarView {
     pub(super) deleting_session_ids: HashSet<i64>,
     pub(super) tree_items: Vec<TreeItem>,
     pub(super) tree_state: Entity<TreeState>,
+    pub(super) collapsed_folder_ids: HashSet<String>,
 
     pub(super) sessions: Vec<Session>,
     pub(super) session_summaries: Vec<SessionTreeSummary>,
@@ -55,6 +57,8 @@ pub struct SessionsSidebarView {
 pub(crate) struct SessionsSidebarPanelState {
     pub(crate) version: usize,
     pub(crate) query: String,
+    #[serde(default)]
+    pub(crate) collapsed_folder_ids: Vec<String>,
 }
 
 impl EventEmitter<SessionsSidebarEvent> for SessionsSidebarView {}
@@ -72,11 +76,18 @@ impl Panel for SessionsSidebarView {
     }
 
     fn dump(&self, _cx: &App) -> PanelState {
+        let mut collapsed_folder_ids = self
+            .collapsed_folder_ids
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        collapsed_folder_ids.sort();
         let mut state = PanelState::new(self);
         state.info = PanelInfo::panel(
             serde_json::to_value(SessionsSidebarPanelState {
                 version: 1,
                 query: self.query.clone(),
+                collapsed_folder_ids,
             })
             .expect("sessions sidebar state should serialize"),
         );

@@ -899,10 +899,14 @@ impl TermuaWindow {
         self._subscriptions.push(cx.subscribe_in(
             &sessions_sidebar,
             window,
-            |this, _sidebar, ev: &SessionsSidebarEvent, window, cx| {
-                let SessionsSidebarEvent::OpenSession(id) = ev;
-                cx.global::<lock_screen::LockState>().report_activity();
-                this.open_session_by_id(*id, window, cx);
+            |this, _sidebar, ev: &SessionsSidebarEvent, window, cx| match ev {
+                SessionsSidebarEvent::OpenSession(id) => {
+                    cx.global::<lock_screen::LockState>().report_activity();
+                    this.open_session_by_id(*id, window, cx);
+                }
+                SessionsSidebarEvent::LayoutChanged => {
+                    this.schedule_workspace_save(this.dock_area.clone(), window, cx);
+                }
             },
         ));
     }
