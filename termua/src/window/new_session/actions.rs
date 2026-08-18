@@ -679,7 +679,7 @@ impl NewSessionWindow {
 
                 let user = values.user_raw.trim();
                 let user = if user.is_empty() { "root" } else { user };
-                let pw = values.password.trim();
+                let pw = values.password.as_str();
                 if pw.is_empty() {
                     return Err(anyhow::anyhow!("Password is required."));
                 }
