@@ -107,7 +107,6 @@ pub(super) fn ssh_password_auth_from_inputs(
     host: &str,
     password: &str,
 ) -> anyhow::Result<(String, Authentication)> {
-    let password = password.trim();
     if password.is_empty() {
         return Err(anyhow::anyhow!("password is required"));
     }
@@ -127,7 +126,7 @@ pub(super) fn ssh_connect_enabled_for_values(
     }
 
     match auth_type {
-        SshAuthType::Password => !ssh_password.trim().is_empty(),
+        SshAuthType::Password => !ssh_password.is_empty(),
         SshAuthType::Config => ssh_host_is_valid_for_config_auth(ssh_host).is_ok(),
     }
 }

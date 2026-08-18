@@ -659,7 +659,7 @@ impl TermuaWindow {
             Some(crate::store::SshAuthType::Password) => {
                 let user = session.ssh_user.unwrap_or_else(|| "root".to_string());
                 let password = session.ssh_password.unwrap_or_default();
-                if password.trim().is_empty() {
+                if password.is_empty() {
                     notification::notify_deferred(
                         notification::MessageKind::Error,
                         "Missing saved SSH password for this session.",
