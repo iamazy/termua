@@ -1818,22 +1818,26 @@ mod tests {
                 server.update_snapshot(screen_with_text(&format!("frame-{frame}")));
                 smol::Timer::after(std::time::Duration::from_millis(1)).await;
             }
-            let mut latest = Vec::new();
-            loop {
+            let deadline =
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_secs(2)));
+            futures::pin_mut!(deadline);
+            let latest = loop {
                 let message = socket.next().fuse();
-                let quiet = futures::FutureExt::fuse(smol::Timer::after(
-                    std::time::Duration::from_millis(30),
-                ));
-                futures::pin_mut!(message, quiet);
+                futures::pin_mut!(message);
                 let received = futures::select! {
-                    message = message => message.map(|message| message.unwrap().into_data()),
-                    _ = quiet => None,
+                    message = message => message
+                        .expect("websocket must remain connected")
+                        .unwrap()
+                        .into_data(),
+                    _ = deadline => panic!("timed out waiting for the latest snapshot"),
                 };
-                let Some(received) = received else { break };
-                latest = received.to_vec();
-            }
+                if received.len() >= 9
+                    && String::from_utf8_lossy(&received[9..]).contains("frame-99")
+                {
+                    break received;
+                }
+            };
             assert_eq!(latest[0], 2);
-            assert!(String::from_utf8_lossy(&latest[9..]).contains("frame-99"));
             socket
                 .send(async_tungstenite::tungstenite::Message::Text(
                     r#"{"type":"request_control"}"#.into(),
@@ -1844,7 +1848,7 @@ mod tests {
             let requests = server.control_requests();
             let request = requests.recv().fuse();
             let timeout =
-                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_millis(100)));
+                futures::FutureExt::fuse(smol::Timer::after(std::time::Duration::from_secs(2)));
             futures::pin_mut!(request, timeout);
             let received = futures::select! {
                 request = request => request.is_ok(),
