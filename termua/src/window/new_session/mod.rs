@@ -1405,9 +1405,12 @@ impl SerialSessionState {
         self.ports_loading = true;
         self.ports_refresh_epoch = self.ports_refresh_epoch.saturating_add(1);
         let epoch = self.ports_refresh_epoch;
+        let background = cx.background_executor().clone();
 
         cx.spawn(async move |this, cx| {
-            let ports = smol::unblock(crate::serial::list_ports).await;
+            let ports = background
+                .spawn(async { crate::serial::list_ports() })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if this.serial.ports_refresh_epoch != epoch {
                     return;
