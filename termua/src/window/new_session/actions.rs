@@ -24,29 +24,12 @@ struct SshFormValues {
     group: String,
 }
 
-const SESSION_ENV_TERM: &str = "TERM";
-const SESSION_ENV_COLORTERM: &str = "COLORTERM";
-const SESSION_ENV_CHARSET: &str = "CHARSET";
-const SESSION_ENV_SHELL: &str = "SHELL";
 const SESSION_ENV_TERMUA_SHELL: &str = gpui_term::shell::TERMUA_SHELL_ENV_KEY;
 
 fn session_store_env_value<'a>(env: &'a [SessionEnvVar], name: &str) -> Option<&'a str> {
     env.iter()
         .find(|var| var.name == name)
         .map(|var| var.value.as_str())
-}
-
-fn session_store_terminal_fields_from_env(
-    env: &[SessionEnvVar],
-) -> (String, Option<String>, String) {
-    let term = session_store_env_value(env, SESSION_ENV_TERM)
-        .unwrap_or_default()
-        .to_string();
-    let colorterm = session_store_env_value(env, SESSION_ENV_COLORTERM).map(str::to_string);
-    let charset = session_store_env_value(env, SESSION_ENV_CHARSET)
-        .unwrap_or_default()
-        .to_string();
-    (term, colorterm, charset)
 }
 
 enum SessionStoreOp {
@@ -165,14 +148,10 @@ impl SessionStoreOp {
                 backend,
                 env,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_local_session_with_env(
                     group.as_str(),
                     label.as_str(),
                     backend,
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     env,
                 )?;
             }
@@ -183,15 +162,11 @@ impl SessionStoreOp {
                 backend,
                 env,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_local_session_with_env(
                     session_id,
                     group.as_str(),
                     label.as_str(),
                     backend,
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     env,
                 )?;
             }
@@ -212,7 +187,6 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_ssh_session_password_with_proxy_and_env(
                     group.as_str(),
                     label.as_str(),
@@ -221,9 +195,6 @@ impl SessionStoreOp {
                     port,
                     user.as_str(),
                     password.as_str(),
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     tcp_nodelay,
                     tcp_keepalive,
                     proxy_mode,
@@ -252,7 +223,6 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_ssh_session_password_with_proxy_and_env(
                     session_id,
                     group.as_str(),
@@ -262,9 +232,6 @@ impl SessionStoreOp {
                     port,
                     user.as_str(),
                     password.as_str(),
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     tcp_nodelay,
                     tcp_keepalive,
                     proxy_mode,
@@ -290,16 +257,12 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_ssh_session_config_with_proxy_and_env(
                     group.as_str(),
                     label.as_str(),
                     backend,
                     host.as_str(),
                     port,
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     tcp_nodelay,
                     tcp_keepalive,
                     proxy_mode,
@@ -326,7 +289,6 @@ impl SessionStoreOp {
                 proxy_env,
                 proxy_jump,
             } => {
-                let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_ssh_session_config_with_proxy_and_env(
                     session_id,
                     group.as_str(),
@@ -334,9 +296,6 @@ impl SessionStoreOp {
                     backend,
                     host.as_str(),
                     port,
-                    term.as_str(),
-                    colorterm.as_deref(),
-                    charset.as_str(),
                     tcp_nodelay,
                     tcp_keepalive,
                     proxy_mode,
@@ -1049,7 +1008,7 @@ impl NewSessionWindow {
             .as_deref()
             .and_then(|env| {
                 session_store_env_value(env, SESSION_ENV_TERMUA_SHELL)
-                    .or_else(|| session_store_env_value(env, SESSION_ENV_SHELL))
+                    .or_else(|| session_store_env_value(env, "SHELL"))
             })
             .map(str::trim)
             .filter(|program| !program.is_empty())
@@ -1351,32 +1310,9 @@ impl NewSessionWindow {
         };
 
         let env = self.shell_session_env_for_store(app);
-        let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
 
-        crate::store::save_local_session_with_env(
-            group.as_str(),
-            label.as_str(),
-            backend,
-            term.as_str(),
-            colorterm.as_deref(),
-            charset.as_str(),
-            env,
-        )?;
+        crate::store::save_local_session_with_env(group.as_str(), label.as_str(), backend, env)?;
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn missing_terminal_environment_fields_remain_missing() {
-        let (term, colorterm, charset) = session_store_terminal_fields_from_env(&[]);
-
-        assert_eq!(term, "");
-        assert_eq!(colorterm, None);
-        assert_eq!(charset, "");
     }
 }

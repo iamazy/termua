@@ -782,9 +782,6 @@ fn powershell_local_session_uses_shell_specific_icon(cx: &mut gpui::TestAppConte
         "local",
         "powershell",
         crate::settings::TerminalBackend::Wezterm,
-        "xterm-256color",
-        None,
-        "UTF-8",
         vec![SessionEnvVar {
             name: gpui_term::shell::TERMUA_SHELL_ENV_KEY.to_string(),
             value: "pwsh".to_string(),

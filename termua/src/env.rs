@@ -8,6 +8,9 @@ use crate::store::SessionEnvVar;
 pub(crate) const CAST_PLAYER_ENV_MODE: &str = "TERMUA_CAST_PLAYER";
 pub(crate) const CAST_PLAYER_ENV_PATH: &str = "TERMUA_CAST_PLAYER_PATH";
 pub(crate) const CAST_PLAYER_ENV_SPEED: &str = "TERMUA_CAST_PLAYER_SPEED";
+pub(crate) const TERM_ENV_NAME: &str = "TERM";
+pub(crate) const COLORTERM_ENV_NAME: &str = "COLORTERM";
+pub(crate) const CHARSET_ENV_NAME: &str = "CHARSET";
 
 pub(crate) fn cast_player_child_env(
     cast_path: &Path,
@@ -48,7 +51,7 @@ pub(crate) fn build_terminal_env(
 
     let charset = env_vars
         .iter()
-        .find(|var| var.name.eq_ignore_ascii_case("CHARSET"))
+        .find(|var| var.name.eq_ignore_ascii_case(CHARSET_ENV_NAME))
         .map(|var| var.value.trim().to_ascii_uppercase())
         .unwrap_or_default();
     if charset.contains("UTF-8") || charset.contains("UTF8") {

@@ -8,7 +8,10 @@ use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::settings::TerminalBackend;
+use crate::{
+    env::{CHARSET_ENV_NAME, COLORTERM_ENV_NAME, TERM_ENV_NAME},
+    settings::TerminalBackend,
+};
 
 #[cfg(unix)]
 fn chmod_private_dir(path: &std::path::Path) -> anyhow::Result<()> {
@@ -132,10 +135,6 @@ pub struct SessionEnvVar {
     pub value: String,
 }
 
-const SESSION_ENV_TERM: &str = "TERM";
-const SESSION_ENV_COLORTERM: &str = "COLORTERM";
-const SESSION_ENV_CHARSET: &str = "CHARSET";
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Session {
     pub id: i64,
@@ -172,28 +171,6 @@ pub struct Session {
     pub serial_flow_control: Option<SerialFlowControl>,
 }
 
-impl Session {
-    pub fn term(&self) -> &str {
-        session_env_value(self.env.as_deref(), SESSION_ENV_TERM).unwrap_or("xterm-256color")
-    }
-
-    pub fn colorterm(&self) -> Option<&str> {
-        session_env_value(self.env.as_deref(), SESSION_ENV_COLORTERM)
-    }
-
-    pub fn charset(&self) -> &str {
-        session_env_value(self.env.as_deref(), SESSION_ENV_CHARSET).unwrap_or("UTF-8")
-    }
-}
-
-fn session_env_value<'a>(env: Option<&'a [SessionEnvVar]>, name: &str) -> Option<&'a str> {
-    env.and_then(|vars| {
-        vars.iter()
-            .find(|var| var.name == name)
-            .map(|var| var.value.as_str())
-    })
-}
-
 fn merge_terminal_fields_into_env(
     term: &str,
     colorterm: Option<&str>,
@@ -202,17 +179,17 @@ fn merge_terminal_fields_into_env(
 ) -> Vec<SessionEnvVar> {
     let mut merged = Vec::new();
     let has_name = |name: &str| env.iter().any(|var| var.name.eq_ignore_ascii_case(name));
-    if !term.trim().is_empty() && !has_name(SESSION_ENV_TERM) {
-        upsert_session_env_var(&mut merged, SESSION_ENV_TERM, term.to_string());
+    if !term.trim().is_empty() && !has_name(TERM_ENV_NAME) {
+        upsert_session_env_var(&mut merged, TERM_ENV_NAME, term.to_string());
     }
     if let Some(colorterm) = colorterm
         .filter(|value| !value.trim().is_empty())
-        .filter(|_| !has_name(SESSION_ENV_COLORTERM))
+        .filter(|_| !has_name(COLORTERM_ENV_NAME))
     {
-        upsert_session_env_var(&mut merged, SESSION_ENV_COLORTERM, colorterm.to_string());
+        upsert_session_env_var(&mut merged, COLORTERM_ENV_NAME, colorterm.to_string());
     }
-    if !charset.trim().is_empty() && !has_name(SESSION_ENV_CHARSET) {
-        upsert_session_env_var(&mut merged, SESSION_ENV_CHARSET, charset.to_string());
+    if !charset.trim().is_empty() && !has_name(CHARSET_ENV_NAME) {
+        upsert_session_env_var(&mut merged, CHARSET_ENV_NAME, charset.to_string());
     }
 
     for var in env {
@@ -224,6 +201,10 @@ fn merge_terminal_fields_into_env(
     }
 
     merged
+}
+
+fn terminal_env(term: &str, charset: &str) -> Vec<SessionEnvVar> {
+    merge_terminal_fields_into_env(term, None, charset, Vec::new())
 }
 
 fn upsert_session_env_var(env: &mut Vec<SessionEnvVar>, name: &str, value: String) {
@@ -549,9 +530,6 @@ impl<'a> SessionWrite<'a> {
         group_path: &'a str,
         label: &'a str,
         backend: TerminalBackend,
-        term: &'a str,
-        colorterm: Option<&'a str>,
-        charset: &'a str,
         env: Vec<SessionEnvVar>,
     ) -> Self {
         Self {
@@ -559,7 +537,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
+            env,
             ssh_host: None,
             ssh_port: None,
             ssh_auth_type: None,
@@ -590,9 +568,6 @@ impl<'a> SessionWrite<'a> {
         port: u16,
         user: &'a str,
         password: &'a str,
-        term: &'a str,
-        colorterm: Option<&'a str>,
-        charset: &'a str,
         env: Vec<SessionEnvVar>,
         ssh_tcp_nodelay: bool,
         ssh_tcp_keepalive: bool,
@@ -607,7 +582,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
+            env,
             ssh_host: Some(host),
             ssh_port: Some(port),
             ssh_auth_type: Some(SshAuthType::Password),
@@ -636,9 +611,6 @@ impl<'a> SessionWrite<'a> {
         backend: TerminalBackend,
         host: &'a str,
         port: u16,
-        term: &'a str,
-        colorterm: Option<&'a str>,
-        charset: &'a str,
         env: Vec<SessionEnvVar>,
         ssh_tcp_nodelay: bool,
         ssh_tcp_keepalive: bool,
@@ -653,7 +625,7 @@ impl<'a> SessionWrite<'a> {
             group_path,
             label,
             backend,
-            env: merge_terminal_fields_into_env(term, colorterm, charset, env),
+            env,
             ssh_host: Some(host),
             ssh_port: Some(port),
             ssh_auth_type: Some(SshAuthType::Config),
@@ -885,24 +857,18 @@ pub fn save_local_session(
     term: &str,
     charset: &str,
 ) -> anyhow::Result<i64> {
-    save_local_session_with_env(group_path, label, backend, term, None, charset, Vec::new())
+    save_local_session_with_env(group_path, label, backend, terminal_env(term, charset))
 }
 
 pub fn save_local_session_with_env(
     group_path: &str,
     label: &str,
     backend: TerminalBackend,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     env: Vec<SessionEnvVar>,
 ) -> anyhow::Result<i64> {
     let conn = open()?;
-    insert_session_row(
-        &conn,
-        &SessionWrite::local(group_path, label, backend, term, colorterm, charset, env),
-    )
-    .context("insert local session")
+    insert_session_row(&conn, &SessionWrite::local(group_path, label, backend, env))
+        .context("insert local session")
 }
 
 pub fn save_ssh_session_password(
@@ -962,9 +928,6 @@ pub fn save_ssh_session_password_with_proxy(
         port,
         user,
         password,
-        term,
-        None,
-        charset,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -972,7 +935,7 @@ pub fn save_ssh_session_password_with_proxy(
         proxy_workdir,
         proxy_env,
         proxy_jump,
-        Vec::new(),
+        terminal_env(term, charset),
     )
 }
 
@@ -985,9 +948,6 @@ pub fn save_ssh_session_password_with_proxy_and_env(
     port: u16,
     user: &str,
     password: &str,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     ssh_tcp_nodelay: bool,
     ssh_tcp_keepalive: bool,
     proxy_mode: SshProxyMode,
@@ -1006,9 +966,6 @@ pub fn save_ssh_session_password_with_proxy_and_env(
         port,
         user,
         password,
-        term,
-        colorterm,
-        charset,
         env,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
@@ -1023,6 +980,7 @@ pub fn save_ssh_session_password_with_proxy_and_env(
     Ok(id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn save_ssh_session_config(
     group_path: &str,
     label: &str,
@@ -1072,9 +1030,6 @@ pub fn save_ssh_session_config_with_proxy(
         backend,
         host,
         port,
-        term,
-        None,
-        charset,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -1082,7 +1037,7 @@ pub fn save_ssh_session_config_with_proxy(
         proxy_workdir,
         proxy_env,
         proxy_jump,
-        Vec::new(),
+        terminal_env(term, charset),
     )
 }
 
@@ -1093,9 +1048,6 @@ pub fn save_ssh_session_config_with_proxy_and_env(
     backend: TerminalBackend,
     host: &str,
     port: u16,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     ssh_tcp_nodelay: bool,
     ssh_tcp_keepalive: bool,
     proxy_mode: SshProxyMode,
@@ -1114,9 +1066,6 @@ pub fn save_ssh_session_config_with_proxy_and_env(
             backend,
             host,
             port,
-            term,
-            colorterm,
-            charset,
             env,
             ssh_tcp_nodelay,
             ssh_tcp_keepalive,
@@ -1130,6 +1079,7 @@ pub fn save_ssh_session_config_with_proxy_and_env(
     .context("insert ssh config session")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn save_serial_session(
     group_path: &str,
     label: &str,
@@ -1378,16 +1328,7 @@ pub fn update_local_session(
     term: &str,
     charset: &str,
 ) -> anyhow::Result<()> {
-    update_local_session_with_env(
-        id,
-        group_path,
-        label,
-        backend,
-        term,
-        None,
-        charset,
-        Vec::new(),
-    )
+    update_local_session_with_env(id, group_path, label, backend, terminal_env(term, charset))
 }
 
 pub fn update_local_session_with_env(
@@ -1395,9 +1336,6 @@ pub fn update_local_session_with_env(
     group_path: &str,
     label: &str,
     backend: TerminalBackend,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     env: Vec<SessionEnvVar>,
 ) -> anyhow::Result<()> {
     delete_ssh_password_if_present(id);
@@ -1405,7 +1343,7 @@ pub fn update_local_session_with_env(
     update_session_row(
         &conn,
         id,
-        &SessionWrite::local(group_path, label, backend, term, colorterm, charset, env),
+        &SessionWrite::local(group_path, label, backend, env),
     )
     .context("update local session")
 }
@@ -1471,9 +1409,6 @@ pub fn update_ssh_session_password_with_proxy(
         port,
         user,
         password,
-        term,
-        None,
-        charset,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -1481,7 +1416,7 @@ pub fn update_ssh_session_password_with_proxy(
         proxy_workdir,
         proxy_env,
         proxy_jump,
-        Vec::new(),
+        terminal_env(term, charset),
     )
 }
 
@@ -1495,9 +1430,6 @@ pub fn update_ssh_session_password_with_proxy_and_env(
     port: u16,
     user: &str,
     password: &str,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     ssh_tcp_nodelay: bool,
     ssh_tcp_keepalive: bool,
     proxy_mode: SshProxyMode,
@@ -1516,9 +1448,6 @@ pub fn update_ssh_session_password_with_proxy_and_env(
         port,
         user,
         password,
-        term,
-        colorterm,
-        charset,
         env,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
@@ -1533,6 +1462,7 @@ pub fn update_ssh_session_password_with_proxy_and_env(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_ssh_session_config(
     id: i64,
     group_path: &str,
@@ -1586,9 +1516,6 @@ pub fn update_ssh_session_config_with_proxy(
         backend,
         host,
         port,
-        term,
-        None,
-        charset,
         ssh_tcp_nodelay,
         ssh_tcp_keepalive,
         proxy_mode,
@@ -1596,7 +1523,7 @@ pub fn update_ssh_session_config_with_proxy(
         proxy_workdir,
         proxy_env,
         proxy_jump,
-        Vec::new(),
+        terminal_env(term, charset),
     )
 }
 
@@ -1608,9 +1535,6 @@ pub fn update_ssh_session_config_with_proxy_and_env(
     backend: TerminalBackend,
     host: &str,
     port: u16,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     ssh_tcp_nodelay: bool,
     ssh_tcp_keepalive: bool,
     proxy_mode: SshProxyMode,
@@ -1631,9 +1555,6 @@ pub fn update_ssh_session_config_with_proxy_and_env(
             backend,
             host,
             port,
-            term,
-            colorterm,
-            charset,
             env,
             ssh_tcp_nodelay,
             ssh_tcp_keepalive,
@@ -1647,6 +1568,7 @@ pub fn update_ssh_session_config_with_proxy_and_env(
     .context("update ssh config session")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_serial_session(
     id: i64,
     group_path: &str,
@@ -1706,6 +1628,14 @@ pub(crate) mod tests {
     };
 
     use super::*;
+
+    fn env_value<'a>(session: &'a Session, name: &str) -> Option<&'a str> {
+        session.env.as_deref().and_then(|vars| {
+            vars.iter()
+                .find(|var| var.name == name)
+                .map(|var| var.value.as_str())
+        })
+    }
 
     thread_local! {
         pub static TERMUA_DB_PATH_OVERRIDE: std::cell::RefCell<Option<PathBuf>> =
@@ -1866,14 +1796,12 @@ pub(crate) mod tests {
         .unwrap();
         drop(conn);
 
-        let err = save_local_session_with_env(
+        let err = save_local_session(
             "local",
             "bash",
             TerminalBackend::Wezterm,
             "xterm-256color",
-            Some("truecolor"),
             "UTF-8",
-            Vec::new(),
         )
         .expect_err("legacy schemas with required terminal columns should fail");
 
@@ -2009,8 +1937,8 @@ pub(crate) mod tests {
         assert_eq!(local.group_path, "local>dev");
         assert_eq!(local.label, "zsh");
         assert_eq!(local.backend, TerminalBackend::Alacritty);
-        assert_eq!(local.term(), "screen-256color");
-        assert_eq!(local.charset(), "ASCII");
+        assert_eq!(env_value(&local, "TERM"), Some("screen-256color"));
+        assert_eq!(env_value(&local, "CHARSET"), Some("ASCII"));
 
         let ssh_id = save_ssh_session_password(
             "ssh",
@@ -2045,7 +1973,7 @@ pub(crate) mod tests {
         assert_eq!(ssh.ssh_host.as_deref(), Some("api.example.com"));
         assert_eq!(ssh.ssh_port, Some(2222));
         assert_eq!(ssh.ssh_user.as_deref(), Some("alice"));
-        assert_eq!(ssh.term(), "tmux-256color");
+        assert_eq!(env_value(&ssh, "TERM"), Some("tmux-256color"));
     }
 
     #[test]
@@ -2095,8 +2023,16 @@ pub(crate) mod tests {
 
         let env = vec![
             SessionEnvVar {
+                name: "TERM".to_string(),
+                value: "xterm-256color".to_string(),
+            },
+            SessionEnvVar {
                 name: "COLORTERM".to_string(),
                 value: "24bit".to_string(),
+            },
+            SessionEnvVar {
+                name: "CHARSET".to_string(),
+                value: "UTF-8".to_string(),
             },
             SessionEnvVar {
                 name: "FOO".to_string(),
@@ -2104,21 +2040,13 @@ pub(crate) mod tests {
             },
         ];
 
-        let id = save_local_session_with_env(
-            "local",
-            "bash",
-            TerminalBackend::Wezterm,
-            "xterm-256color",
-            Some("truecolor"),
-            "UTF-8",
-            env,
-        )
-        .unwrap();
+        let id =
+            save_local_session_with_env("local", "bash", TerminalBackend::Wezterm, env).unwrap();
 
         let local = load_session(id).unwrap().unwrap();
-        assert_eq!(local.term(), "xterm-256color");
-        assert_eq!(local.colorterm(), Some("24bit"));
-        assert_eq!(local.charset(), "UTF-8");
+        assert_eq!(env_value(&local, "TERM"), Some("xterm-256color"));
+        assert_eq!(env_value(&local, "COLORTERM"), Some("24bit"));
+        assert_eq!(env_value(&local, "CHARSET"), Some("UTF-8"));
         let env = local.env.as_deref().unwrap();
         assert!(
             env.iter()
@@ -2139,14 +2067,50 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn raw_local_env_save_does_not_reintroduce_terminal_variables() {
+        let db_path = unique_test_db_path("local-raw-env");
+        let _guard = override_termua_db_path(db_path);
+
+        let id = save_local_session_with_env(
+            "local",
+            "bash",
+            TerminalBackend::Wezterm,
+            vec![SessionEnvVar {
+                name: "CUSTOM_FLAG".to_string(),
+                value: "1".to_string(),
+            }],
+        )
+        .unwrap();
+
+        let local = load_session(id).unwrap().unwrap();
+        let env = local.env.unwrap();
+        assert_eq!(env.len(), 1);
+        assert_eq!(env[0].name, "CUSTOM_FLAG");
+    }
+
+    #[test]
     fn ssh_remote_env_settings_roundtrip_through_sqlite() {
         let db_path = unique_test_db_path("ssh-env");
         let _guard = override_termua_db_path(db_path);
 
-        let env = vec![SessionEnvVar {
-            name: "LANG".to_string(),
-            value: "C.UTF-8".to_string(),
-        }];
+        let env = vec![
+            SessionEnvVar {
+                name: "LANG".to_string(),
+                value: "C.UTF-8".to_string(),
+            },
+            SessionEnvVar {
+                name: "TERM".to_string(),
+                value: "xterm-256color".to_string(),
+            },
+            SessionEnvVar {
+                name: "COLORTERM".to_string(),
+                value: "truecolor".to_string(),
+            },
+            SessionEnvVar {
+                name: "CHARSET".to_string(),
+                value: "UTF-8".to_string(),
+            },
+        ];
 
         let id = save_ssh_session_config_with_proxy_and_env(
             "ssh",
@@ -2154,9 +2118,6 @@ pub(crate) mod tests {
             TerminalBackend::Wezterm,
             "example.com",
             22,
-            "xterm-256color",
-            Some("truecolor"),
-            "UTF-8",
             true,
             false,
             SshProxyMode::Disabled,
@@ -2169,7 +2130,7 @@ pub(crate) mod tests {
         .unwrap();
 
         let ssh = load_session(id).unwrap().unwrap();
-        assert_eq!(ssh.colorterm(), Some("truecolor"));
+        assert_eq!(env_value(&ssh, "COLORTERM"), Some("truecolor"));
         let session_env = ssh.env.as_deref().unwrap();
         assert!(
             session_env

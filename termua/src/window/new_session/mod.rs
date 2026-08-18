@@ -21,7 +21,10 @@ use nav::{
     page_for_tree_item_id,
 };
 
-use crate::store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode};
+use crate::{
+    env::{CHARSET_ENV_NAME, COLORTERM_ENV_NAME, TERM_ENV_NAME},
+    store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode},
+};
 
 mod actions;
 mod nav;
@@ -179,9 +182,9 @@ fn default_terminal_env_rows(
     cx: &mut Context<NewSessionWindow>,
 ) -> Vec<EnvRowState> {
     [
-        ("TERM", DEFAULT_TERM),
-        ("CHARSET", DEFAULT_CHARSET),
-        ("COLORTERM", DEFAULT_COLORTERM),
+        (TERM_ENV_NAME, DEFAULT_TERM),
+        (CHARSET_ENV_NAME, DEFAULT_CHARSET),
+        (COLORTERM_ENV_NAME, DEFAULT_COLORTERM),
     ]
     .into_iter()
     .enumerate()
@@ -843,13 +846,14 @@ impl ShellSessionState {
             .value()
             .clone();
         let program_select = new_select(window, cx, program_options.clone(), Some(0));
+        let env_rows = default_terminal_env_rows(window, cx);
 
         let this = Self {
             program,
             program_options,
             program_select,
-            env_rows: default_terminal_env_rows(window, cx),
-            env_next_id: 4,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             common,
         };
 
@@ -983,11 +987,12 @@ impl SshSessionState {
             cx,
             t!("NewSession.Placeholder.ProxyWorkdir").to_string(),
         );
+        let env_rows = default_terminal_env_rows(window, cx);
 
         Self {
             common,
-            env_rows: default_terminal_env_rows(window, cx),
-            env_next_id: 4,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             auth_type: SshAuthType::Password,
             auth_select,
             user_input,
@@ -1181,11 +1186,12 @@ impl SerialSessionState {
             ],
             Some(0),
         );
+        let env_rows = default_terminal_env_rows(window, cx);
 
         Self {
             common,
-            env_rows: default_terminal_env_rows(window, cx),
-            env_next_id: 4,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             ports,
             port_select,
             baud_input,
