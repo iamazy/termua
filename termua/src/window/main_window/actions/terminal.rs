@@ -329,7 +329,7 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let session_env = session.env.clone().unwrap_or_default();
+        let session_env = session.env.unwrap_or_default();
         let env = build_terminal_env(gpui_term::shell::default_shell_program(), &session_env);
         self.add_local_terminal_with_params(backend_type, env, window, cx);
     }
