@@ -201,11 +201,19 @@ fn merge_terminal_fields_into_env(
     env: Vec<SessionEnvVar>,
 ) -> Vec<SessionEnvVar> {
     let mut merged = Vec::new();
-    upsert_session_env_var(&mut merged, SESSION_ENV_TERM, term.to_string());
-    if let Some(colorterm) = colorterm.filter(|value| !value.trim().is_empty()) {
+    let has_name = |name: &str| env.iter().any(|var| var.name.eq_ignore_ascii_case(name));
+    if !term.trim().is_empty() && !has_name(SESSION_ENV_TERM) {
+        upsert_session_env_var(&mut merged, SESSION_ENV_TERM, term.to_string());
+    }
+    if let Some(colorterm) = colorterm
+        .filter(|value| !value.trim().is_empty())
+        .filter(|_| !has_name(SESSION_ENV_COLORTERM))
+    {
         upsert_session_env_var(&mut merged, SESSION_ENV_COLORTERM, colorterm.to_string());
     }
-    upsert_session_env_var(&mut merged, SESSION_ENV_CHARSET, charset.to_string());
+    if !charset.trim().is_empty() && !has_name(SESSION_ENV_CHARSET) {
+        upsert_session_env_var(&mut merged, SESSION_ENV_CHARSET, charset.to_string());
+    }
 
     for var in env {
         let name = var.name.trim();
@@ -678,15 +686,14 @@ impl<'a> SessionWrite<'a> {
         parity: SerialParity,
         stop_bits: SerialStopBits,
         flow_control: SerialFlowControl,
-        term: &'a str,
-        charset: &'a str,
+        env: Vec<SessionEnvVar>,
     ) -> Self {
         Self {
             protocol: SessionType::Serial,
             group_path,
             label,
             backend,
-            env: merge_terminal_fields_into_env(term, None, charset, Vec::new()),
+            env,
             ssh_host: None,
             ssh_port: None,
             ssh_auth_type: None,
@@ -1133,8 +1140,7 @@ pub fn save_serial_session(
     parity: SerialParity,
     stop_bits: SerialStopBits,
     flow_control: SerialFlowControl,
-    term: &str,
-    charset: &str,
+    env: Vec<SessionEnvVar>,
 ) -> anyhow::Result<i64> {
     let conn = open()?;
     insert_session_row(
@@ -1149,8 +1155,7 @@ pub fn save_serial_session(
             parity,
             stop_bits,
             flow_control,
-            term,
-            charset,
+            env,
         ),
     )
     .context("insert serial session")
@@ -1653,8 +1658,7 @@ pub fn update_serial_session(
     parity: SerialParity,
     stop_bits: SerialStopBits,
     flow_control: SerialFlowControl,
-    term: &str,
-    charset: &str,
+    env: Vec<SessionEnvVar>,
 ) -> anyhow::Result<()> {
     delete_ssh_password_if_present(id);
 
@@ -1672,8 +1676,7 @@ pub fn update_serial_session(
             parity,
             stop_bits,
             flow_control,
-            term,
-            charset,
+            env,
         ),
     )
     .context("update serial session")

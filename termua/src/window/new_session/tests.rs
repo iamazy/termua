@@ -1,5 +1,4 @@
 use gpui::{ParentElement, Render, Styled, div};
-use rust_i18n::t;
 
 use super::*;
 use crate::{env::build_terminal_env, store::SessionEnvVar};
@@ -59,11 +58,6 @@ fn test_local_session(env: Vec<SessionEnvVar>) -> crate::store::Session {
 }
 
 #[test]
-fn new_session_colorterm_field_label_uses_camel_case_locale() {
-    assert_eq!(t!("NewSession.Field.ColorTerm"), "ColorTerm:");
-}
-
-#[test]
 fn shell_program_select_item_icons_match_shell_kinds() {
     use gpui_common::TermuaIcon;
 
@@ -100,7 +94,7 @@ fn terminal_backend_select_item_icons_match_backends() {
 }
 
 #[gpui::test]
-fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) {
+fn new_session_colorterm_field_is_hidden(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
     cx.update(|app| {
@@ -134,25 +128,14 @@ fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) 
 
     assert!(
         win.debug_bounds("termua-new-session-shell-colorterm-select")
-            .is_some(),
-        "expected shell ColorTerm to use a select control"
+            .is_none(),
+        "fixed shell ColorTerm should not render a field"
     );
     assert!(
         win.debug_bounds("termua-new-session-shell-colorterm-input")
             .is_none(),
-        "expected shell ColorTerm input to be replaced by a select"
+        "fixed shell ColorTerm should not render a legacy input"
     );
-
-    let shell_colorterm = win.update(|_window, app| {
-        view.read(app)
-            .shell
-            .common
-            .colorterm_select
-            .read(app)
-            .selected_value()
-            .map(|value| value.to_string())
-    });
-    assert_eq!(shell_colorterm.as_deref(), Some("truecolor"));
 
     win.update(|window, app| {
         view.update(app, |this, cx| {
@@ -161,17 +144,11 @@ fn new_session_colorterm_renders_select_controls(cx: &mut gpui::TestAppContext) 
         window.refresh();
     });
     win.run_until_parked();
-
-    let ssh_colorterm = win.update(|_window, app| {
-        view.read(app)
-            .ssh
-            .common
-            .colorterm_select
-            .read(app)
-            .selected_value()
-            .map(|value| value.to_string())
-    });
-    assert_eq!(ssh_colorterm.as_deref(), Some("truecolor"));
+    assert!(
+        win.debug_bounds("termua-new-session-ssh-colorterm-select")
+            .is_none(),
+        "fixed SSH ColorTerm should not render a field"
+    );
 }
 
 #[test]
@@ -1200,7 +1177,7 @@ fn new_session_group_controls_render_inputs(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn new_session_term_and_charset_controls_render_selects(cx: &mut gpui::TestAppContext) {
+fn new_session_fixed_term_and_charset_fields_are_hidden(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         menubar::init(app);
         gpui_term::init(app);
@@ -1223,12 +1200,12 @@ fn new_session_term_and_charset_controls_render_selects(cx: &mut gpui::TestAppCo
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-term-select")
-            .is_some()
+            .is_none()
     );
     assert!(
         shell
             .debug_bounds("termua-new-session-shell-charset-select")
-            .is_some()
+            .is_none()
     );
 
     // SSH session page.
@@ -1248,11 +1225,99 @@ fn new_session_term_and_charset_controls_render_selects(cx: &mut gpui::TestAppCo
     ssh.run_until_parked();
     assert!(
         ssh.debug_bounds("termua-new-session-ssh-term-select")
-            .is_some()
+            .is_none()
     );
     assert!(
         ssh.debug_bounds("termua-new-session-ssh-charset-select")
-            .is_some()
+            .is_none()
+    );
+}
+
+#[gpui::test]
+fn new_session_terminal_variables_start_as_regular_environment_rows(cx: &mut gpui::TestAppContext) {
+    use std::sync::{Arc, Mutex};
+
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    let view_slot: Arc<Mutex<Option<Entity<NewSessionWindow>>>> = Arc::new(Mutex::new(None));
+    let view_slot_for_draw = Arc::clone(&view_slot);
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        move |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            *view_slot_for_draw.lock().unwrap() = Some(view.clone());
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    let view = view_slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("expected view to be captured");
+    let (shell_env, ssh_env, serial_env) = win.update(|_window, app| {
+        let view = view.read(app);
+        let values = |rows: &[EnvRowState]| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row.name_input.read(app).value().to_string(),
+                        row.value_input.read(app).value().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        (
+            values(&view.shell.env_rows),
+            values(&view.ssh.env_rows),
+            values(&view.serial.env_rows),
+        )
+    });
+    let expected = vec![
+        ("TERM".to_string(), "xterm-256color".to_string()),
+        ("CHARSET".to_string(), "UTF-8".to_string()),
+        ("COLORTERM".to_string(), "truecolor".to_string()),
+    ];
+
+    assert_eq!(shell_env, expected);
+    assert_eq!(ssh_env, expected);
+    assert_eq!(serial_env, expected);
+}
+
+#[gpui::test]
+fn new_session_serial_environment_editor_is_visible(cx: &mut gpui::TestAppContext) {
+    cx.update(|app| {
+        menubar::init(app);
+        gpui_term::init(app);
+    });
+
+    let win = cx.add_empty_window();
+    win.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(800.)),
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+        ),
+        |window, app| {
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
+            view.update(app, |this, cx| this.set_protocol(Protocol::Serial, cx));
+            div().size_full().child(view)
+        },
+    );
+    win.run_until_parked();
+
+    assert!(
+        win.debug_bounds("termua-new-session-serial-env").is_some(),
+        "expected Serial environment variables to use the regular editor"
     );
 }
 
@@ -1551,7 +1616,7 @@ fn edit_session_password_input_is_locked_until_explicitly_edited(cx: &mut gpui::
 }
 
 #[gpui::test]
-fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) {
+fn edit_session_restores_terminal_environment_rows(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
     cx.update(|app| {
@@ -1631,19 +1696,31 @@ fn edit_session_hides_reserved_terminal_env_rows(cx: &mut gpui::TestAppContext) 
     win.update(|_window, app| {
         let view = view.read(app);
 
-        assert_eq!(view.ssh.common.term.as_ref(), "tmux-256color");
-        assert_eq!(view.ssh.common.charset.as_ref(), "ASCII");
-        assert_eq!(view.ssh.common.colorterm.as_ref(), "24bit");
-        assert_eq!(view.ssh.env_rows.len(), 1);
-
-        let row = &view.ssh.env_rows[0];
-        assert_eq!(row.name_input.read(app).value().as_ref(), "FOO");
-        assert_eq!(row.value_input.read(app).value().as_ref(), "bar");
+        let env = view
+            .ssh
+            .env_rows
+            .iter()
+            .map(|row| {
+                (
+                    row.name_input.read(app).value().to_string(),
+                    row.value_input.read(app).value().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            env,
+            vec![
+                ("TERM".to_string(), "tmux-256color".to_string()),
+                ("COLORTERM".to_string(), "24bit".to_string()),
+                ("CHARSET".to_string(), "ASCII".to_string()),
+                ("FOO".to_string(), "bar".to_string()),
+            ]
+        );
     });
 }
 
 #[gpui::test]
-fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext) {
+fn new_session_terminal_env_names_have_no_reserved_warning(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
     cx.update(|app| {
@@ -1662,11 +1739,7 @@ fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext
             gpui::AvailableSpace::Definite(gpui::px(900.)),
         ),
         move |window, app| {
-            let view = app.new(|cx| {
-                let mut view = NewSessionWindow::new(window, cx);
-                view.push_shell_env_row(window, cx, Some("TERM"), Some("screen-256color"));
-                view
-            });
+            let view = app.new(|cx| NewSessionWindow::new(window, cx));
             *view_slot_for_draw.lock().unwrap() = Some(view.clone());
             div().size_full().child(view)
         },
@@ -1682,7 +1755,7 @@ fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext
     win.update(|_window, app| {
         let view = view.read(app);
         assert_eq!(view.protocol, Protocol::Shell);
-        assert_eq!(view.shell.env_rows.len(), 1);
+        assert_eq!(view.shell.env_rows.len(), 3);
         assert_eq!(
             view.shell.env_rows[0].name_input.read(app).value().as_ref(),
             "TERM"
@@ -1690,7 +1763,7 @@ fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext
     });
 
     assert!(
-        win.debug_bounds("termua-new-session-shell-term-select")
+        win.debug_bounds("termua-new-session-shell-group-input")
             .is_some(),
         "expected shell session page to render"
     );
@@ -1701,20 +1774,30 @@ fn new_session_reserved_env_name_shows_inline_hint(cx: &mut gpui::TestAppContext
 
     assert!(
         win.debug_bounds("termua-new-session-shell-env-reserved")
-            .is_some(),
-        "expected reserved env variable hint to render"
+            .is_none(),
+        "terminal variables should behave like regular environment variables"
     );
 }
 
 #[test]
 fn local_terminal_env_includes_shell_term_and_locale() {
-    let env = build_terminal_env("/bin/zsh", "xterm-256color", None, "UTF-8", &[]);
+    let env = build_terminal_env(
+        "/bin/zsh",
+        test_session_env("xterm-256color", "UTF-8", None)
+            .unwrap()
+            .as_slice(),
+    );
     assert_eq!(env.get("SHELL"), Some(&"/bin/zsh".to_string()));
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/zsh".to_string()));
     assert_eq!(env.get("TERM"), Some(&"xterm-256color".to_string()));
     assert_eq!(env.get("LANG"), Some(&"en_US.UTF-8".to_string()));
 
-    let env = build_terminal_env("/bin/bash", "screen-256color", None, "ASCII", &[]);
+    let env = build_terminal_env(
+        "/bin/bash",
+        test_session_env("screen-256color", "ASCII", None)
+            .unwrap()
+            .as_slice(),
+    );
     assert_eq!(env.get("SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERM"), Some(&"screen-256color".to_string()));
@@ -1819,7 +1902,7 @@ fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppContext) {
+fn new_local_connect_persists_edited_and_deleted_terminal_env_rows(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};
 
     cx.update(|app| {
@@ -1858,17 +1941,24 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
 
     win.update(|window, app| {
         view.update(app, |this, cx| {
-            this.shell.common.set_colorterm("truecolor", window, cx);
-
-            let env_id = this.shell.env_next_id;
-            this.shell.env_next_id += 1;
-            this.shell.env_rows.push(new_env_row_state(
-                env_id,
-                window,
-                cx,
-                Some("COLORTERM"),
-                Some("24bit"),
-            ));
+            this.shell
+                .env_rows
+                .retain(|row| row.name_input.read(cx).value().as_ref() != "TERM");
+            let charset = this
+                .shell
+                .env_rows
+                .iter()
+                .find(|row| row.name_input.read(cx).value().as_ref() == "CHARSET")
+                .expect("expected default CHARSET row");
+            set_input_value(&charset.name_input, "CUSTOM_CHARSET", window, cx);
+            set_input_value(&charset.value_input, "latin1", window, cx);
+            let colorterm = this
+                .shell
+                .env_rows
+                .iter()
+                .find(|row| row.name_input.read(cx).value().as_ref() == "COLORTERM")
+                .expect("expected default COLORTERM row");
+            set_input_value(&colorterm.value_input, "24bit", window, cx);
 
             let env_id = this.shell.env_next_id;
             this.shell.env_next_id += 1;
@@ -1893,20 +1983,17 @@ fn new_local_connect_persists_colorterm_and_env_in_store(cx: &mut gpui::TestAppC
         .filter(|s| s.protocol == crate::store::SessionType::Local)
         .collect::<Vec<_>>();
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].term(), "xterm-256color");
-    assert_eq!(sessions[0].colorterm(), Some("truecolor"));
-    assert_eq!(sessions[0].charset(), "UTF-8");
-
     let env = sessions[0].env.as_ref().unwrap();
     let env_value = |name: &str| {
         env.iter()
             .find(|var| var.name == name)
             .map(|var| var.value.as_str())
     };
-    assert_eq!(env.len(), 5);
-    assert_eq!(env_value("TERM"), Some("xterm-256color"));
-    assert_eq!(env_value("COLORTERM"), Some("truecolor"));
-    assert_eq!(env_value("CHARSET"), Some("UTF-8"));
+    assert_eq!(env.len(), 4);
+    assert_eq!(env_value("TERM"), None);
+    assert_eq!(env_value("COLORTERM"), Some("24bit"));
+    assert_eq!(env_value("CHARSET"), None);
+    assert_eq!(env_value("CUSTOM_CHARSET"), Some("latin1"));
     assert_eq!(env_value("FOO"), Some("bar"));
     assert_eq!(env_value("TERMUA_SHELL"), Some(expected_shell.as_str()));
 }

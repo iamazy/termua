@@ -2,8 +2,8 @@ use gpui::{App, Context, Window};
 use gpui_term::{Authentication, SshOptions, TerminalType};
 
 use super::{
-    DEFAULT_COLORTERM, EnvRowState, NewSessionWindow, Protocol, SshAuthType,
-    is_reserved_terminal_env_name, new_proxy_jump_row_state, set_input_value, ssh,
+    EnvRowState, NewSessionWindow, Protocol, SshAuthType, new_proxy_jump_row_state,
+    set_input_value, ssh,
 };
 use crate::{
     SerialParams, SshParams,
@@ -20,9 +20,6 @@ struct SshFormValues {
     password: String,
     tcp_nodelay: bool,
     tcp_keepalive: bool,
-    term: gpui::SharedString,
-    colorterm: String,
-    charset: gpui::SharedString,
     label: String,
     group: String,
 }
@@ -32,44 +29,6 @@ const SESSION_ENV_COLORTERM: &str = "COLORTERM";
 const SESSION_ENV_CHARSET: &str = "CHARSET";
 const SESSION_ENV_SHELL: &str = "SHELL";
 const SESSION_ENV_TERMUA_SHELL: &str = gpui_term::shell::TERMUA_SHELL_ENV_KEY;
-
-fn session_store_env_from_fields(
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
-    vars: &[SessionEnvVar],
-) -> Vec<SessionEnvVar> {
-    let mut env = Vec::new();
-    upsert_session_store_env(&mut env, SESSION_ENV_TERM, term.to_string());
-    if let Some(colorterm) = colorterm {
-        upsert_session_store_env(&mut env, SESSION_ENV_COLORTERM, colorterm.to_string());
-    }
-    upsert_session_store_env(&mut env, SESSION_ENV_CHARSET, charset.to_string());
-
-    for var in vars {
-        let name = var.name.trim();
-        if name.is_empty()
-            || is_terminal_field_env_name(name)
-            || name.eq_ignore_ascii_case(SESSION_ENV_SHELL)
-        {
-            continue;
-        }
-        upsert_session_store_env(&mut env, name, var.value.clone());
-    }
-
-    env
-}
-
-fn upsert_session_store_env(env: &mut Vec<SessionEnvVar>, name: &str, value: String) {
-    if let Some(var) = env.iter_mut().find(|var| var.name == name) {
-        var.value = value;
-    } else {
-        env.push(SessionEnvVar {
-            name: name.to_string(),
-            value,
-        });
-    }
-}
 
 fn session_store_env_value<'a>(env: &'a [SessionEnvVar], name: &str) -> Option<&'a str> {
     env.iter()
@@ -81,19 +40,13 @@ fn session_store_terminal_fields_from_env(
     env: &[SessionEnvVar],
 ) -> (String, Option<String>, String) {
     let term = session_store_env_value(env, SESSION_ENV_TERM)
-        .unwrap_or("xterm-256color")
+        .unwrap_or_default()
         .to_string();
     let colorterm = session_store_env_value(env, SESSION_ENV_COLORTERM).map(str::to_string);
     let charset = session_store_env_value(env, SESSION_ENV_CHARSET)
-        .unwrap_or("UTF-8")
+        .unwrap_or_default()
         .to_string();
     (term, colorterm, charset)
-}
-
-fn is_terminal_field_env_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case(SESSION_ENV_TERM)
-        || name.eq_ignore_ascii_case(SESSION_ENV_COLORTERM)
-        || name.eq_ignore_ascii_case(SESSION_ENV_CHARSET)
 }
 
 enum SessionStoreOp {
@@ -406,7 +359,6 @@ impl SessionStoreOp {
                 flow_control,
                 env,
             } => {
-                let (term, _, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::save_serial_session(
                     group.as_str(),
                     label.as_str(),
@@ -417,8 +369,7 @@ impl SessionStoreOp {
                     parity,
                     stop_bits,
                     flow_control,
-                    term.as_str(),
-                    charset.as_str(),
+                    env,
                 )?;
             }
             Self::UpdateSerial {
@@ -434,7 +385,6 @@ impl SessionStoreOp {
                 flow_control,
                 env,
             } => {
-                let (term, _, charset) = session_store_terminal_fields_from_env(&env);
                 crate::store::update_serial_session(
                     session_id,
                     group.as_str(),
@@ -446,8 +396,7 @@ impl SessionStoreOp {
                     parity,
                     stop_bits,
                     flow_control,
-                    term.as_str(),
-                    charset.as_str(),
+                    env,
                 )?;
             }
         }
@@ -467,9 +416,6 @@ impl NewSessionWindow {
             password: self.ssh.password_input.read(cx).value().to_string(),
             tcp_nodelay: self.ssh.tcp_nodelay,
             tcp_keepalive: self.ssh.tcp_keepalive,
-            term: self.ssh.common.term.clone(),
-            colorterm: self.ssh.common.colorterm.to_string(),
-            charset: self.ssh.common.charset.clone(),
             label: self.ssh.common.label_input.read(cx).value().to_string(),
             group: self.ssh.common.group_input.read(cx).value().to_string(),
         }
@@ -491,16 +437,11 @@ impl NewSessionWindow {
         }
     }
 
-    fn trimmed_non_empty_option(raw: &str) -> Option<&str> {
-        let raw = raw.trim();
-        (!raw.is_empty()).then_some(raw)
-    }
-
     fn session_env_rows_for_store(rows: &[EnvRowState], app: &App) -> Vec<SessionEnvVar> {
         let mut env = Vec::new();
         for row in rows {
             let name = row.name_input.read(app).value().trim().to_string();
-            if name.is_empty() || is_reserved_terminal_env_name(name.as_str()) {
+            if name.is_empty() {
                 continue;
             }
             let value = row.value_input.read(app).value().to_string();
@@ -511,6 +452,7 @@ impl NewSessionWindow {
 
     fn shell_session_env_for_store(&self, app: &App) -> Vec<SessionEnvVar> {
         let mut env = Self::session_env_rows_for_store(&self.shell.env_rows, app);
+        env.retain(|var| !var.name.eq_ignore_ascii_case(SESSION_ENV_TERMUA_SHELL));
         env.push(SessionEnvVar {
             name: SESSION_ENV_TERMUA_SHELL.to_string(),
             value: self.shell.program.to_string(),
@@ -520,6 +462,10 @@ impl NewSessionWindow {
 
     fn ssh_session_env_for_store(&self, cx: &Context<Self>) -> Vec<SessionEnvVar> {
         Self::session_env_rows_for_store(&self.ssh.env_rows, cx)
+    }
+
+    fn serial_session_env_for_store(&self, cx: &Context<Self>) -> Vec<SessionEnvVar> {
+        Self::session_env_rows_for_store(&self.serial.env_rows, cx)
     }
 
     fn ssh_auth_and_host_from_inputs(
@@ -605,11 +551,8 @@ impl NewSessionWindow {
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
         let backend = self.shell.common.backend;
-        let (shell_program, term, colorterm, charset, label, group) = (
+        let (shell_program, label, group) = (
             self.shell.program.clone(),
-            self.shell.common.term.clone(),
-            self.shell.common.colorterm.to_string(),
-            self.shell.common.charset.clone(),
             self.shell.common.label_input.read(cx).value().to_string(),
             self.shell.common.group_input.read(cx).value().to_string(),
         );
@@ -636,12 +579,7 @@ impl NewSessionWindow {
             group,
             label,
             backend,
-            env: session_store_env_from_fields(
-                term.as_ref(),
-                Self::trimmed_non_empty_option(colorterm.as_str()),
-                charset.as_ref(),
-                self.shell_session_env_for_store(cx).as_slice(),
-            ),
+            env: self.shell_session_env_for_store(cx),
         })
     }
 
@@ -693,12 +631,7 @@ impl NewSessionWindow {
                     port,
                     user: user.to_string(),
                     password: pw.to_string(),
-                    env: session_store_env_from_fields(
-                        values.term.as_ref(),
-                        Self::trimmed_non_empty_option(values.colorterm.as_str()),
-                        values.charset.as_ref(),
-                        self.ssh_session_env_for_store(cx).as_slice(),
-                    ),
+                    env: self.ssh_session_env_for_store(cx),
                     tcp_nodelay: values.tcp_nodelay,
                     tcp_keepalive: values.tcp_keepalive,
                     proxy_mode,
@@ -722,12 +655,7 @@ impl NewSessionWindow {
                     backend: values.backend,
                     host: host_trimmed.to_string(),
                     port,
-                    env: session_store_env_from_fields(
-                        values.term.as_ref(),
-                        Self::trimmed_non_empty_option(values.colorterm.as_str()),
-                        values.charset.as_ref(),
-                        self.ssh_session_env_for_store(cx).as_slice(),
-                    ),
+                    env: self.ssh_session_env_for_store(cx),
                     tcp_nodelay: values.tcp_nodelay,
                     tcp_keepalive: values.tcp_keepalive,
                     proxy_mode,
@@ -754,22 +682,11 @@ impl NewSessionWindow {
 
     fn connect_new_local_shell(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
         let backend = self.shell.common.backend;
-        let (shell_program, term, colorterm, charset) = (
-            self.shell.program.clone(),
-            self.shell.common.term.clone(),
-            self.shell.common.colorterm.to_string(),
-            self.shell.common.charset.clone(),
-        );
+        let shell_program = self.shell.program.clone();
 
         let backend_type = Self::backend_for_terminal_type(backend);
         let session_env = self.shell_session_env_for_store(cx);
-        let env = build_terminal_env(
-            shell_program.as_ref(),
-            term.as_ref(),
-            Self::trimmed_non_empty_option(colorterm.as_str()),
-            charset.as_ref(),
-            &session_env,
-        );
+        let env = build_terminal_env(shell_program.as_ref(), &session_env);
 
         // Best-effort persistence.
         let group = self.shell.common.group_input.read(cx).value().to_string();
@@ -802,12 +719,7 @@ impl NewSessionWindow {
                 group,
                 label,
                 backend,
-                env: session_store_env_from_fields(
-                    term.as_ref(),
-                    Self::trimmed_non_empty_option(colorterm.as_str()),
-                    charset.as_ref(),
-                    session_env.as_slice(),
-                ),
+                env: session_env,
             },
             "persist local session",
             cx,
@@ -834,13 +746,7 @@ impl NewSessionWindow {
         }
 
         let session_env = self.ssh_session_env_for_store(cx);
-        let env = build_terminal_env(
-            "",
-            values.term.as_ref(),
-            Self::trimmed_non_empty_option(values.colorterm.as_str()),
-            values.charset.as_ref(),
-            &session_env,
-        );
+        let env = build_terminal_env("", &session_env);
         let (host, auth) = Self::ssh_auth_and_host_from_inputs(
             values.auth_type,
             values.user_raw.as_str(),
@@ -865,12 +771,7 @@ impl NewSessionWindow {
                 port,
                 user: user.clone(),
                 password: pw.clone(),
-                env: session_store_env_from_fields(
-                    values.term.as_ref(),
-                    Self::trimmed_non_empty_option(values.colorterm.as_str()),
-                    values.charset.as_ref(),
-                    session_env.as_slice(),
-                ),
+                env: session_env,
                 tcp_nodelay: values.tcp_nodelay,
                 tcp_keepalive: values.tcp_keepalive,
                 proxy_mode,
@@ -885,12 +786,7 @@ impl NewSessionWindow {
                 backend: values.backend,
                 host: host.clone(),
                 port,
-                env: session_store_env_from_fields(
-                    values.term.as_ref(),
-                    Self::trimmed_non_empty_option(values.colorterm.as_str()),
-                    values.charset.as_ref(),
-                    persist_env.as_slice(),
-                ),
+                env: persist_env,
                 tcp_nodelay: values.tcp_nodelay,
                 tcp_keepalive: values.tcp_keepalive,
                 proxy_mode,
@@ -939,26 +835,13 @@ impl NewSessionWindow {
         cx: &Context<Self>,
     ) -> anyhow::Result<SessionStoreOp> {
         let backend = self.serial.common.backend;
-        let (
-            port,
-            baud_raw,
-            data_bits,
-            parity,
-            stop_bits,
-            flow_control,
-            term,
-            charset,
-            label,
-            group,
-        ) = (
+        let (port, baud_raw, data_bits, parity, stop_bits, flow_control, label, group) = (
             self.serial.selected_port(cx).unwrap_or_default(),
             self.serial.baud_input.read(cx).value().to_string(),
             self.serial.selected_data_bits(cx),
             self.serial.selected_parity(cx),
             self.serial.selected_stop_bits(cx),
             self.serial.selected_flow_control(cx),
-            self.serial.common.term.clone(),
-            self.serial.common.charset.clone(),
             self.serial.common.label_input.read(cx).value().to_string(),
             self.serial.common.group_input.read(cx).value().to_string(),
         );
@@ -998,32 +881,19 @@ impl NewSessionWindow {
             parity,
             stop_bits,
             flow_control,
-            env: session_store_env_from_fields(term.as_ref(), None, charset.as_ref(), &[]),
+            env: self.serial_session_env_for_store(cx),
         })
     }
 
     fn connect_new_serial(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
         let backend = self.serial.common.backend;
-        let (
-            port,
-            baud_raw,
-            data_bits,
-            parity,
-            stop_bits,
-            flow_control,
-            term,
-            charset,
-            label,
-            group,
-        ) = (
+        let (port, baud_raw, data_bits, parity, stop_bits, flow_control, label, group) = (
             self.serial.selected_port(cx).unwrap_or_default(),
             self.serial.baud_input.read(cx).value().to_string(),
             self.serial.selected_data_bits(cx),
             self.serial.selected_parity(cx),
             self.serial.selected_stop_bits(cx),
             self.serial.selected_flow_control(cx),
-            self.serial.common.term.clone(),
-            self.serial.common.charset.clone(),
             self.serial.common.label_input.read(cx).value().to_string(),
             self.serial.common.group_input.read(cx).value().to_string(),
         );
@@ -1071,7 +941,7 @@ impl NewSessionWindow {
                 parity,
                 stop_bits,
                 flow_control,
-                env: session_store_env_from_fields(term.as_ref(), None, charset.as_ref(), &[]),
+                env: self.serial_session_env_for_store(cx),
             },
             "persist serial session",
             cx,
@@ -1126,22 +996,12 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let term: gpui::SharedString = session.term().to_string().into();
-        let colorterm: gpui::SharedString = session
-            .colorterm()
-            .unwrap_or(DEFAULT_COLORTERM)
-            .to_string()
-            .into();
-        let charset: gpui::SharedString = session.charset().to_string().into();
         let label = session.label.as_str();
         let group = session.group_path.as_str();
 
         Self::apply_common_state_fields(
             &mut self.shell.common,
             session.backend,
-            &term,
-            &colorterm,
-            &charset,
             label,
             group,
             window,
@@ -1150,9 +1010,6 @@ impl NewSessionWindow {
         Self::apply_common_state_fields(
             &mut self.ssh.common,
             session.backend,
-            &term,
-            &colorterm,
-            &charset,
             label,
             group,
             window,
@@ -1161,9 +1018,6 @@ impl NewSessionWindow {
         Self::apply_common_state_fields(
             &mut self.serial.common,
             session.backend,
-            &term,
-            &colorterm,
-            &charset,
             label,
             group,
             window,
@@ -1174,18 +1028,12 @@ impl NewSessionWindow {
     fn apply_common_state_fields(
         common: &mut super::state::SessionCommonState,
         backend: crate::settings::TerminalBackend,
-        term: &gpui::SharedString,
-        colorterm: &gpui::SharedString,
-        charset: &gpui::SharedString,
         label: &str,
         group: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         common.set_backend(backend, window, cx);
-        common.set_term(term.clone(), window, cx);
-        common.set_colorterm(colorterm.as_ref(), window, cx);
-        common.set_charset(charset.clone(), window, cx);
         set_input_value(&common.label_input, label, window, cx);
         set_input_value(&common.group_input, group, window, cx);
     }
@@ -1274,7 +1122,7 @@ impl NewSessionWindow {
         };
 
         for var in vars {
-            if is_reserved_terminal_env_name(var.name.as_str()) {
+            if var.name.eq_ignore_ascii_case(SESSION_ENV_TERMUA_SHELL) {
                 continue;
             }
             self.push_shell_env_row(
@@ -1299,9 +1147,6 @@ impl NewSessionWindow {
         };
 
         for var in vars {
-            if is_reserved_terminal_env_name(var.name.as_str()) {
-                continue;
-            }
             self.push_ssh_env_row(
                 window,
                 cx,
@@ -1392,6 +1237,19 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.serial.env_rows.clear();
+        self.serial.env_next_id = 1;
+        if let Some(vars) = session.env.clone() {
+            for var in vars {
+                self.push_serial_env_row(
+                    window,
+                    cx,
+                    Some(var.name.as_str()),
+                    Some(var.value.as_str()),
+                );
+            }
+        }
+
         if let Some(port) = session.serial_port.clone() {
             self.serial.set_port(&port, window, cx);
         }
@@ -1467,12 +1325,9 @@ impl NewSessionWindow {
         &self,
         app: &gpui::App,
     ) -> anyhow::Result<()> {
-        let (backend, shell_program, term, colorterm, charset, label, group) = (
+        let (backend, shell_program, label, group) = (
             self.shell.common.backend,
             self.shell.program.clone(),
-            self.shell.common.term.clone(),
-            self.shell.common.colorterm.to_string(),
-            self.shell.common.charset.clone(),
             self.shell.common.label_input.read(app).value().to_string(),
             self.shell.common.group_input.read(app).value().to_string(),
         );
@@ -1495,12 +1350,7 @@ impl NewSessionWindow {
             }
         };
 
-        let env = session_store_env_from_fields(
-            term.as_ref(),
-            Self::trimmed_non_empty_option(colorterm.as_str()),
-            charset.as_ref(),
-            self.shell_session_env_for_store(app).as_slice(),
-        );
+        let env = self.shell_session_env_for_store(app);
         let (term, colorterm, charset) = session_store_terminal_fields_from_env(&env);
 
         crate::store::save_local_session_with_env(
@@ -1522,28 +1372,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_store_env_stores_terminal_fields_as_env_vars() {
-        let vars = vec![SessionEnvVar {
-            name: "FOO".to_string(),
-            value: "bar".to_string(),
-        }];
+    fn missing_terminal_environment_fields_remain_missing() {
+        let (term, colorterm, charset) = session_store_terminal_fields_from_env(&[]);
 
-        let env = session_store_env_from_fields(
-            "xterm-256color",
-            Some("truecolor"),
-            "UTF-8",
-            vars.as_slice(),
-        );
-
-        assert_eq!(
-            session_store_env_value(&env, "TERM"),
-            Some("xterm-256color")
-        );
-        assert_eq!(
-            session_store_env_value(&env, "COLORTERM"),
-            Some("truecolor")
-        );
-        assert_eq!(session_store_env_value(&env, "CHARSET"), Some("UTF-8"));
-        assert_eq!(session_store_env_value(&env, "FOO"), Some("bar"));
+        assert_eq!(term, "");
+        assert_eq!(colorterm, None);
+        assert_eq!(charset, "");
     }
 }

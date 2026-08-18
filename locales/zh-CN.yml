@@ -61,14 +61,9 @@ NewSession:
     Type: "类型："
     Label: "标签："
     Group: "分组："
-    Term: "Term："
-    Charset: "字符集："
-    ColorTerm: "ColorTerm："
     EnvironmentVariables: "环境变量："
     Host: "主机："
     Port: "端口："
-  Hint:
-    ReservedTerminalEnv: "TERM、COLORTERM、CHARSET、SHELL 和 TERMUA_SHELL 由上方字段管理。"
   Nav:
     Session: "会话"
     Ssh:
