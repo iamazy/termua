@@ -270,7 +270,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -281,7 +281,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -599,7 +599,7 @@ dependencies = [
 [[package]]
 name = "async_ossl"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "async-io",
  "openssl",
@@ -1931,7 +1931,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2198,7 +2198,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2323,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "filedescriptor"
 version = "0.8.3"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "libc",
  "thiserror 1.0.69",
@@ -4796,7 +4796,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "536bfad37a309d62069485248eeaba1e8d9853aaf951caaeaed0585a95346f08"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4966,7 +4966,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5965,7 +5965,7 @@ dependencies = [
 [[package]]
 name = "portable-pty"
 version = "0.9.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
@@ -6856,7 +6856,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7502,7 +7502,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7560,7 +7560,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7937,7 +7937,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8045,7 +8045,7 @@ dependencies = [
 [[package]]
 name = "termwiz"
 version = "0.24.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "anyhow",
  "bitflags 2.11.1",
@@ -8594,7 +8594,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8951,7 +8951,7 @@ dependencies = [
 [[package]]
 name = "vtparse"
 version = "0.7.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "utf8parse",
 ]
@@ -9273,7 +9273,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 [[package]]
 name = "wezterm-bidi"
 version = "0.2.3"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "log",
  "wezterm-dynamic",
@@ -9282,7 +9282,7 @@ dependencies = [
 [[package]]
 name = "wezterm-blob-leases"
 version = "0.1.1"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "getrandom 0.3.4",
  "sha2 0.10.9",
@@ -9293,7 +9293,7 @@ dependencies = [
 [[package]]
 name = "wezterm-cell"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "finl_unicode",
  "image",
@@ -9312,7 +9312,7 @@ dependencies = [
 [[package]]
 name = "wezterm-char-props"
 version = "0.1.3"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "phf 0.11.3",
  "serde",
@@ -9322,7 +9322,7 @@ dependencies = [
 [[package]]
 name = "wezterm-color-types"
 version = "0.3.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "csscolorparser",
  "deltae",
@@ -9334,7 +9334,7 @@ dependencies = [
 [[package]]
 name = "wezterm-dynamic"
 version = "0.2.1"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "log",
  "ordered-float",
@@ -9346,7 +9346,7 @@ dependencies = [
 [[package]]
 name = "wezterm-dynamic-derive"
 version = "0.1.1"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9356,7 +9356,7 @@ dependencies = [
 [[package]]
 name = "wezterm-escape-parser"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "base64",
  "bitflags 2.11.1",
@@ -9382,7 +9382,7 @@ dependencies = [
 [[package]]
 name = "wezterm-input-types"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "bitflags 1.3.2",
  "euclid",
@@ -9422,7 +9422,7 @@ dependencies = [
 [[package]]
 name = "wezterm-surface"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "bitflags 2.11.1",
  "fancy-regex",
@@ -9443,7 +9443,7 @@ dependencies = [
 [[package]]
 name = "wezterm-term"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
@@ -9474,7 +9474,7 @@ dependencies = [
 [[package]]
 name = "wezterm-uds"
 version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm.git#577474d89ee61aef4a48145cdec82a638d874751"
+source = "git+https://github.com/wezterm/wezterm.git#76b606ec597a3c0263fa60321548637451c0a547"
 dependencies = [
  "async-io",
  "uds_windows",
