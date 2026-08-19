@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use gpui::SharedString;
 use gpui_common::TermuaIcon;
@@ -67,16 +67,50 @@ pub(super) fn folder_icon_asset_path(expanded: bool) -> TermuaIcon {
     }
 }
 
-pub(super) fn find_tree_item_by_id<'a>(items: &'a [TreeItem], id: &str) -> Option<&'a TreeItem> {
+pub(super) fn find_visible_tree_item_by_id<'a>(
+    items: &'a [TreeItem],
+    id: &str,
+) -> Option<&'a TreeItem> {
     for item in items {
         if item.id.as_ref() == id {
             return Some(item);
         }
-        if let Some(found) = find_tree_item_by_id(&item.children, id) {
-            return Some(found);
+        if item.is_expanded() {
+            if let Some(found) = find_visible_tree_item_by_id(&item.children, id) {
+                return Some(found);
+            }
         }
     }
     None
+}
+
+pub(super) fn apply_collapsed_folders(
+    items: &[TreeItem],
+    collapsed_folder_ids: &mut HashSet<String>,
+) {
+    let mut existing_folder_ids = HashSet::new();
+    apply_collapsed_folders_inner(items, collapsed_folder_ids, &mut existing_folder_ids);
+    collapsed_folder_ids.retain(|id| existing_folder_ids.contains(id));
+}
+
+fn apply_collapsed_folders_inner(
+    items: &[TreeItem],
+    collapsed_folder_ids: &HashSet<String>,
+    existing_folder_ids: &mut HashSet<String>,
+) {
+    for item in items {
+        if item.is_folder() {
+            existing_folder_ids.insert(item.id.to_string());
+            // TreeItem clones share their expansion state, so this updates the item in place.
+            item.clone()
+                .expanded(!collapsed_folder_ids.contains(item.id.as_ref()));
+            apply_collapsed_folders_inner(
+                &item.children,
+                collapsed_folder_ids,
+                existing_folder_ids,
+            );
+        }
+    }
 }
 
 #[derive(Default)]

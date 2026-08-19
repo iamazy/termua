@@ -37,15 +37,8 @@ impl SessionEditorMode {
 pub(super) struct SessionCommonState {
     pub(super) backend: TerminalBackend,
     pub(super) backend_select: Entity<SelectState<SearchableVec<TerminalBackendSelectItem>>>,
-    pub(super) term: SharedString,
-    pub(super) colorterm: SharedString,
-    pub(super) charset: SharedString,
     pub(super) label_input: Entity<InputState>,
     pub(super) group_input: Entity<InputState>,
-    pub(super) term_select: Entity<SelectState<SearchableVec<SharedString>>>,
-    pub(super) colorterm_options: Vec<SharedString>,
-    pub(super) colorterm_select: Entity<SelectState<SearchableVec<SharedString>>>,
-    pub(super) charset_select: Entity<SelectState<SearchableVec<SharedString>>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -179,6 +172,8 @@ pub(super) struct SshSessionState {
 
 pub(super) struct SerialSessionState {
     pub(super) common: SessionCommonState,
+    pub(super) env_rows: Vec<EnvRowState>,
+    pub(super) env_next_id: u64,
     pub(super) ports: Vec<SharedString>,
     pub(super) port_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(super) baud_input: Entity<InputState>,

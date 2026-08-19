@@ -8,6 +8,9 @@ use crate::store::SessionEnvVar;
 pub(crate) const CAST_PLAYER_ENV_MODE: &str = "TERMUA_CAST_PLAYER";
 pub(crate) const CAST_PLAYER_ENV_PATH: &str = "TERMUA_CAST_PLAYER_PATH";
 pub(crate) const CAST_PLAYER_ENV_SPEED: &str = "TERMUA_CAST_PLAYER_SPEED";
+pub(crate) const TERM_ENV_NAME: &str = "TERM";
+pub(crate) const COLORTERM_ENV_NAME: &str = "COLORTERM";
+pub(crate) const CHARSET_ENV_NAME: &str = "CHARSET";
 
 pub(crate) fn cast_player_child_env(
     cast_path: &Path,
@@ -35,9 +38,6 @@ pub(crate) fn cast_player_child_env(
 
 pub(crate) fn build_terminal_env(
     shell_program: &str,
-    term: &str,
-    colorterm: Option<&str>,
-    charset: &str,
     env_vars: &[SessionEnvVar],
 ) -> HashMap<String, String> {
     let mut env = HashMap::new();
@@ -49,16 +49,11 @@ pub(crate) fn build_terminal_env(
         env.insert("TERMUA_SHELL".to_string(), shell_program.to_string());
     }
 
-    let term = term.trim();
-    if !term.is_empty() {
-        env.insert("TERM".to_string(), term.to_string());
-    }
-
-    if let Some(colorterm) = colorterm.map(str::trim).filter(|value| !value.is_empty()) {
-        env.insert("COLORTERM".to_string(), colorterm.to_string());
-    }
-
-    let charset = charset.trim().to_ascii_uppercase();
+    let charset = env_vars
+        .iter()
+        .find(|var| var.name.eq_ignore_ascii_case(CHARSET_ENV_NAME))
+        .map(|var| var.value.trim().to_ascii_uppercase())
+        .unwrap_or_default();
     if charset.contains("UTF-8") || charset.contains("UTF8") {
         env.insert("LANG".to_string(), "en_US.UTF-8".to_string());
         env.insert("LC_CTYPE".to_string(), "en_US.UTF-8".to_string());
@@ -109,9 +104,6 @@ mod tests {
     fn build_terminal_env_merges_colorterm_and_explicit_env_overrides() {
         let env = build_terminal_env(
             "/bin/zsh",
-            "xterm-256color",
-            Some("truecolor"),
-            "UTF-8",
             &[
                 SessionEnvVar {
                     name: "TERM".to_string(),
@@ -120,6 +112,10 @@ mod tests {
                 SessionEnvVar {
                     name: "COLORTERM".to_string(),
                     value: "24bit".to_string(),
+                },
+                SessionEnvVar {
+                    name: "CHARSET".to_string(),
+                    value: "UTF-8".to_string(),
                 },
                 SessionEnvVar {
                     name: "CUSTOM_FLAG".to_string(),
@@ -135,5 +131,22 @@ mod tests {
         assert_eq!(env.get("CUSTOM_FLAG"), Some(&"1".to_string()));
         assert_eq!(env.get("LANG"), Some(&"en_US.UTF-8".to_string()));
         assert_eq!(env.get("LC_CTYPE"), Some(&"en_US.UTF-8".to_string()));
+    }
+
+    #[test]
+    fn build_terminal_env_does_not_restore_deleted_terminal_variables() {
+        let env = build_terminal_env(
+            "/bin/bash",
+            &[SessionEnvVar {
+                name: "CUSTOM_FLAG".to_string(),
+                value: "1".to_string(),
+            }],
+        );
+
+        assert!(!env.contains_key("TERM"));
+        assert!(!env.contains_key("COLORTERM"));
+        assert!(!env.contains_key("CHARSET"));
+        assert!(!env.contains_key("LANG"));
+        assert_eq!(env.get("CUSTOM_FLAG"), Some(&"1".to_string()));
     }
 }

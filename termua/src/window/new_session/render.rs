@@ -21,21 +21,121 @@ use gpui_component::{
 use rust_i18n::t;
 
 use super::{
-    NewSessionWindow, Page, Protocol, SerialSessionState, ShellSessionState, SshAuthType,
-    SshSessionState, is_reserved_terminal_env_name, new_proxy_jump_row_state, ssh,
-    ssh::ssh_user_input_box_width,
+    EnvRowState, NewSessionWindow, Page, Protocol, SerialSessionState, ShellSessionState,
+    SshAuthType, SshSessionState, new_proxy_jump_row_state, ssh, ssh::ssh_user_input_box_width,
 };
 use crate::store::SshProxyMode;
-
-fn reserved_terminal_env_hint() -> String {
-    t!("NewSession.Hint.ReservedTerminalEnv").to_string()
-}
 
 fn backend_icon(backend: crate::settings::TerminalBackend) -> TermuaIcon {
     match backend {
         crate::settings::TerminalBackend::Alacritty => TermuaIcon::Alacritty,
         crate::settings::TerminalBackend::Wezterm => TermuaIcon::Wezterm,
     }
+}
+
+#[derive(Clone, Copy)]
+enum EnvEditorKind {
+    Shell,
+    Ssh,
+    Serial,
+}
+
+fn render_env_editor(
+    rows: &[EnvRowState],
+    view: Entity<NewSessionWindow>,
+    kind: EnvEditorKind,
+) -> impl IntoElement + use<> {
+    let (selector, add_id, delete_prefix) = match kind {
+        EnvEditorKind::Shell => (
+            "termua-new-session-shell-env",
+            "termua-new-session-shell-env-add",
+            "termua-new-session-shell-env-del",
+        ),
+        EnvEditorKind::Ssh => (
+            "termua-new-session-ssh-env",
+            "termua-new-session-ssh-env-add",
+            "termua-new-session-ssh-env-del",
+        ),
+        EnvEditorKind::Serial => (
+            "termua-new-session-serial-env",
+            "termua-new-session-serial-env-add",
+            "termua-new-session-serial-env-del",
+        ),
+    };
+    let mut editor = v_flex()
+        .w_full()
+        .gap_1()
+        .debug_selector(move || selector.to_string());
+
+    for row in rows {
+        let row_id = row.id;
+        let view = view.clone();
+        editor = editor.child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(120.))
+                        .child(Input::new(&row.name_input)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(160.))
+                        .child(Input::new(&row.value_input)),
+                )
+                .child(
+                    Button::new(format!("{delete_prefix}-{row_id}"))
+                        .icon(IconName::Minus)
+                        .xsmall()
+                        .ghost()
+                        .tab_stop(false)
+                        .on_click(move |_, window, app| {
+                            view.update(app, |this, cx| {
+                                match kind {
+                                    EnvEditorKind::Shell => {
+                                        this.shell.env_rows.retain(|row| row.id != row_id)
+                                    }
+                                    EnvEditorKind::Ssh => {
+                                        this.ssh.env_rows.retain(|row| row.id != row_id)
+                                    }
+                                    EnvEditorKind::Serial => {
+                                        this.serial.env_rows.retain(|row| row.id != row_id)
+                                    }
+                                }
+                                cx.notify();
+                            });
+                            window.refresh();
+                        }),
+                ),
+        );
+    }
+
+    editor.child(
+        h_flex().justify_end().child(
+            Button::new(add_id)
+                .icon(IconName::Plus)
+                .xsmall()
+                .ghost()
+                .tab_stop(false)
+                .on_click(move |_, window, app| {
+                    view.update(app, |this, cx| {
+                        match kind {
+                            EnvEditorKind::Shell => this.push_shell_env_row(window, cx, None, None),
+                            EnvEditorKind::Ssh => this.push_ssh_env_row(window, cx, None, None),
+                            EnvEditorKind::Serial => {
+                                this.push_serial_env_row(window, cx, None, None)
+                            }
+                        }
+                        cx.notify();
+                    });
+                    window.refresh();
+                }),
+        ),
+    )
 }
 
 impl Render for NewSessionWindow {
@@ -557,94 +657,13 @@ fn render_backend_type_row(
 }
 
 impl ShellSessionState {
-    fn render_env_editor(
-        &self,
-        view: Entity<NewSessionWindow>,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> impl IntoElement + use<> {
-        let mut rows = v_flex()
-            .w_full()
-            .gap_1()
-            .debug_selector(|| "termua-new-session-shell-env".to_string());
-
-        for row in self.env_rows.iter() {
-            let row_id = row.id;
-            let view = view.clone();
-            let is_reserved =
-                is_reserved_terminal_env_name(row.name_input.read(cx).value().as_ref());
-            let row_control = h_flex()
-                .w_full()
-                .items_center()
-                .gap_2()
-                .child(
-                    div().flex_1().min_w(px(120.)).child(
-                        Input::new(&row.name_input)
-                            .when(is_reserved, |this| this.border_color(cx.theme().danger)),
-                    ),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(160.))
-                        .child(Input::new(&row.value_input)),
-                )
-                .child(
-                    Button::new(format!("termua-new-session-shell-env-del-{row_id}"))
-                        .icon(IconName::Minus)
-                        .xsmall()
-                        .ghost()
-                        .tab_stop(false)
-                        .on_click(move |_, window, app| {
-                            view.update(app, |this, cx| {
-                                this.shell.env_rows.retain(|r| r.id != row_id);
-                                cx.notify();
-                            });
-                            window.refresh();
-                        }),
-                );
-
-            rows = rows.child(v_flex().w_full().gap_1().child(row_control).when(
-                is_reserved,
-                |this| {
-                    this.child(
-                        div()
-                            .w_full()
-                            .debug_selector(|| "termua-new-session-shell-env-reserved".to_string())
-                            .text_xs()
-                            .text_color(cx.theme().danger)
-                            .child(reserved_terminal_env_hint()),
-                    )
-                },
-            ));
-        }
-
-        rows.child(
-            h_flex().justify_end().child(
-                Button::new("termua-new-session-shell-env-add")
-                    .icon(IconName::Plus)
-                    .xsmall()
-                    .ghost()
-                    .tab_stop(false)
-                    .on_click(move |_, window, app| {
-                        view.update(app, |this, cx| {
-                            this.push_shell_env_row(window, cx, None, None);
-                            cx.notify();
-                        });
-                        window.refresh();
-                    }),
-            ),
-        )
-    }
-}
-
-impl ShellSessionState {
     pub(super) fn render(
         &self,
         view: Entity<NewSessionWindow>,
         _window: &mut Window,
         cx: &mut Context<NewSessionWindow>,
     ) -> impl IntoElement {
-        let env_editor = self.render_env_editor(view, cx);
+        let env_editor = render_env_editor(&self.env_rows, view, EnvEditorKind::Shell);
 
         v_flex()
             .id("termua-new-session-shell-session")
@@ -678,30 +697,6 @@ impl ShellSessionState {
                     .w_full()
                     .debug_selector(|| "termua-new-session-shell-group-input".to_string())
                     .child(Input::new(&self.common.group_input)),
-                cx,
-            ))
-            .child(render_form_row(
-                t!("NewSession.Field.Term").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-shell-term-select".to_string())
-                    .child(Select::new(&self.common.term_select)),
-                cx,
-            ))
-            .child(render_form_row(
-                t!("NewSession.Field.Charset").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-shell-charset-select".to_string())
-                    .child(Select::new(&self.common.charset_select)),
-                cx,
-            ))
-            .child(render_form_row(
-                t!("NewSession.Field.ColorTerm").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-shell-colorterm-select".to_string())
-                    .child(Select::new(&self.common.colorterm_select)),
                 cx,
             ))
             .child(render_form_row(
@@ -780,85 +775,6 @@ impl SshSessionState {
                     .on_click(move |_, window, app| {
                         view.update(app, |this, cx| {
                             this.push_ssh_proxy_env_row(window, cx, None, None);
-                            cx.notify();
-                        });
-                        window.refresh();
-                    }),
-            ),
-        )
-    }
-
-    fn render_env_editor(
-        &self,
-        view: Entity<NewSessionWindow>,
-        cx: &mut Context<NewSessionWindow>,
-    ) -> impl IntoElement + use<> {
-        let mut rows = v_flex()
-            .w_full()
-            .gap_1()
-            .debug_selector(|| "termua-new-session-ssh-env".to_string());
-
-        for row in self.env_rows.iter() {
-            let row_id = row.id;
-            let view = view.clone();
-            let is_reserved =
-                is_reserved_terminal_env_name(row.name_input.read(cx).value().as_ref());
-            let row_control = h_flex()
-                .w_full()
-                .items_center()
-                .gap_2()
-                .child(
-                    div().flex_1().min_w(px(120.)).child(
-                        Input::new(&row.name_input)
-                            .when(is_reserved, |this| this.border_color(cx.theme().danger)),
-                    ),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(160.))
-                        .child(Input::new(&row.value_input)),
-                )
-                .child(
-                    Button::new(format!("termua-new-session-ssh-env-del-{row_id}"))
-                        .icon(IconName::Minus)
-                        .xsmall()
-                        .ghost()
-                        .tab_stop(false)
-                        .on_click(move |_, window, app| {
-                            view.update(app, |this, cx| {
-                                this.ssh.env_rows.retain(|r| r.id != row_id);
-                                cx.notify();
-                            });
-                            window.refresh();
-                        }),
-                );
-
-            rows = rows.child(v_flex().w_full().gap_1().child(row_control).when(
-                is_reserved,
-                |this| {
-                    this.child(
-                        div()
-                            .w_full()
-                            .debug_selector(|| "termua-new-session-ssh-env-reserved".to_string())
-                            .text_xs()
-                            .text_color(cx.theme().danger)
-                            .child(reserved_terminal_env_hint()),
-                    )
-                },
-            ));
-        }
-
-        rows.child(
-            h_flex().justify_end().child(
-                Button::new("termua-new-session-ssh-env-add")
-                    .icon(IconName::Plus)
-                    .xsmall()
-                    .ghost()
-                    .tab_stop(false)
-                    .on_click(move |_, window, app| {
-                        view.update(app, |this, cx| {
-                            this.push_ssh_env_row(window, cx, None, None);
                             cx.notify();
                         });
                         window.refresh();
@@ -1149,7 +1065,7 @@ impl SshSessionState {
         view: Entity<NewSessionWindow>,
         cx: &mut Context<NewSessionWindow>,
     ) -> Vec<gpui::AnyElement> {
-        let env_editor = self.render_env_editor(view, cx);
+        let env_editor = render_env_editor(&self.env_rows, view, EnvEditorKind::Ssh);
         vec![
             render_form_row(
                 t!("NewSession.Field.Label").to_string(),
@@ -1163,33 +1079,6 @@ impl SshSessionState {
                     .w_full()
                     .debug_selector(|| "termua-new-session-ssh-group-input".to_string())
                     .child(Input::new(&self.common.group_input)),
-                cx,
-            )
-            .into_any_element(),
-            render_form_row(
-                t!("NewSession.Field.Term").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-ssh-term-select".to_string())
-                    .child(Select::new(&self.common.term_select)),
-                cx,
-            )
-            .into_any_element(),
-            render_form_row(
-                t!("NewSession.Field.Charset").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-ssh-charset-select".to_string())
-                    .child(Select::new(&self.common.charset_select)),
-                cx,
-            )
-            .into_any_element(),
-            render_form_row(
-                t!("NewSession.Field.ColorTerm").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-ssh-colorterm-select".to_string())
-                    .child(Select::new(&self.common.colorterm_select)),
                 cx,
             )
             .into_any_element(),
@@ -1410,6 +1299,7 @@ impl SerialSessionState {
         _window: &mut Window,
         cx: &mut Context<NewSessionWindow>,
     ) -> impl IntoElement {
+        let env_editor = render_env_editor(&self.env_rows, view.clone(), EnvEditorKind::Serial);
         v_flex()
             .id("termua-new-session-serial-session")
             .gap_3()
@@ -1467,19 +1357,8 @@ impl SerialSessionState {
                 cx,
             ))
             .child(render_form_row(
-                t!("NewSession.Field.Term").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-serial-term-select".to_string())
-                    .child(Select::new(&self.common.term_select)),
-                cx,
-            ))
-            .child(render_form_row(
-                t!("NewSession.Field.Charset").to_string(),
-                div()
-                    .w_full()
-                    .debug_selector(|| "termua-new-session-serial-charset-select".to_string())
-                    .child(Select::new(&self.common.charset_select)),
+                t!("NewSession.Field.EnvironmentVariables").to_string(),
+                env_editor,
                 cx,
             ))
     }

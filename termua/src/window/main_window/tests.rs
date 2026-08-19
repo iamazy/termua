@@ -297,6 +297,60 @@ fn main_window_saves_dock_layout_after_change(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+fn sessions_sidebar_folder_change_saves_workspace_state(cx: &mut gpui::TestAppContext) {
+    let settings_path = unique_workspace_settings_path("save-sessions-folder-state");
+    let _guard = crate::settings::override_settings_json_path(settings_path);
+    let db_path = crate::store::tests::unique_test_db_path("save-sessions-folder-state");
+    let _db_guard = crate::store::tests::override_termua_db_path(db_path);
+    crate::store::save_local_session(
+        "Group",
+        "bash",
+        crate::settings::TerminalBackend::Wezterm,
+        "xterm-256color",
+        "UTF-8",
+    )
+    .unwrap();
+
+    cx.update(|app| {
+        gpui_component::init(app);
+        menubar::init(app);
+        gpui_term::init(app);
+        gpui_dock::init(app);
+        app.set_global(TermuaAppState::default());
+    });
+
+    let (_view, window_cx) = cx.add_window_view(|window, cx| TermuaWindow::new(window, cx));
+    window_cx.run_until_parked();
+    let folder = window_cx
+        .debug_bounds("termua-sessions-folder-row-Group")
+        .expect("sessions folder should render");
+    window_cx.simulate_click(folder.center(), gpui::Modifiers::none());
+    window_cx.run_until_parked();
+    window_cx
+        .debug_bounds("termua-sessions-folder-icon-closed-Group")
+        .expect("sessions folder should be collapsed");
+    window_cx
+        .executor()
+        .advance_clock(Duration::from_millis(20));
+    window_cx.run_until_parked();
+
+    let saved = crate::workspace::load_from_path(&crate::workspace::state_path())
+        .expect("folder state change should save workspace state");
+    let left = saved
+        .left_dock
+        .expect("workspace should contain sessions dock");
+    let gpui_dock::PanelInfo::Panel(value) = &left.panel_state().info else {
+        panic!("sessions dock should contain panel state");
+    };
+    assert_eq!(
+        value["collapsed_folder_ids"],
+        serde_json::json!(["folder:Group"])
+    );
+
+    std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
+}
+
+#[gpui::test]
 fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
     let settings_path = unique_workspace_settings_path("restore-local-terminal");
     let _guard = crate::settings::override_settings_json_path(settings_path);

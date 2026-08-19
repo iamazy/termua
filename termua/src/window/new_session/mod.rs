@@ -13,22 +13,18 @@ use rust_i18n::t;
 const SHELL_SESSION_ID: &str = "shell.session";
 const SSH_SESSION_ID: &str = "ssh.session";
 const SERIAL_SESSION_ID: &str = "serial.session";
+const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
-const RESERVED_TERMINAL_ENV_NAMES: &[&str] =
-    &["TERM", "COLORTERM", "CHARSET", "SHELL", "TERMUA_SHELL"];
-
-fn is_reserved_terminal_env_name(name: &str) -> bool {
-    RESERVED_TERMINAL_ENV_NAMES
-        .iter()
-        .any(|reserved| name.eq_ignore_ascii_case(reserved))
-}
-
+const DEFAULT_CHARSET: &str = "UTF-8";
 use nav::{
     Page, build_nav_tree_items, default_selected_item_id, find_tree_item_by_id,
     page_for_tree_item_id,
 };
 
-use crate::store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode};
+use crate::{
+    env::{CHARSET_ENV_NAME, COLORTERM_ENV_NAME, TERM_ENV_NAME},
+    store::{SerialFlowControl, SerialParity, SerialStopBits, SshProxyMode},
+};
 
 mod actions;
 mod nav;
@@ -153,22 +149,6 @@ fn new_input_with_value(
     input
 }
 
-fn colorterm_options() -> Vec<SharedString> {
-    vec![
-        SharedString::from(DEFAULT_COLORTERM),
-        SharedString::from("24bit"),
-    ]
-}
-
-fn normalize_colorterm(value: &str) -> SharedString {
-    let value = value.trim();
-    if value.is_empty() {
-        SharedString::from(DEFAULT_COLORTERM)
-    } else {
-        SharedString::from(value.to_string())
-    }
-}
-
 fn new_env_row_state(
     id: u64,
     window: &mut Window,
@@ -195,6 +175,23 @@ fn new_env_row_state(
         name_input,
         value_input,
     }
+}
+
+fn default_terminal_env_rows(
+    window: &mut Window,
+    cx: &mut Context<NewSessionWindow>,
+) -> Vec<EnvRowState> {
+    [
+        (TERM_ENV_NAME, DEFAULT_TERM),
+        (CHARSET_ENV_NAME, DEFAULT_CHARSET),
+        (COLORTERM_ENV_NAME, DEFAULT_COLORTERM),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (name, value))| {
+        new_env_row_state(index as u64 + 1, window, cx, Some(name), Some(value))
+    })
+    .collect()
 }
 
 fn new_proxy_env_row_state(
@@ -535,6 +532,21 @@ impl NewSessionWindow {
         self.ssh.env_rows.push(row);
     }
 
+    fn push_serial_env_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        name: Option<&str>,
+        value: Option<&str>,
+    ) {
+        let id = self.serial.env_next_id;
+        self.serial.env_next_id += 1;
+
+        let row = new_env_row_state(id, window, cx, name, value);
+        self.subscribe_env_row_inputs(&row, window, cx);
+        self.serial.env_rows.push(row);
+    }
+
     fn push_ssh_proxy_env_row(
         &mut self,
         window: &mut Window,
@@ -574,39 +586,6 @@ impl NewSessionWindow {
                     }
                 }
             }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.shell.common.term_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(term)) = ev {
-                        this.shell.common.set_term(term.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.shell.common.charset_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(charset)) = ev {
-                        this.shell.common.set_charset(charset.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions.push(
-            cx.subscribe_in(&self.shell.common.colorterm_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(colorterm)) = ev {
-                        this.shell
-                            .common
-                            .set_colorterm(colorterm.as_ref(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }),
-        );
     }
 
     fn install_ssh_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -670,38 +649,6 @@ impl NewSessionWindow {
                     }
                 }
             }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.ssh.common.term_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(term)) = ev {
-                        this.ssh.common.set_term(term.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.ssh.common.charset_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(charset)) = ev {
-                        this.ssh.common.set_charset(charset.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions
-            .push(cx.subscribe_in(&self.ssh.common.colorterm_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(colorterm)) = ev {
-                        this.ssh
-                            .common
-                            .set_colorterm(colorterm.as_ref(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
     }
 
     fn install_serial_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -711,27 +658,6 @@ impl NewSessionWindow {
             &self.serial.common.backend_select,
             window,
             cx,
-        );
-        self._subscriptions
-            .push(cx.subscribe_in(&self.serial.common.term_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(term)) = ev {
-                        this.serial.common.set_term(term.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }));
-        self._subscriptions.push(
-            cx.subscribe_in(&self.serial.common.charset_select, window, {
-                move |this, _select, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                    if let SelectEvent::Confirm(Some(charset)) = ev {
-                        this.serial.common.set_charset(charset.clone(), window, cx);
-                        cx.notify();
-                        window.refresh();
-                    }
-                }
-            }),
         );
         Self::subscribe_numeric_input_filter(
             &mut self._subscriptions,
@@ -879,40 +805,13 @@ impl SessionCommonState {
                 crate::settings::TerminalBackend::Wezterm => 1,
             }),
         );
-        let term_select = new_select(
-            window,
-            cx,
-            vec![
-                SharedString::from("xterm-256color"),
-                SharedString::from("screen-256color"),
-                SharedString::from("tmux-256color"),
-            ],
-            Some(0),
-        );
-
-        let charset_select = new_select(
-            window,
-            cx,
-            vec![SharedString::from("UTF-8"), SharedString::from("ASCII")],
-            Some(0),
-        );
-
         let label_input = new_input(window, cx, t!("NewSession.Placeholder.Label").to_string());
         let group_input = new_input(window, cx, t!("NewSession.Placeholder.Group").to_string());
-        let colorterm_options = colorterm_options();
-        let colorterm_select = new_select(window, cx, colorterm_options.clone(), Some(0));
         Self {
             backend,
             backend_select,
-            term: "xterm-256color".into(),
-            colorterm: DEFAULT_COLORTERM.into(),
-            charset: "UTF-8".into(),
             label_input,
             group_input,
-            term_select,
-            colorterm_options,
-            colorterm_select,
-            charset_select,
         }
     }
 
@@ -925,52 +824,6 @@ impl SessionCommonState {
         self.backend = backend;
         self.backend_select.update(cx, |select, cx| {
             select.set_selected_value(&backend, window, cx);
-        });
-    }
-
-    fn set_term(
-        &mut self,
-        term: SharedString,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        self.term = term.clone();
-        self.term_select.update(cx, |select, cx| {
-            select.set_selected_value(&term, window, cx);
-        });
-    }
-
-    fn set_charset(
-        &mut self,
-        charset: SharedString,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        self.charset = charset.clone();
-        self.charset_select.update(cx, |select, cx| {
-            select.set_selected_value(&charset, window, cx);
-        });
-    }
-
-    fn set_colorterm(
-        &mut self,
-        colorterm: &str,
-        window: &mut Window,
-        cx: &mut Context<NewSessionWindow>,
-    ) {
-        let colorterm = normalize_colorterm(colorterm);
-        self.colorterm = colorterm.clone();
-
-        if !self.colorterm_options.iter().any(|item| item == &colorterm) {
-            self.colorterm_options.push(colorterm.clone());
-            let items = SearchableVec::new(self.colorterm_options.clone());
-            self.colorterm_select.update(cx, |select, cx| {
-                select.set_items(items, window, cx);
-            });
-        }
-
-        self.colorterm_select.update(cx, |select, cx| {
-            select.set_selected_value(&colorterm, window, cx);
         });
     }
 }
@@ -993,13 +846,14 @@ impl ShellSessionState {
             .value()
             .clone();
         let program_select = new_select(window, cx, program_options.clone(), Some(0));
+        let env_rows = default_terminal_env_rows(window, cx);
 
         let this = Self {
             program,
             program_options,
             program_select,
-            env_rows: Vec::new(),
-            env_next_id: 1,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             common,
         };
 
@@ -1133,11 +987,12 @@ impl SshSessionState {
             cx,
             t!("NewSession.Placeholder.ProxyWorkdir").to_string(),
         );
+        let env_rows = default_terminal_env_rows(window, cx);
 
         Self {
             common,
-            env_rows: Vec::new(),
-            env_next_id: 1,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             auth_type: SshAuthType::Password,
             auth_select,
             user_input,
@@ -1331,9 +1186,12 @@ impl SerialSessionState {
             ],
             Some(0),
         );
+        let env_rows = default_terminal_env_rows(window, cx);
 
         Self {
             common,
+            env_next_id: env_rows.len() as u64 + 1,
+            env_rows,
             ports,
             port_select,
             baud_input,
@@ -1405,9 +1263,12 @@ impl SerialSessionState {
         self.ports_loading = true;
         self.ports_refresh_epoch = self.ports_refresh_epoch.saturating_add(1);
         let epoch = self.ports_refresh_epoch;
+        let background = cx.background_executor().clone();
 
         cx.spawn(async move |this, cx| {
-            let ports = smol::unblock(crate::serial::list_ports).await;
+            let ports = background
+                .spawn(async { crate::serial::list_ports() })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if this.serial.ports_refresh_epoch != epoch {
                     return;
@@ -1522,6 +1383,22 @@ impl SerialSessionState {
             window,
             cx,
         );
+        for row in &self.env_rows {
+            sync_input_placeholders(
+                window,
+                cx,
+                &[
+                    (
+                        row.name_input.clone(),
+                        t!("NewSession.Placeholder.EnvVar").to_string(),
+                    ),
+                    (
+                        row.value_input.clone(),
+                        t!("NewSession.Placeholder.EnvValue").to_string(),
+                    ),
+                ],
+            );
+        }
     }
 }
 

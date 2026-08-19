@@ -4,6 +4,7 @@ use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
     div,
 };
+use gpui_dock::Panel;
 
 use super::*;
 use crate::store::{Session, SessionEnvVar, SessionType};
@@ -32,8 +33,25 @@ fn test_session_env(
     Some(env)
 }
 
+struct SidebarHarness {
+    sidebar: Entity<SessionsSidebarView>,
+}
+
+impl SidebarHarness {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
+        Self { sidebar }
+    }
+}
+
+impl Render for SidebarHarness {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.sidebar.clone())
+    }
+}
+
 #[gpui::test]
-fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
+fn selected_child_does_not_override_collapsed_state_after_search(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
         gpui_component::init(app);
     });
@@ -41,7 +59,7 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
     let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-icons");
     let _guard = crate::store::tests::override_termua_db_path(db_path);
 
-    crate::store::save_local_session(
+    let session_id = crate::store::save_local_session(
         "Group",
         "bash",
         crate::settings::TerminalBackend::Wezterm,
@@ -50,24 +68,8 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
     )
     .unwrap();
 
-    struct Harness {
-        sidebar: Entity<SessionsSidebarView>,
-    }
-
-    impl Harness {
-        fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-            let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
-            Self { sidebar }
-        }
-    }
-
-    impl Render for Harness {
-        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            div().size_full().child(self.sidebar.clone())
-        }
-    }
-
-    let (harness, cx) = cx.add_window_view(Harness::new);
+    let (harness, cx) = cx.add_window_view(SidebarHarness::new);
+    let sidebar = cx.update(|_window, app| harness.read(app).sidebar.clone());
 
     cx.draw(
         gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -82,6 +84,17 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
     cx.debug_bounds("termua-sessions-folder-icon-open-Group")
         .expect("expected expanded folder rows to show the open folder icon");
 
+    cx.update(|_window, app| {
+        sidebar.update(app, |sidebar, app| {
+            sidebar.handle_session_click(
+                format!("session:local:{session_id}").into(),
+                session_id,
+                false,
+                app,
+            );
+        });
+    });
+
     let row_bounds = cx
         .debug_bounds("termua-sessions-folder-row-Group")
         .expect("expected folder rows to be debuggable");
@@ -90,6 +103,169 @@ fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
 
     cx.debug_bounds("termua-sessions-folder-icon-closed-Group")
         .expect("expected collapsed folder rows to show the closed folder icon");
+
+    let search_input = cx.update(|_window, app| sidebar.read(app).search_input.clone());
+    cx.update(|window, app| {
+        search_input.update(app, |input, app| {
+            input.set_value("Group", window, app);
+            app.emit(gpui_component::input::InputEvent::Change);
+        });
+    });
+    cx.run_until_parked();
+    cx.debug_bounds("termua-sessions-folder-icon-open-Group")
+        .expect("matching folders should expand while searching");
+
+    cx.update(|window, app| {
+        search_input.update(app, |input, app| {
+            input.set_value("", window, app);
+            app.emit(gpui_component::input::InputEvent::Change);
+        });
+    });
+    cx.run_until_parked();
+    cx.debug_bounds("termua-sessions-folder-icon-closed-Group")
+        .expect("clearing search should restore the previous collapsed state");
+}
+
+#[gpui::test]
+fn folder_icons_toggle_with_expansion(cx: &mut gpui::TestAppContext) {
+    cx.update(gpui_component::init);
+
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-folder-icons");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+    crate::store::save_local_session(
+        "Group",
+        "bash",
+        crate::settings::TerminalBackend::Wezterm,
+        "xterm-256color",
+        "UTF-8",
+    )
+    .unwrap();
+
+    let (harness, cx) = cx.add_window_view(SidebarHarness::new);
+    cx.draw(
+        gpui::point(gpui::px(0.), gpui::px(0.)),
+        gpui::size(
+            gpui::AvailableSpace::Definite(gpui::px(600.)),
+            gpui::AvailableSpace::Definite(gpui::px(400.)),
+        ),
+        move |_, _| div().size_full().child(harness),
+    );
+    cx.run_until_parked();
+
+    cx.debug_bounds("termua-sessions-folder-icon-open-Group")
+        .expect("expanded folders should show the open icon");
+    let folder = cx
+        .debug_bounds("termua-sessions-folder-row-Group")
+        .expect("folder row should render");
+    cx.simulate_click(folder.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.debug_bounds("termua-sessions-folder-icon-closed-Group")
+        .expect("collapsed folders should show the closed icon");
+}
+
+#[gpui::test]
+fn sidebar_panel_state_round_trips_collapsed_folders(cx: &mut gpui::TestAppContext) {
+    cx.update(gpui_component::init);
+
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-state-round-trip");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+    crate::store::save_local_session(
+        "Group",
+        "bash",
+        crate::settings::TerminalBackend::Wezterm,
+        "xterm-256color",
+        "UTF-8",
+    )
+    .unwrap();
+
+    let (harness, cx) = cx.add_window_view(SidebarHarness::new);
+    let sidebar = cx.update(|_window, app| harness.read(app).sidebar.clone());
+    cx.update(|window, app| {
+        sidebar.update(app, |sidebar, app| {
+            sidebar.restore_persisted_state(
+                SessionsSidebarPanelState {
+                    version: 1,
+                    query: String::new(),
+                    collapsed_folder_ids: vec!["folder:Group".to_string()],
+                },
+                window,
+                app,
+            );
+        });
+    });
+
+    let dumped = cx.update(|_window, app| sidebar.read(app).dump(app));
+    let gpui_dock::PanelInfo::Panel(value) = dumped.info else {
+        panic!("sessions sidebar should dump panel state");
+    };
+    assert_eq!(
+        value["collapsed_folder_ids"],
+        serde_json::json!(["folder:Group"]),
+        "collapsed folders should be persisted for restart restoration"
+    );
+
+    let persisted: SessionsSidebarPanelState =
+        serde_json::from_value(value).expect("deserialize sessions sidebar state");
+    cx.update(|window, app| {
+        sidebar.update(app, |sidebar, app| {
+            sidebar.restore_persisted_state(
+                SessionsSidebarPanelState {
+                    version: 1,
+                    query: String::new(),
+                    collapsed_folder_ids: Vec::new(),
+                },
+                window,
+                app,
+            );
+            sidebar.restore_persisted_state(persisted, window, app);
+        });
+    });
+    let is_expanded = cx.update(|_window, app| sidebar.read(app).tree_items[0].is_expanded());
+    assert!(!is_expanded, "persisted collapsed state should be restored");
+}
+
+#[gpui::test]
+fn restoring_sidebar_prunes_collapsed_ids_for_missing_folders(cx: &mut gpui::TestAppContext) {
+    cx.update(gpui_component::init);
+
+    let db_path = crate::store::tests::unique_test_db_path("sessions-sidebar-prune-folders");
+    let _guard = crate::store::tests::override_termua_db_path(db_path);
+    crate::store::save_local_session(
+        "Group",
+        "bash",
+        crate::settings::TerminalBackend::Wezterm,
+        "xterm-256color",
+        "UTF-8",
+    )
+    .unwrap();
+
+    let (harness, cx) = cx.add_window_view(SidebarHarness::new);
+    let sidebar = cx.update(|_window, app| harness.read(app).sidebar.clone());
+    cx.update(|window, app| {
+        sidebar.update(app, |sidebar, app| {
+            sidebar.restore_persisted_state(
+                SessionsSidebarPanelState {
+                    version: 1,
+                    query: String::new(),
+                    collapsed_folder_ids: vec![
+                        "folder:Group".to_string(),
+                        "folder:Missing".to_string(),
+                    ],
+                },
+                window,
+                app,
+            );
+        });
+    });
+
+    let dumped = cx.update(|_window, app| sidebar.read(app).dump(app));
+    let gpui_dock::PanelInfo::Panel(value) = dumped.info else {
+        panic!("sessions sidebar should dump panel state");
+    };
+    assert_eq!(
+        value["collapsed_folder_ids"],
+        serde_json::json!(["folder:Group"])
+    );
 }
 
 #[gpui::test]
@@ -171,8 +347,9 @@ fn sessions_open_only_on_double_click(cx: &mut gpui::TestAppContext) {
         fn new(opened: Arc<Mutex<Vec<i64>>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
             let sidebar = cx.new(|cx| SessionsSidebarView::new(window, cx));
             let sub = cx.subscribe_in(&sidebar, window, move |_, _, ev, _, _| {
-                let SessionsSidebarEvent::OpenSession(id) = ev;
-                opened.lock().unwrap().push(*id);
+                if let SessionsSidebarEvent::OpenSession(id) = ev {
+                    opened.lock().unwrap().push(*id);
+                }
             });
             Self { sidebar, _sub: sub }
         }
@@ -274,8 +451,9 @@ fn ssh_sessions_show_connecting_and_block_repeat_double_click(cx: &mut gpui::Tes
             *sidebar_out.lock().unwrap() = Some(sidebar.clone());
 
             let sub = cx.subscribe_in(&sidebar, window, move |_, _, ev, _, _| {
-                let SessionsSidebarEvent::OpenSession(id) = ev;
-                opened.lock().unwrap().push(*id);
+                if let SessionsSidebarEvent::OpenSession(id) = ev {
+                    opened.lock().unwrap().push(*id);
+                }
             });
             Self { sidebar, _sub: sub }
         }
@@ -604,9 +782,6 @@ fn powershell_local_session_uses_shell_specific_icon(cx: &mut gpui::TestAppConte
         "local",
         "powershell",
         crate::settings::TerminalBackend::Wezterm,
-        "xterm-256color",
-        None,
-        "UTF-8",
         vec![SessionEnvVar {
             name: gpui_term::shell::TERMUA_SHELL_ENV_KEY.to_string(),
             value: "pwsh".to_string(),

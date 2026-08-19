@@ -1,11 +1,11 @@
 use gpui::{AppContext, Context, Entity, SharedString, Window};
 use gpui_component::{
     input::{InputEvent, InputState},
-    tree::TreeState,
+    tree::{TreeEvent, TreeState},
 };
 use rust_i18n::t;
 
-use super::{SessionsSidebarError, SessionsSidebarView, tree};
+use super::{SessionsSidebarError, SessionsSidebarEvent, SessionsSidebarView, tree};
 use crate::store::{delete_session, load_all_sessions};
 
 fn set_input_placeholder(
@@ -29,6 +29,7 @@ impl SessionsSidebarView {
         if state.version != 1 {
             return;
         }
+        self.collapsed_folder_ids = state.collapsed_folder_ids.into_iter().collect();
         self.query = state.query.clone();
         self.search_input
             .update(cx, |input, cx| input.set_value(state.query, window, cx));
@@ -83,6 +84,21 @@ impl SessionsSidebarView {
                 cx.notify();
             }
         }));
+        subscriptions.push(cx.subscribe_in(
+            &tree_state,
+            window,
+            |this, _tree, event: &TreeEvent, _window, cx| {
+                match event {
+                    TreeEvent::Expanded(id) => {
+                        this.collapsed_folder_ids.remove(id.as_ref());
+                    }
+                    TreeEvent::Collapsed(id) => {
+                        this.collapsed_folder_ids.insert(id.to_string());
+                    }
+                }
+                cx.emit(SessionsSidebarEvent::LayoutChanged);
+            },
+        ));
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
@@ -98,6 +114,7 @@ impl SessionsSidebarView {
             deleting_session_ids: Default::default(),
             tree_items,
             tree_state,
+            collapsed_folder_ids: Default::default(),
             sessions,
             session_summaries,
             _subscriptions: subscriptions,
@@ -230,8 +247,11 @@ impl SessionsSidebarView {
     }
 
     fn rebuild_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let items =
-            tree::build_tree_items_from_summaries(&self.session_summaries, self.query.trim());
+        let query = self.query.trim();
+        let items = tree::build_tree_items_from_summaries(&self.session_summaries, query);
+        if query.is_empty() {
+            tree::apply_collapsed_folders(&items, &mut self.collapsed_folder_ids);
+        }
         self.tree_items = items.clone();
         self.tree_state.update(cx, |tree, cx| {
             tree.set_items(items, cx);
@@ -297,7 +317,7 @@ impl SessionsSidebarView {
         }
 
         let Some(item) =
-            tree::find_tree_item_by_id(&self.tree_items, self.selected_item_id.as_ref())
+            tree::find_visible_tree_item_by_id(&self.tree_items, self.selected_item_id.as_ref())
         else {
             self.tree_state
                 .update(cx, |tree, cx| tree.set_selected_item(None, cx));

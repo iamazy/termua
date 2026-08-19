@@ -644,13 +644,7 @@ impl TermuaWindow {
         let port = session.ssh_port.unwrap_or(22);
 
         let session_env = session.env.clone().unwrap_or_default();
-        let env = build_terminal_env(
-            "",
-            session.term(),
-            session.colorterm(),
-            session.charset(),
-            &session_env,
-        );
+        let env = build_terminal_env("", &session_env);
         let proxy = ssh_proxy_from_session(&session);
         let name = session.label;
 
