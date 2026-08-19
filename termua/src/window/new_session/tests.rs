@@ -1479,6 +1479,28 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
         win.debug_bounds("termua-edit-session-connect").is_none(),
         "edit session should not render a Connect button"
     );
+    assert_eq!(win.window_title().as_deref(), Some("Edit Session (SSH)"));
+    assert!(
+        win.debug_bounds("termua-new-session-protocol-tabbar")
+            .is_none(),
+        "edit session should identify its protocol in the title instead of rendering protocol tabs"
+    );
+}
+
+#[test]
+fn edit_session_window_titles_include_protocol() {
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Shell),
+        "Edit Session (Shell)"
+    );
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Ssh),
+        "Edit Session (SSH)"
+    );
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Serial),
+        "Edit Session (Serial)"
+    );
 }
 
 #[gpui::test]
@@ -1802,31 +1824,6 @@ fn local_terminal_env_includes_shell_term_and_locale() {
     assert_eq!(env.get("TERMUA_SHELL"), Some(&"/bin/bash".to_string()));
     assert_eq!(env.get("TERM"), Some(&"screen-256color".to_string()));
     assert_eq!(env.get("LANG"), Some(&"C".to_string()));
-}
-
-#[test]
-fn edit_mode_disabled_protocol_tab_uses_not_allowed_cursor() {
-    let selected_ix = Protocol::Ssh.tab_index();
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(
-            true,
-            selected_ix,
-            Protocol::Shell.tab_index()
-        ),
-        Some(gpui::CursorStyle::OperationNotAllowed)
-    );
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(true, selected_ix, selected_ix),
-        None
-    );
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(
-            false,
-            selected_ix,
-            Protocol::Shell.tab_index()
-        ),
-        None
-    );
 }
 
 #[gpui::test]

@@ -339,7 +339,7 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::set_window_title_for_mode(mode, window);
+        window.set_window_title(&Self::window_title(mode, protocol));
         Self::ensure_globals(cx);
 
         let lock_overlay = crate::lock_screen::overlay::LockOverlayState::new(window, cx);
@@ -384,13 +384,17 @@ impl NewSessionWindow {
         this
     }
 
-    fn set_window_title_for_mode(mode: SessionEditorMode, window: &mut Window) {
-        let title = if mode.is_edit() {
-            t!("NewSession.WindowTitle.Edit")
+    fn window_title(mode: SessionEditorMode, protocol: Protocol) -> String {
+        if mode.is_edit() {
+            let protocol = match protocol {
+                Protocol::Shell => t!("NewSession.Tabs.Shell"),
+                Protocol::Ssh => t!("NewSession.Tabs.Ssh"),
+                Protocol::Serial => t!("NewSession.Tabs.Serial"),
+            };
+            format!("{} ({protocol})", t!("NewSession.WindowTitle.Edit"))
         } else {
-            t!("NewSession.WindowTitle.New")
-        };
-        window.set_window_title(title.as_ref());
+            t!("NewSession.WindowTitle.New").to_string()
+        }
     }
 
     fn ensure_globals(cx: &mut Context<Self>) {
@@ -713,12 +717,7 @@ impl Focusable for NewSessionWindow {
 
 impl NewSessionWindow {
     fn sync_localized_strings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let title = if self.mode.is_edit() {
-            t!("NewSession.WindowTitle.Edit")
-        } else {
-            t!("NewSession.WindowTitle.New")
-        };
-        window.set_window_title(title.as_ref());
+        window.set_window_title(&Self::window_title(self.mode, self.protocol));
 
         self.lock_overlay.sync_localized_placeholders(window, cx);
 
