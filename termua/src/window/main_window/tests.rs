@@ -761,6 +761,8 @@ fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext
     });
     first_cx.update(|window, cx| {
         first.update(cx, |this, cx| {
+            // Simulate prod through prod 5 having been closed while prod 6 remains.
+            this.ssh_tab_label_counts.insert("prod".to_string(), 5);
             this.open_session_by_id(session_id, window, cx);
         });
     });
@@ -801,8 +803,8 @@ fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext
     }
 
     assert!(attempts.load(Ordering::SeqCst) >= 2);
-    let restored_ssh = restored_cx.update(|_window, cx| {
-        restored
+    restored_cx.update(|_window, cx| {
+        let restored_label = restored
             .read(cx)
             .dock_area
             .read(cx)
@@ -810,12 +812,54 @@ fn main_window_reconnects_saved_ssh_terminal_panel(cx: &mut gpui::TestAppContext
             .into_iter()
             .flat_map(|tabs| tabs.read(cx).panels().to_vec())
             .filter_map(|panel| panel.view().downcast::<crate::panel::TerminalPanel>().ok())
-            .any(|panel| panel.read(cx).kind() == crate::panel::PanelKind::Ssh)
+            .find(|panel| panel.read(cx).kind() == crate::panel::PanelKind::Ssh)
+            .map(|panel| panel.read(cx).tab_label().to_string())
+            .expect("saved SSH tab should reconnect as a terminal panel");
+        assert_eq!(restored_label, "prod 6");
+        assert_eq!(restored.read(cx).ssh_tab_label_counts.get("prod"), None);
     });
-    assert!(
-        restored_ssh,
-        "saved SSH tab should reconnect as a terminal panel"
-    );
+
+    for expected_attempts in 3..=8 {
+        restored_cx.update(|window, cx| {
+            restored.update(cx, |this, cx| {
+                this.open_session_by_id(session_id, window, cx);
+            });
+        });
+        for _ in 0..20 {
+            restored_cx.run_until_parked();
+            if attempts.load(Ordering::SeqCst) >= expected_attempts {
+                break;
+            }
+        }
+        restored_cx.run_until_parked();
+        assert!(attempts.load(Ordering::SeqCst) >= expected_attempts);
+    }
+
+    restored_cx.update(|_window, cx| {
+        let labels = restored
+            .read(cx)
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| panel.view().downcast::<crate::panel::TerminalPanel>().ok())
+            .filter(|panel| panel.read(cx).kind() == crate::panel::PanelKind::Ssh)
+            .map(|panel| panel.read(cx).tab_label().to_string())
+            .collect::<Vec<_>>();
+        for expected in [
+            "prod", "prod 2", "prod 3", "prod 4", "prod 5", "prod 6", "prod 7",
+        ] {
+            assert_eq!(
+                labels
+                    .iter()
+                    .filter(|label| label.as_str() == expected)
+                    .count(),
+                1,
+                "expected exactly one {expected} tab, got {labels:?}"
+            );
+        }
+    });
 
     std::fs::remove_dir_all(crate::settings::settings_dir_path()).ok();
 }

@@ -22,9 +22,9 @@ use crate::{
     notification,
     panel::SshErrorPanel,
     ssh::{
-        SshHostKeyMismatchDetails, dedupe_tab_label, default_known_hosts_path,
-        parse_ssh_host_key_mismatch, remove_known_host_entry, ssh_connect_failure_message,
-        ssh_proxy_from_session, ssh_tab_tooltip, ssh_target_label,
+        SshHostKeyMismatchDetails, default_known_hosts_path, parse_ssh_host_key_mismatch,
+        remove_known_host_entry, ssh_connect_failure_message, ssh_proxy_from_session,
+        ssh_tab_tooltip, ssh_target_label,
     },
 };
 
@@ -522,9 +522,14 @@ impl TermuaWindow {
     ) {
         match result {
             Ok(factory) => {
+                let tab_label = replacement
+                    .as_ref()
+                    .and_then(|panel| panel.read(cx).terminal_state())
+                    .map(|state| state.tab_label.into())
+                    .unwrap_or_else(|| self.next_ssh_tab_label(params.name.as_str(), cx));
                 let panel = self.build_ssh_panel_from_factory(
                     factory,
-                    params.name,
+                    tab_label,
                     params.opts,
                     Some(crate::panel::TerminalLaunchState::Ssh {
                         backend_type,
@@ -572,8 +577,7 @@ impl TermuaWindow {
 
                 let id = self.take_next_terminal_id(cx);
 
-                let tab_label =
-                    dedupe_tab_label(&mut self.ssh_tab_label_counts, params.name.as_str());
+                let tab_label = self.next_ssh_tab_label(params.name.as_str(), cx);
                 let tab_tooltip = ssh_tab_tooltip(&params.opts);
                 let message = ssh_connect_failure_message(&params.opts, &err);
 
