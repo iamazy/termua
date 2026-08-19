@@ -141,11 +141,7 @@ fn render_env_editor(
 impl Render for NewSessionWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_edit = self.mode.is_edit();
-        let title = if is_edit {
-            t!("NewSession.WindowTitle.Edit").to_string()
-        } else {
-            t!("NewSession.WindowTitle.New").to_string()
-        };
+        let title = Self::window_title(self.mode, self.protocol);
 
         // Apply async serial port refresh results while we have access to `Window`.
         if let Some(ports) = self.serial.ports_pending.take() {
@@ -237,7 +233,9 @@ impl Render for NewSessionWindow {
                     .flex_1()
                     .min_h_0()
                     .relative()
-                    .child(self.render_protocol_tabs(window, cx))
+                    .when(!is_edit, |this| {
+                        this.child(self.render_protocol_tabs(window, cx))
+                    })
                     .child(
                         h_flex()
                             .id("termua-new-session-main")

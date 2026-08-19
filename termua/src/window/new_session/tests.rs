@@ -1479,6 +1479,28 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
         win.debug_bounds("termua-edit-session-connect").is_none(),
         "edit session should not render a Connect button"
     );
+    assert_eq!(win.window_title().as_deref(), Some("Edit Session (SSH)"));
+    assert!(
+        win.debug_bounds("termua-new-session-protocol-tabbar")
+            .is_none(),
+        "edit session should identify its protocol in the title instead of rendering protocol tabs"
+    );
+}
+
+#[test]
+fn edit_session_window_titles_include_protocol() {
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Shell),
+        "Edit Session (Shell)"
+    );
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Ssh),
+        "Edit Session (SSH)"
+    );
+    assert_eq!(
+        NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Serial),
+        "Edit Session (Serial)"
+    );
 }
 
 #[gpui::test]
