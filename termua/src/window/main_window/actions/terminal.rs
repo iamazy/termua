@@ -633,11 +633,14 @@ impl TermuaWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let panels = self
+        let tab_panels = self
             .dock_area
             .read(cx)
             .all_tab_panels(cx)
             .into_iter()
+            .collect::<Vec<_>>();
+        let panels = tab_panels
+            .iter()
             .flat_map(|tabs| tabs.read(cx).panels().to_vec())
             .collect::<Vec<_>>();
 
@@ -666,6 +669,32 @@ impl TermuaWindow {
                 cx,
             );
             self.subscribe_terminal_view_events(&terminal_view, window, cx);
+        }
+
+        // Loading a persisted dock layout does not necessarily invoke Panel::set_active.
+        // Rehydrate the footbar state from whichever restored tab is active so the backend
+        // indicator is available immediately after an app restart.
+        for tabs in tab_panels {
+            let Some(panel) = tabs.read(cx).active_panel(cx) else {
+                continue;
+            };
+            let Ok(panel) = panel.view().downcast::<TerminalPanel>() else {
+                continue;
+            };
+            let (id, backend) = {
+                let panel = panel.read(cx);
+                (
+                    panel.id(),
+                    panel
+                        .terminal_view()
+                        .read(cx)
+                        .terminal
+                        .read(cx)
+                        .backend_type(),
+                )
+            };
+            crate::footbar::focus_terminal_backend(id, backend, cx);
+            break;
         }
         self.reset_next_terminal_id(cx);
         self.rebuild_local_tab_label_counts(cx);

@@ -422,6 +422,11 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
         });
     });
 
+    // A restart starts with a fresh global backend state; restoration must repopulate it.
+    cx.update(|app| {
+        app.set_global(crate::footbar::FocusedTerminalBackendState::default());
+    });
+
     let (restored, restored_cx) = cx.add_window_view(move |window, cx| {
         TermuaWindow::new_with_terminal_builders(
             window,
@@ -450,6 +455,12 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             restored.read(cx).next_terminal_id,
             1,
             "new tabs after restart should reuse the smallest available terminal ID"
+        );
+        assert_eq!(
+            cx.global::<crate::footbar::FocusedTerminalBackendState>()
+                .backend(),
+            Some(TerminalType::WezTerm),
+            "restored active terminal should repopulate the footbar backend state"
         );
         let next_label = restored.update(cx, |this, _cx| {
             crate::panel::local_terminal_panel_tab_name(
