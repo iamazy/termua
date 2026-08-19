@@ -81,13 +81,6 @@ impl SshErrorPanel {
         self.terminal_state.clone()
     }
 
-    pub(crate) fn local_shell_display_name(&self) -> Option<String> {
-        let TerminalLaunchState::Local { env, .. } = &self.terminal_state.as_ref()?.launch else {
-            return None;
-        };
-        crate::panel::terminal_panel::local_shell_display_name_from_env(env)
-    }
-
     pub(crate) fn parent_tab(&self) -> Option<WeakEntity<TabPanel>> {
         self.parent_tab.clone()
     }

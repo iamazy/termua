@@ -65,10 +65,20 @@ fn add_fake_local_terminal_with_launch(
             Box::new(FakeBackend::new(Arc::new(AtomicBool::new(false)))),
         )
     });
+    let tab_label = match launch_state.as_ref() {
+        Some(crate::panel::TerminalLaunchState::Local { env, .. }) => {
+            crate::panel::local_terminal_panel_tab_name(
+                env,
+                id,
+                &mut window_view.local_tab_label_counts,
+            )
+        }
+        _ => format!("terminal {id}").into(),
+    };
     let panel = window_view.build_wired_terminal_panel(
         id,
         crate::panel::PanelKind::Local,
-        format!("terminal {id}").into(),
+        tab_label,
         None,
         launch_state,
         terminal,
@@ -403,7 +413,9 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
         first.update(cx, |this, cx| {
             // Simulate a long-running app where many terminal IDs were previously consumed.
             this.next_terminal_id = 42;
-            let env = HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]);
+            // Simulate bash through bash 5 having been closed while bash 6 remains.
+            this.local_tab_label_counts.insert("bash".to_string(), 5);
+            let env = HashMap::from([("TERMUA_SHELL".to_string(), "bash".to_string())]);
             add_fake_local_terminal_with_launch(
                 this,
                 TerminalType::WezTerm,
@@ -435,7 +447,7 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             cx,
         )
     });
-    restored_cx.update(|_window, cx| {
+    restored_cx.update(|window, cx| {
         let panel = restored
             .read(cx)
             .dock_area
@@ -462,18 +474,43 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             Some(TerminalType::WezTerm),
             "restored active terminal should repopulate the footbar backend state"
         );
-        let next_label = restored.update(cx, |this, _cx| {
-            crate::panel::local_terminal_panel_tab_name(
-                &HashMap::from([("TERMUA_SHELL".to_string(), "sh".to_string())]),
-                this.next_terminal_id,
-                &mut this.local_tab_label_counts,
-            )
-        });
         assert_eq!(
-            next_label.as_ref(),
-            "sh 2",
-            "restored local tabs should contribute to per-shell label numbering"
+            restored.read(cx).local_tab_label_counts.get("bash"),
+            None,
+            "restoration should restart shell label allocation from the base label"
         );
+        for _ in 0..6 {
+            restored.update(cx, |this, cx| {
+                this.add_local_terminal_with_params(
+                    TerminalType::WezTerm,
+                    HashMap::from([("TERMUA_SHELL".to_string(), "bash".to_string())]),
+                    window,
+                    cx,
+                );
+            });
+        }
+        let labels = restored
+            .read(cx)
+            .dock_area
+            .read(cx)
+            .all_tab_panels(cx)
+            .into_iter()
+            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+            .filter_map(|panel| panel.view().downcast::<crate::panel::TerminalPanel>().ok())
+            .map(|panel| panel.read(cx).tab_label().to_string())
+            .collect::<Vec<_>>();
+        for expected in [
+            "bash", "bash 2", "bash 3", "bash 4", "bash 5", "bash 6", "bash 7",
+        ] {
+            assert_eq!(
+                labels
+                    .iter()
+                    .filter(|label| label.as_str() == expected)
+                    .count(),
+                1,
+                "expected exactly one {expected} tab, got {labels:?}"
+            );
+        }
     });
     assert_eq!(restore_attempts.load(Ordering::SeqCst), 1);
 

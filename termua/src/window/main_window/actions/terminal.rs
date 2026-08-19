@@ -63,29 +63,8 @@ impl TermuaWindow {
         }
     }
 
-    fn rebuild_local_tab_label_counts(&mut self, cx: &gpui::App) {
+    fn reset_local_tab_label_counts(&mut self) {
         self.local_tab_label_counts.clear();
-        let shell_names = self
-            .dock_area
-            .read(cx)
-            .all_tab_panels(cx)
-            .into_iter()
-            .flat_map(|tabs| tabs.read(cx).panels().to_vec())
-            .filter_map(|panel| {
-                if let Ok(panel) = panel.view().downcast::<TerminalPanel>() {
-                    return panel.read(cx).local_shell_display_name();
-                }
-                panel
-                    .view()
-                    .downcast::<crate::panel::SshErrorPanel>()
-                    .ok()
-                    .and_then(|panel| panel.read(cx).local_shell_display_name())
-            })
-            .collect::<Vec<_>>();
-
-        for shell_name in shell_names {
-            *self.local_tab_label_counts.entry(shell_name).or_default() += 1;
-        }
     }
 
     pub(super) fn add_local_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -601,11 +580,40 @@ impl TermuaWindow {
         let id = self.take_next_terminal_id(cx);
 
         let tab_label = match kind {
-            PanelKind::Local => crate::panel::local_terminal_panel_tab_name(
-                &env,
-                id,
-                &mut self.local_tab_label_counts,
-            ),
+            PanelKind::Local => {
+                let occupied_labels = self
+                    .dock_area
+                    .read(cx)
+                    .all_tab_panels(cx)
+                    .into_iter()
+                    .flat_map(|tabs| tabs.read(cx).panels().to_vec())
+                    .filter_map(|panel| {
+                        if let Ok(panel) = panel.view().downcast::<TerminalPanel>() {
+                            return Some(panel.read(cx).tab_label().to_string());
+                        }
+                        panel
+                            .view()
+                            .downcast::<crate::panel::SshErrorPanel>()
+                            .ok()
+                            .and_then(|panel| panel.read(cx).terminal_state())
+                            .map(|state| state.tab_label)
+                    })
+                    .collect::<HashSet<_>>();
+
+                loop {
+                    let candidate = crate::panel::local_terminal_panel_tab_name(
+                        &env,
+                        id,
+                        &mut self.local_tab_label_counts,
+                    );
+                    if !occupied_labels.contains(candidate.as_ref())
+                        || crate::panel::terminal_panel::local_shell_display_name_from_env(&env)
+                            .is_none()
+                    {
+                        break candidate;
+                    }
+                }
+            }
             PanelKind::Ssh | PanelKind::Serial | PanelKind::Recorder => {
                 terminal_panel_tab_name(kind, id)
             }
@@ -697,7 +705,7 @@ impl TermuaWindow {
             break;
         }
         self.reset_next_terminal_id(cx);
-        self.rebuild_local_tab_label_counts(cx);
+        self.reset_local_tab_label_counts();
     }
 
     pub(in crate::window::main_window) fn restore_pending_sftp_panels(

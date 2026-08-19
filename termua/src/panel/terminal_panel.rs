@@ -235,13 +235,6 @@ impl TerminalPanel {
         self.tab_label.clone()
     }
 
-    pub(crate) fn local_shell_display_name(&self) -> Option<String> {
-        match self.launch_state.as_ref() {
-            Some(TerminalLaunchState::Local { env, .. }) => local_shell_display_name_from_env(env),
-            _ => None,
-        }
-    }
-
     pub(crate) fn cleanup_runtime_state<T>(id: usize, cx: &mut Context<T>) {
         crate::assistant::unregister_terminal_target(cx, id);
         crate::footbar::blur_terminal_backend(id, cx);
