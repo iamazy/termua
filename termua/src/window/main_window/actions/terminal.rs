@@ -100,7 +100,7 @@ impl TermuaWindow {
             .collect()
     }
 
-    fn next_local_tab_label(
+    pub(in crate::window::main_window) fn next_local_tab_label(
         &mut self,
         env: &HashMap<String, String>,
         id: usize,

@@ -67,11 +67,7 @@ fn add_fake_local_terminal_with_launch(
     });
     let tab_label = match launch_state.as_ref() {
         Some(crate::panel::TerminalLaunchState::Local { env, .. }) => {
-            crate::panel::local_terminal_panel_tab_name(
-                env,
-                id,
-                &mut window_view.local_tab_label_counts,
-            )
+            window_view.next_local_tab_label(env, id, cx)
         }
         _ => format!("terminal {id}").into(),
     };
@@ -479,11 +475,16 @@ fn main_window_restores_local_terminal_panel(cx: &mut gpui::TestAppContext) {
             None,
             "restoration should restart shell label allocation from the base label"
         );
+        let env = HashMap::from([("TERMUA_SHELL".to_string(), "bash".to_string())]);
         for _ in 0..6 {
             restored.update(cx, |this, cx| {
-                this.add_local_terminal_with_params(
+                add_fake_local_terminal_with_launch(
+                    this,
                     TerminalType::WezTerm,
-                    HashMap::from([("TERMUA_SHELL".to_string(), "bash".to_string())]),
+                    Some(crate::panel::TerminalLaunchState::Local {
+                        backend_type: TerminalType::WezTerm,
+                        env: env.clone(),
+                    }),
                     window,
                     cx,
                 );
