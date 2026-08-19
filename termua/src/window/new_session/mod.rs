@@ -339,7 +339,7 @@ impl NewSessionWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::set_window_title_for_mode(mode, protocol, window);
+        window.set_window_title(&Self::window_title(mode, protocol));
         Self::ensure_globals(cx);
 
         let lock_overlay = crate::lock_screen::overlay::LockOverlayState::new(window, cx);
@@ -395,10 +395,6 @@ impl NewSessionWindow {
         } else {
             t!("NewSession.WindowTitle.New").to_string()
         }
-    }
-
-    fn set_window_title_for_mode(mode: SessionEditorMode, protocol: Protocol, window: &mut Window) {
-        window.set_window_title(&Self::window_title(mode, protocol));
     }
 
     fn ensure_globals(cx: &mut Context<Self>) {

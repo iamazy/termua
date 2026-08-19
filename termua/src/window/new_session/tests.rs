@@ -1826,31 +1826,6 @@ fn local_terminal_env_includes_shell_term_and_locale() {
     assert_eq!(env.get("LANG"), Some(&"C".to_string()));
 }
 
-#[test]
-fn edit_mode_disabled_protocol_tab_uses_not_allowed_cursor() {
-    let selected_ix = Protocol::Ssh.tab_index();
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(
-            true,
-            selected_ix,
-            Protocol::Shell.tab_index()
-        ),
-        Some(gpui::CursorStyle::OperationNotAllowed)
-    );
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(true, selected_ix, selected_ix),
-        None
-    );
-    assert_eq!(
-        NewSessionWindow::disabled_protocol_tab_cursor_style(
-            false,
-            selected_ix,
-            Protocol::Shell.tab_index()
-        ),
-        None
-    );
-}
-
 #[gpui::test]
 fn new_local_connect_persists_session_in_store(cx: &mut gpui::TestAppContext) {
     use std::sync::{Arc, Mutex};

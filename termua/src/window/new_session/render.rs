@@ -260,8 +260,6 @@ impl NewSessionWindow {
         label: String,
         protocol: Protocol,
         selected_ix: usize,
-        is_edit: bool,
-        cursor: Option<gpui::CursorStyle>,
         selected_tab_tint: gpui::Hsla,
         tab_divider_color: gpui::Hsla,
         show_divider: bool,
@@ -270,17 +268,10 @@ impl NewSessionWindow {
             .relative()
             .flex_1()
             .debug_selector(move || format!("termua-new-session-tab-{}", protocol.debug_id()))
-            .when_some(cursor, |this, cursor| {
-                this.map(|mut this| {
-                    this.style().mouse_cursor = Some(cursor);
-                    this
-                })
-            })
             .child(
                 Tab::new()
                     .label(label)
                     .selected(selected_ix == protocol.tab_index())
-                    .disabled(cursor.is_some())
                     .w_full()
                     .justify_center(),
             )
@@ -294,19 +285,9 @@ impl NewSessionWindow {
                     .when(selected_ix == protocol.tab_index(), |this| {
                         this.bg(selected_tab_tint)
                     })
-                    .when_some(cursor, |this, cursor| {
-                        this.map(|mut this| {
-                            this.style().mouse_cursor = Some(cursor);
-                            this
-                        })
-                    })
                     // `gpui-component::Tab` stops mouse-down propagation, so the click target
                     // needs to live above the visual tab instead of on a parent container.
                     .on_mouse_down(MouseButton::Left, move |_, window, app| {
-                        if is_edit {
-                            window.refresh();
-                            return;
-                        }
                         this.update(app, |this, cx| this.set_protocol(protocol, cx));
                         window.refresh();
                     }),
@@ -332,25 +313,8 @@ impl NewSessionWindow {
     ) -> impl IntoElement {
         let this = cx.entity();
         let selected_ix = self.protocol.tab_index();
-        let is_edit = self.mode.is_edit();
         let selected_tab_tint = cx.theme().tab_active.darken(0.08).opacity(0.32);
         let tab_divider_color = cx.theme().border.opacity(0.7);
-
-        let shell_cursor = Self::disabled_protocol_tab_cursor_style(
-            is_edit,
-            selected_ix,
-            Protocol::Shell.tab_index(),
-        );
-        let ssh_cursor = Self::disabled_protocol_tab_cursor_style(
-            is_edit,
-            selected_ix,
-            Protocol::Ssh.tab_index(),
-        );
-        let serial_cursor = Self::disabled_protocol_tab_cursor_style(
-            is_edit,
-            selected_ix,
-            Protocol::Serial.tab_index(),
-        );
 
         div()
             .w_full()
@@ -367,8 +331,6 @@ impl NewSessionWindow {
                             t!("NewSession.Tabs.Shell").to_string(),
                             Protocol::Shell,
                             selected_ix,
-                            is_edit,
-                            shell_cursor,
                             selected_tab_tint,
                             tab_divider_color,
                             true,
@@ -378,8 +340,6 @@ impl NewSessionWindow {
                             t!("NewSession.Tabs.Ssh").to_string(),
                             Protocol::Ssh,
                             selected_ix,
-                            is_edit,
-                            ssh_cursor,
                             selected_tab_tint,
                             tab_divider_color,
                             true,
@@ -389,30 +349,12 @@ impl NewSessionWindow {
                             t!("NewSession.Tabs.Serial").to_string(),
                             Protocol::Serial,
                             selected_ix,
-                            is_edit,
-                            serial_cursor,
                             selected_tab_tint,
                             tab_divider_color,
                             false,
                         ),
                     ]),
             )
-    }
-
-    pub(super) fn disabled_protocol_tab_cursor_style(
-        is_edit: bool,
-        selected_ix: usize,
-        tab_ix: usize,
-    ) -> Option<gpui::CursorStyle> {
-        if !is_edit {
-            return None;
-        }
-
-        if tab_ix == selected_ix {
-            return None;
-        }
-
-        Some(gpui::CursorStyle::OperationNotAllowed)
     }
 
     fn render_footer(
