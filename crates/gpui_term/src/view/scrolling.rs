@@ -74,6 +74,17 @@ impl TerminalScrollbarHandle {
 }
 
 impl ScrollbarHandle for TerminalScrollbarHandle {
+    fn viewport_bounds(&self) -> Bounds<Pixels> {
+        let state = self.state.get();
+        Bounds {
+            origin: Point::default(),
+            size: size(
+                Pixels::ZERO,
+                state.viewport_lines as f32 * state.line_height,
+            ),
+        }
+    }
+
     fn offset(&self) -> Point<Pixels> {
         let state = self.state.get();
         let max_offset = state.total_lines.saturating_sub(state.viewport_lines);

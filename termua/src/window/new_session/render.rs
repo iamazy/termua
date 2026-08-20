@@ -9,7 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     input::Input,
-    scroll::{Scrollbar, ScrollbarShow},
+    scroll::Scrollbar,
     select::Select,
     switch::Switch,
     tab::Tab,
@@ -554,8 +554,7 @@ impl NewSessionWindow {
                     .min_h_0()
                     .child(
                         Scrollbar::vertical(&self.right_scroll_handle)
-                            .id("termua-new-session-right-scrollbar")
-                            .scrollbar_show(ScrollbarShow::Scrolling),
+                            .id("termua-new-session-right-scrollbar"),
                     ),
             )
     }

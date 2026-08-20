@@ -1112,7 +1112,7 @@ impl SettingsWindow {
             window,
             cx,
             t!("Settings.Assistant.ExtraHeadersPlaceholder").to_string(),
-            |input| input.auto_grow(2, 6),
+            |input| input,
         );
         if !settings.assistant.extra_headers.is_empty() {
             let s = assistant_headers_to_text(&settings.assistant.extra_headers);

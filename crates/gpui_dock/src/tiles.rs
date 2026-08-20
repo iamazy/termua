@@ -11,11 +11,7 @@ use gpui::{
     Size, StatefulInteractiveElement, Styled, WeakEntity, Window, actions, div,
     prelude::FluentBuilder, px, size,
 };
-use gpui_component::{
-    ActiveTheme, ElementExt, Icon, IconName, h_flex,
-    scroll::{Scrollbar, ScrollbarShow},
-    v_flex,
-};
+use gpui_component::{ActiveTheme, ElementExt, Icon, IconName, h_flex, scroll::Scrollbar, v_flex};
 
 use super::{
     DockArea, Panel, PanelEvent, PanelInfo, PanelState, PanelView, StackPanel, TabPanel, TileMeta,
@@ -141,7 +137,6 @@ pub struct Tiles {
     bounds: Bounds<Pixels>,
     history: History<TileChange>,
     scroll_handle: ScrollHandle,
-    scrollbar_show: Option<ScrollbarShow>,
 }
 
 impl Panel for Tiles {
@@ -191,23 +186,11 @@ impl Tiles {
             dragging_initial_mouse: Point::default(),
             dragging_initial_bounds: Bounds::default(),
             resizing_id: None,
-            scrollbar_show: None,
             resizing_drag_data: None,
             bounds: Bounds::default(),
             history: History::new().group_interval(std::time::Duration::from_millis(100)),
             scroll_handle: ScrollHandle::default(),
         }
-    }
-
-    /// Set the scrollbar show mode [`ScrollbarShow`], if not set use the
-    /// `cx.theme().scrollbar_show`.
-    pub fn set_scrollbar_show(
-        &mut self,
-        scrollbar_show: Option<ScrollbarShow>,
-        cx: &mut Context<Self>,
-    ) {
-        self.scrollbar_show = scrollbar_show;
-        cx.notify();
     }
 
     pub fn panels(&self) -> &[TileItem] {
@@ -1224,13 +1207,7 @@ impl Render for Tiles {
                     .left_0()
                     .right_0()
                     .bottom_0()
-                    .child(
-                        Scrollbar::new(&self.scroll_handle)
-                            .scroll_size(scroll_size)
-                            .when_some(self.scrollbar_show, |this, scrollbar_show| {
-                                this.scrollbar_show(scrollbar_show)
-                            }),
-                    ),
+                    .child(Scrollbar::new(&self.scroll_handle).scroll_size(scroll_size)),
             )
             .size_full()
     }

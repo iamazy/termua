@@ -11,7 +11,7 @@ use gpui_component::{
     h_flex,
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
-    scroll::{Scrollbar, ScrollbarShow},
+    scroll::Scrollbar,
     spinner::Spinner,
     text::TextView,
     v_flex,
@@ -145,9 +145,7 @@ impl AssistantPanelView {
         crate::assistant::ensure_globals(cx);
 
         let prompt_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .auto_grow(3, 10)
-                .placeholder(t!("Assistant.Placeholder.Ask").to_string())
+            InputState::new(window, cx).placeholder(t!("Assistant.Placeholder.Ask").to_string())
         });
         let subs = vec![
             cx.observe(&prompt_input, |_, _, cx| cx.notify()),
@@ -655,9 +653,7 @@ impl AssistantPanelView {
                     .h_full()
                     .min_h_0()
                     .child(
-                        Scrollbar::vertical(&self.scroll_handle)
-                            .id("termua-assistant-scrollbar")
-                            .scrollbar_show(ScrollbarShow::Always),
+                        Scrollbar::vertical(&self.scroll_handle).id("termua-assistant-scrollbar"),
                     ),
             )
             .into_any_element()

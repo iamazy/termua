@@ -9,7 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     link::Link,
-    scroll::{Scrollbar, ScrollbarShow},
+    scroll::Scrollbar,
     tooltip::Tooltip,
     v_flex,
 };
@@ -552,8 +552,7 @@ impl SettingsWindow {
                     .min_h_0()
                     .child(
                         Scrollbar::vertical(&self.right_scroll_handle)
-                            .id("termua-settings-right-scrollbar")
-                            .scrollbar_show(ScrollbarShow::Always),
+                            .id("termua-settings-right-scrollbar"),
                     ),
             )
     }

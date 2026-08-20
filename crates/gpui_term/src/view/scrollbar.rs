@@ -5,10 +5,7 @@ use gpui::{
     InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels,
     ReadGlobal, Style, Styled, Window, div, fill, point, px, relative, size,
 };
-use gpui_component::{
-    ActiveTheme,
-    scroll::{Scrollbar, ScrollbarShow},
-};
+use gpui_component::{ActiveTheme, scroll::Scrollbar};
 
 use super::TerminalView;
 use crate::{
@@ -205,9 +202,7 @@ impl TerminalView {
                 .bottom_0()
                 .w(SCROLLBAR_WIDTH)
                 .child(
-                    Scrollbar::vertical(&self.terminal_scrollbar_handle)
-                        .id("terminal-scrollbar")
-                        .scrollbar_show(ScrollbarShow::Hover),
+                    Scrollbar::vertical(&self.terminal_scrollbar_handle).id("terminal-scrollbar"),
                 )
                 .into_any_element(),
         )

@@ -9,7 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     list::ListItem,
-    scroll::{Scrollbar, ScrollbarShow},
+    scroll::Scrollbar,
     text::TextView,
     v_flex,
 };
@@ -188,8 +188,7 @@ impl Render for MessageCenterView {
                             .min_h_0()
                             .child(
                                 Scrollbar::vertical(&self.scroll_handle)
-                                    .id("termua-messages-scrollbar")
-                                    .scrollbar_show(ScrollbarShow::Always),
+                                    .id("termua-messages-scrollbar"),
                             ),
                     ),
             )
