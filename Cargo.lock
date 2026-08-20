@@ -3027,7 +3027,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_common"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "gpui",
@@ -3039,7 +3039,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_dock"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "gpui",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_sftp"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "camino",
  "gpui",
@@ -3205,7 +3205,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_term"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -3245,7 +3245,7 @@ dependencies = [
 
 [[package]]
 name = "gpui_transfer"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "gpui",
 ]
@@ -4712,7 +4712,7 @@ dependencies = [
 
 [[package]]
 name = "menubar"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "env_logger",
  "gpui",
@@ -7993,7 +7993,7 @@ dependencies = [
 
 [[package]]
 name = "termua"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "async-tungstenite",
@@ -8018,19 +8018,21 @@ dependencies = [
  "rust-i18n",
  "rustix 1.1.4",
  "secret-service",
+ "semver",
  "serde",
  "serde_json",
  "serde_json_lenient",
  "smol",
  "termua_zeroclaw",
  "thiserror 2.0.18",
+ "ureq",
  "wezterm-ssh",
  "windows 0.62.2",
 ]
 
 [[package]]
 name = "termua_zeroclaw"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "serde",

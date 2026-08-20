@@ -24,6 +24,7 @@ mod settings;
 mod ssh;
 mod static_suggestions;
 mod theme_manager;
+mod update;
 mod web;
 mod window;
 mod workspace;
