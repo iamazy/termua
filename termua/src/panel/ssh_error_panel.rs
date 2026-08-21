@@ -193,7 +193,7 @@ mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
     use gpui::AppContext;
-    use gpui_dock::{ PanelInfo};
+    use gpui_dock::PanelInfo;
 
     use super::*;
     use crate::panel::{
