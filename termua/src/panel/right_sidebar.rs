@@ -142,7 +142,8 @@ mod tests {
 
     use super::*;
 
-    fn init_test_app(app: &mut gpui::App) {
+    fn init_test_app(app: &mut gpui::App) -> crate::locale::LocaleLockGuard {
+        let locale_guard = crate::locale::lock();
         gpui_component::init(app);
         gpui_term::init(app);
         crate::settings::set_language(crate::settings::Language::English, app);
@@ -151,18 +152,21 @@ mod tests {
             enabled: false,
             ..Default::default()
         });
+
+        locale_guard
     }
 
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn right_sidebar_does_not_render_outer_tab_title_or_tab_bar(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| {
-            init_test_app(app);
+        let _locale_guard = cx.update(|app| {
+            let locale_guard = init_test_app(app);
             app.set_global(crate::right_sidebar::RightSidebarState {
                 visible: true,
                 width: px(360.),
                 active_tab: crate::right_sidebar::RightSidebarTab::Assistant,
             });
+            locale_guard
         });
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
@@ -202,12 +206,13 @@ mod tests {
 
     #[gpui::test]
     fn right_sidebar_ignores_unsupported_persisted_state(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| {
-            init_test_app(app);
+        let _locale_guard = cx.update(|app| {
+            let locale_guard = init_test_app(app);
             app.set_global(crate::right_sidebar::RightSidebarState {
                 active_tab: crate::right_sidebar::RightSidebarTab::Assistant,
                 ..Default::default()
             });
+            locale_guard
         });
 
         let (sidebar, window_cx) =

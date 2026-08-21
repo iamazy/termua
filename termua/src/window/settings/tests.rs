@@ -982,15 +982,6 @@ fn disabling_assistant_shows_zeroclaw_shutdown_dialog_buttons(cx: &mut gpui::Tes
             "expected disable assistant click to open a dialog"
         );
     });
-    let root_for_redraw = root.clone();
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(root_for_redraw),
-    );
     cx.run_until_parked();
 
     assert!(

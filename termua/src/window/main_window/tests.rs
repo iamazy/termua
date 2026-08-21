@@ -1046,7 +1046,7 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
     let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
     let termua_slot_for_view = Rc::clone(&termua_slot);
 
-    let (root, cx) = cx.add_window_view(|window, cx| {
+    let (_root, cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| TermuaWindow::new(window, cx));
         *termua_slot_for_view.borrow_mut() = Some(view.clone());
         gpui_component::Root::new(view, window, cx)
@@ -1088,14 +1088,6 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
         });
     });
 
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
     cx.run_until_parked();
 
     for selector in [
@@ -1136,7 +1128,7 @@ fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::
 
     let termua_slot: Rc<RefCell<Option<gpui::Entity<TermuaWindow>>>> = Rc::new(RefCell::new(None));
     let termua_slot_for_view = Rc::clone(&termua_slot);
-    let (root, cx) = cx.add_window_view(|window, cx| {
+    let (_root, cx) = cx.add_window_view(|window, cx| {
         let view = cx.new(|cx| TermuaWindow::new(window, cx));
         *termua_slot_for_view.borrow_mut() = Some(view.clone());
         gpui_component::Root::new(view, window, cx)
@@ -1160,14 +1152,6 @@ fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::
         });
     });
 
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(600.)),
-        ),
-        move |_, _| div().size_full().child(root),
-    );
     cx.run_until_parked();
 
     for selector in [
@@ -1324,7 +1308,6 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
             this.dock_area.update(cx, |dock, cx| {
                 dock.add_panel(panel, DockPlacement::Center, None, window, cx);
             });
-            this.request_quit(window, cx);
         });
     });
 
@@ -1334,8 +1317,20 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(root),
+        move |_, _| div().size_full().child(root.clone()),
     );
+    window_cx.run_until_parked();
+
+    window_cx.update(|window, cx| {
+        let termua = termua_slot
+            .borrow()
+            .clone()
+            .expect("expected TermuaWindow view");
+
+        termua.update(cx, |this, cx| {
+            this.request_quit(window, cx);
+        });
+    });
     window_cx.run_until_parked();
 
     assert!(
@@ -3567,7 +3562,9 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     use gpui::{
         App, Context, EventEmitter, FocusHandle, Focusable, IntoElement, Render, Window, div,
     };
+    use gpui_component::ElementExt as _;
     use gpui_dock::{DockPlacement, Panel, PanelEvent, PanelView};
+    use std::{cell::RefCell, rc::Rc};
 
     cx.update(|app| {
         gpui_component::init(app);
@@ -3610,13 +3607,21 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     let _ = crate::keychain::delete_ssh_password(session_id_1);
     let _ = crate::keychain::delete_ssh_password(session_id_2);
 
+    let terminal_tab_bounds_slot: Rc<RefCell<Option<gpui::Bounds<gpui::Pixels>>>> =
+        Rc::new(RefCell::new(None));
+
     struct TerminalTabHarness {
         focus: FocusHandle,
         terminal_view: gpui::Entity<TerminalView>,
+        bounds_slot: Rc<RefCell<Option<gpui::Bounds<gpui::Pixels>>>>,
     }
 
     impl TerminalTabHarness {
-        fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        fn new(
+            window: &mut Window,
+            cx: &mut Context<Self>,
+            bounds_slot: Rc<RefCell<Option<gpui::Bounds<gpui::Pixels>>>>,
+        ) -> Self {
             let active = Arc::new(AtomicBool::new(false));
             let term = cx.new(|_| {
                 Terminal::new(
@@ -3628,6 +3633,7 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
             Self {
                 focus: terminal_view.read(cx).focus_handle.clone(),
                 terminal_view,
+                bounds_slot,
             }
         }
     }
@@ -3656,9 +3662,13 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
 
     impl Render for TerminalTabHarness {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let bounds_slot = self.bounds_slot.clone();
             div()
                 .size_full()
                 .debug_selector(|| "termua-test-terminal-tab".to_string())
+                .on_prepaint(move |bounds, _, _| {
+                    *bounds_slot.borrow_mut() = Some(bounds);
+                })
                 .child(self.terminal_view.clone())
         }
     }
@@ -3683,18 +3693,8 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     let (root, window_cx) = cx.add_window_view(|window, cx| RootHarness::new(window, cx));
 
     // Render a few frames at "windowed" size.
-    for _ in 0..2 {
-        let root_for_draw = root.clone();
-        window_cx.draw(
-            gpui::point(gpui::px(0.), gpui::px(0.)),
-            gpui::size(
-                gpui::AvailableSpace::Definite(gpui::px(900.)),
-                gpui::AvailableSpace::Definite(gpui::px(600.)),
-            ),
-            move |_, _| div().size_full().child(root_for_draw),
-        );
-        window_cx.run_until_parked();
-    }
+    window_cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+    window_cx.run_until_parked();
 
     let row_selector_1: &'static str =
         Box::leak(format!("termua-sessions-session-row-{session_id_1}").into_boxed_str());
@@ -3738,7 +3738,9 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     // Add a terminal tab (the bug report says the sessions tree becomes unclickable once a tab
     // exists, especially after fullscreen).
     window_cx.update(|window, cx| {
-        let panel: Arc<dyn PanelView> = Arc::new(cx.new(|cx| TerminalTabHarness::new(window, cx)));
+        let bounds_slot = terminal_tab_bounds_slot.clone();
+        let panel: Arc<dyn PanelView> =
+            Arc::new(cx.new(|cx| TerminalTabHarness::new(window, cx, bounds_slot)));
         root.update(cx, |this, cx| {
             this.termua.update(cx, |termua, cx| {
                 termua.dock_area.update(cx, |dock, cx| {
@@ -3748,32 +3750,12 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
         });
     });
 
-    for _ in 0..2 {
-        let root_for_draw = root.clone();
-        window_cx.draw(
-            gpui::point(gpui::px(0.), gpui::px(0.)),
-            gpui::size(
-                gpui::AvailableSpace::Definite(gpui::px(900.)),
-                gpui::AvailableSpace::Definite(gpui::px(600.)),
-            ),
-            move |_, _| div().size_full().child(root_for_draw),
-        );
-        window_cx.run_until_parked();
-    }
+    window_cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(600.)));
+    window_cx.run_until_parked();
 
     // Simulate a fullscreen transition after creating a tab.
-    for _ in 0..2 {
-        let root_for_draw = root.clone();
-        window_cx.draw(
-            gpui::point(gpui::px(0.), gpui::px(0.)),
-            gpui::size(
-                gpui::AvailableSpace::Definite(gpui::px(2560.)),
-                gpui::AvailableSpace::Definite(gpui::px(1600.)),
-            ),
-            move |_, _| div().size_full().child(root_for_draw),
-        );
-        window_cx.run_until_parked();
-    }
+    window_cx.simulate_resize(gpui::size(gpui::px(2560.), gpui::px(1600.)));
+    window_cx.run_until_parked();
 
     let row_2_bounds = window_cx
         .debug_bounds(row_selector_2)
@@ -3782,8 +3764,8 @@ fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpu
     let sessions_sidebar = window_cx
         .debug_bounds("termua-sessions-sidebar")
         .expect("expected sessions sidebar to render");
-    let terminal_tab = window_cx
-        .debug_bounds("termua-test-terminal-tab")
+    let terminal_tab = terminal_tab_bounds_slot
+        .borrow()
         .expect("expected terminal tab panel to render");
     let sidebar_right = sessions_sidebar.origin.x + sessions_sidebar.size.width;
     assert!(

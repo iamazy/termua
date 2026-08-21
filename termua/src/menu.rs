@@ -659,7 +659,7 @@ mod tests {
         // We intentionally assert a non-English label to ensure the menu is localized.
         assert_eq!(menus[0].name.as_ref(), "Termua");
         match &menus[0].items[0] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "检查更新"),
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "关于 Termua"),
             _ => panic!("expected first Termua menu item to be an Action"),
         }
     }
@@ -673,22 +673,23 @@ mod tests {
         assert!(!menus.is_empty());
         assert_eq!(menus[0].name.as_ref(), "Termua");
 
-        // Termua menu: Check for updates, About, Settings, <separator>, Quit
-        assert_eq!(menus[0].items.len(), 5);
+        // Termua menu: About, Settings, <separator>, Check for updates, <separator>, Quit
+        assert_eq!(menus[0].items.len(), 6);
         match &menus[0].items[0] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Check for updates"),
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "About Termua"),
             _ => panic!("expected first Termua menu item to be an Action"),
         }
         match &menus[0].items[1] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "About Termua"),
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Open Settings"),
             _ => panic!("expected second Termua menu item to be an Action"),
         }
-        match &menus[0].items[2] {
-            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Open Settings"),
-            _ => panic!("expected third Termua menu item to be an Action"),
+        assert!(matches!(menus[0].items[2], MenuItem::Separator));
+        match &menus[0].items[3] {
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Check for updates"),
+            _ => panic!("expected fourth Termua menu item to be an Action"),
         }
-        assert!(matches!(menus[0].items[3], MenuItem::Separator));
-        match &menus[0].items[4] {
+        assert!(matches!(menus[0].items[4], MenuItem::Separator));
+        match &menus[0].items[5] {
             MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Quit"),
             _ => panic!("expected Quit to be an Action"),
         }
@@ -853,7 +854,7 @@ mod tests {
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_en.items.first() else {
             panic!("expected first Termua menu item to be an action");
         };
-        assert_eq!(name, "Check for updates");
+        assert_eq!(name, "About Termua");
 
         cx.update(|app| crate::settings::set_language(crate::settings::Language::ZhCn, app));
 
@@ -864,6 +865,6 @@ mod tests {
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_zh.items.first() else {
             panic!("expected first Termua menu item to be an action");
         };
-        assert_eq!(name, "检查更新");
+        assert_eq!(name, "关于 Termua");
     }
 }

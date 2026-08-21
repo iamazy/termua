@@ -1196,7 +1196,8 @@ mod tests {
 
     use super::*;
 
-    fn init_test_app(app: &mut gpui::App) {
+    fn init_test_app(app: &mut gpui::App) -> crate::locale::LocaleLockGuard {
+        let locale_guard = crate::locale::lock();
         gpui_component::init(app);
         gpui_term::init(app);
         crate::settings::set_language(crate::settings::Language::English, app);
@@ -1204,6 +1205,8 @@ mod tests {
             enabled: false,
             ..Default::default()
         });
+
+        locale_guard
     }
 
     #[test]
@@ -1275,7 +1278,7 @@ mod tests {
         let assistant_entity_slot: Rc<RefCell<Option<gpui::Entity<AssistantPanelView>>>> =
             Rc::new(RefCell::new(None));
 
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let slot_for_window = assistant_entity_slot.clone();
         let (root, window_cx) = cx.add_window_view(move |window, cx| {
@@ -1361,7 +1364,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_prompt_renders_options_and_send_buttons(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1392,7 +1395,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_in_flight_card_renders_bot_icon(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1421,7 +1424,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_is_rightmost_and_above_body(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1482,7 +1485,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_removes_only_that_message(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1528,7 +1531,7 @@ mod tests {
     fn assistant_reply_with_multiple_commands_renders_run_button_per_command(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1567,7 +1570,7 @@ mod tests {
     fn assistant_user_messages_render_rerun_button_after_assistant_reply(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1601,7 +1604,7 @@ mod tests {
     fn assistant_user_messages_hide_rerun_button_before_assistant_reply(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1637,7 +1640,7 @@ mod tests {
     fn assistant_only_hides_rerun_for_last_user_message_while_in_flight(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
