@@ -5,8 +5,10 @@ use gpui::{
     InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels,
     ReadGlobal, Style, Styled, Window, div, fill, point, px, relative, size,
 };
-use gpui_component::scroll::ScrollbarMode;
-use gpui_component::{ActiveTheme, scroll::Scrollbar};
+use gpui_component::{
+    ActiveTheme,
+    scroll::{Scrollbar, ScrollbarMode},
+};
 
 use super::TerminalView;
 use crate::{

@@ -1462,7 +1462,6 @@ impl SettingsWindow {
                 .tab_stop(false)
                 .text_color(cx.theme().muted_foreground)
                 .on_click({
-                    let this = this.clone();
                     move |_, window, cx| {
                         this.update(cx, |this, _cx| {
                             let value = this
