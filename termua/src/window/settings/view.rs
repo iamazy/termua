@@ -1507,6 +1507,37 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn render_assistant_extra_headers_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .w(px(420.))
+            .relative()
+            .child(Textarea::new(&self.assistant_extra_headers_input).pr(px(28.)))
+            .when(
+                !self
+                    .assistant_extra_headers_input
+                    .read(cx)
+                    .value()
+                    .is_empty(),
+                |this| {
+                    this.child(
+                        Button::new("termua-settings-assistant-extra-headers-clear")
+                            .absolute()
+                            .right_0()
+                            .bottom_0()
+                            .compact()
+                            .ghost()
+                            .icon(IconName::Close)
+                            .tooltip(t!("Settings.Button.Clear").to_string())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.assistant_extra_headers_input
+                                    .update(cx, |state, cx| state.set_value("", window, cx));
+                            })),
+                    )
+                },
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_control_for_setting(
         &self,
         id: &'static str,
@@ -1877,38 +1908,7 @@ impl SettingsWindow {
                     .child(Input::new(&self.assistant_provider_timeout_input).cleanable(true))
                     .into_any_element(),
             ),
-            "assistant.extra_headers" => Some(
-                div()
-                    .w(px(420.))
-                    .relative()
-                    .child(Textarea::new(&self.assistant_extra_headers_input).pr(px(28.)))
-                    .when(
-                        !self
-                            .assistant_extra_headers_input
-                            .read(cx)
-                            .value()
-                            .is_empty(),
-                        |this| {
-                            this.child(
-                                Button::new("termua-settings-assistant-extra-headers-clear")
-                                    .absolute()
-                                    .right_0()
-                                    .bottom_0()
-                                    .compact()
-                                    .ghost()
-                                    .icon(IconName::Close)
-                                    .tooltip(t!("Settings.Button.Clear").to_string())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.assistant_extra_headers_input
-                                            .update(cx, |state, cx| {
-                                                state.set_value("", window, cx)
-                                            });
-                                    })),
-                            )
-                        },
-                    )
-                    .into_any_element(),
-            ),
+            "assistant.extra_headers" => Some(self.render_assistant_extra_headers_control(cx)),
             "assistant.api_key" => Some(self.render_assistant_api_key_control(cx)),
             _ => None,
         }

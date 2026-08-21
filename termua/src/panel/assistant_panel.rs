@@ -533,85 +533,95 @@ impl AssistantPanelView {
                         div()
                             .relative()
                             .child(Textarea::new(&self.prompt_input).pr(px(64.)))
+                            .child(self.render_prompt_actions(
+                                &prompt_value,
+                                in_flight,
+                                assistant_enabled,
+                                attach_selection,
+                                cx,
+                            )),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_prompt_actions(
+        &self,
+        prompt: &str,
+        in_flight: bool,
+        assistant_enabled: bool,
+        attach_selection: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        h_flex()
+            .absolute()
+            .right_0()
+            .top_0()
+            .bottom_0()
+            .items_center()
+            .gap_1()
+            .child(
+                div()
+                    .debug_selector(|| "termua-assistant-send-dropdown".to_string())
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_0()
                             .child(
-                                h_flex()
-                                .absolute()
-                                .right_0()
-                                .top_0()
-                                .bottom_0()
-                                .items_center()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .debug_selector(|| {
-                                            "termua-assistant-send-dropdown".to_string()
-                                        })
-                                        .child(
-                                            h_flex()
-                                                .items_center()
-                                                .gap_0()
-                                                .child(
-                                                    Button::new("termua-assistant-send")
-                                                        .primary()
-                                                        .compact()
-                                                        .disabled(Self::send_button_disabled(
-                                                            in_flight,
-                                                            assistant_enabled,
-                                                            &prompt_value,
-                                                        ))
-                                                        .rounded_tr(px(0.))
-                                                        .rounded_br(px(0.))
-                                                        .tooltip(if in_flight { "Cancel" } else { "Send" })
-                                                        .debug_selector(|| {
-                                                            "termua-assistant-send-button".to_string()
-                                                        })
-                                                        .icon(
-                                                            Icon::default()
-                                                                .path(if in_flight {
-                                                                    TermuaIcon::Stop
-                                                                } else {
-                                                                    TermuaIcon::Send
-                                                                })
-                                                                .size_4(),
-                                                        )
-                                                        .on_click(cx.listener(|this, _ev, window, cx| {
-                                                            if cx.global::<AssistantState>().in_flight {
-                                                                this.cancel(window, cx);
-                                                            } else {
-                                                                this.send(window, cx);
-                                                            }
-                                                            cx.refresh_windows();
-                                                            window.refresh();
-                                                        })),
-                                                )
-                                                .child(
-                                                    Button::new("termua-assistant-send-menu")
-                                                        .primary()
-                                                        .compact()
-                                                        .w(px(12.))
-                                                        .px(px(0.))
-                                                        .ml(px(-1.))
-                                                        .rounded_tl(px(0.))
-                                                        .rounded_bl(px(0.))
-                                                        .icon(
-                                                            Icon::new(gpui_component::IconName::ChevronDown)
-                                                                .xsmall(),
-                                                        )
-                                                        .dropdown_menu(move |menu: PopupMenu, _window, _cx| {
-                                                            menu.item(
-                                                                PopupMenuItem::new("Include selection")
-                                                                    .checked(attach_selection)
-                                                                    .on_click(|_, window, cx| {
-                                                                        let state = cx.global_mut::<AssistantState>();
-                                                                        state.attach_selection = !state.attach_selection;
-                                                                        cx.refresh_windows();
-                                                                        window.refresh();
-                                                                    }),
-                                                            )
-                                                        }),
-                                                ),
-                                        ),
-                                ),
+                                Button::new("termua-assistant-send")
+                                    .primary()
+                                    .compact()
+                                    .disabled(Self::send_button_disabled(
+                                        in_flight,
+                                        assistant_enabled,
+                                        prompt,
+                                    ))
+                                    .rounded_tr(px(0.))
+                                    .rounded_br(px(0.))
+                                    .tooltip(if in_flight { "Cancel" } else { "Send" })
+                                    .debug_selector(|| "termua-assistant-send-button".to_string())
+                                    .icon(
+                                        Icon::default()
+                                            .path(if in_flight {
+                                                TermuaIcon::Stop
+                                            } else {
+                                                TermuaIcon::Send
+                                            })
+                                            .size_4(),
+                                    )
+                                    .on_click(cx.listener(|this, _ev, window, cx| {
+                                        if cx.global::<AssistantState>().in_flight {
+                                            this.cancel(window, cx);
+                                        } else {
+                                            this.send(window, cx);
+                                        }
+                                        cx.refresh_windows();
+                                        window.refresh();
+                                    })),
+                            )
+                            .child(
+                                Button::new("termua-assistant-send-menu")
+                                    .primary()
+                                    .compact()
+                                    .w(px(12.))
+                                    .px(px(0.))
+                                    .ml(px(-1.))
+                                    .rounded_tl(px(0.))
+                                    .rounded_bl(px(0.))
+                                    .icon(Icon::new(gpui_component::IconName::ChevronDown).xsmall())
+                                    .dropdown_menu(move |menu: PopupMenu, _window, _cx| {
+                                        menu.item(
+                                            PopupMenuItem::new("Include selection")
+                                                .checked(attach_selection)
+                                                .on_click(|_, window, cx| {
+                                                    let state = cx.global_mut::<AssistantState>();
+                                                    state.attach_selection =
+                                                        !state.attach_selection;
+                                                    cx.refresh_windows();
+                                                    window.refresh();
+                                                }),
+                                        )
+                                    }),
                             ),
                     ),
             )
