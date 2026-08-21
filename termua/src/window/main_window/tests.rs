@@ -1317,7 +1317,7 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
             gpui::AvailableSpace::Definite(gpui::px(900.)),
             gpui::AvailableSpace::Definite(gpui::px(600.)),
         ),
-        move |_, _| div().size_full().child(root.clone()),
+        move |_, _| div().size_full().child(root),
     );
     window_cx.run_until_parked();
 

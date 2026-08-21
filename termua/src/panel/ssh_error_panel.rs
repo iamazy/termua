@@ -192,8 +192,8 @@ impl Render for SshErrorPanel {
 mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
-    use gpui::AppContext as _;
-    use gpui_dock::{Panel as _, PanelInfo};
+    use gpui::AppContext;
+    use gpui_dock::{ PanelInfo};
 
     use super::*;
     use crate::panel::{
