@@ -84,6 +84,23 @@ fn search_matches_case_insensitively_on_title_and_keywords() {
 }
 
 #[test]
+fn assistant_api_key_change_state_tracks_empty_and_unsaved_values() {
+    assert!(!SettingsWindow::assistant_api_key_needs_save(
+        "",
+        Some("secret")
+    ));
+    assert!(!SettingsWindow::assistant_api_key_needs_save(
+        "secret",
+        Some("secret")
+    ));
+    assert!(SettingsWindow::assistant_api_key_needs_save(
+        "changed",
+        Some("secret")
+    ));
+    assert!(SettingsWindow::assistant_api_key_needs_save("secret", None));
+}
+
+#[test]
 fn setting_meta_falls_back_to_embedded_copy_when_translation_missing() {
     let _guard = crate::locale::lock();
     crate::locale::set_locale("en");

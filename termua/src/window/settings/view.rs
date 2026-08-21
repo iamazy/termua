@@ -1449,60 +1449,55 @@ impl SettingsWindow {
 
     fn render_assistant_api_key_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity();
-        h_flex()
-            .gap_1()
-            .items_center()
-            .child(
-                div()
-                    .w(px(320.))
-                    .child(Input::new(&self.assistant_api_key_input).cleanable(true)),
-            )
-            .child(
-                Button::new("termua-settings-assistant-api-key-save")
-                    .label(t!("Settings.Button.Save").to_string())
-                    .small()
-                    .on_click({
-                        let this = this.clone();
-                        move |_, window, cx| {
-                            this.update(cx, |this, cx| {
-                                let value =
-                                    this.assistant_api_key_input.read(cx).value().to_string();
-                                let value = value.trim().to_string();
-                                if value.is_empty() {
-                                    return;
-                                }
+        let current_value = self.assistant_api_key_input.read(cx).value().to_string();
+        let needs_save = SettingsWindow::assistant_api_key_needs_save(
+            &current_value,
+            self.assistant_api_key_saved_value.as_deref(),
+        );
+        let save_button = if needs_save {
+            Button::new("termua-settings-assistant-api-key-save")
+                .icon(Icon::new(IconName::Check))
+                .xsmall()
+                .ghost()
+                .tab_stop(false)
+                .text_color(cx.theme().muted_foreground)
+                .on_click({
+                    let this = this.clone();
+                    move |_, window, cx| {
+                        this.update(cx, |this, _cx| {
+                            let value = this
+                                .assistant_api_key_input
+                                .read(_cx)
+                                .value()
+                                .trim()
+                                .to_string();
+                            if value.is_empty() {
+                                return;
+                            }
 
-                                match crate::keychain::store_zeroclaw_api_key(&value) {
-                                    Ok(()) => {
-                                        this.assistant_api_key_input.update(cx, |state, cx| {
-                                            state.set_value("", window, cx);
-                                        });
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to store assistant api key: {err:#}");
-                                    }
+                            match crate::keychain::store_zeroclaw_api_key(&value) {
+                                Ok(()) => {
+                                    this.assistant_api_key_saved_value = Some(value);
+                                    window.refresh();
                                 }
-                            });
-                        }
-                    }),
-            )
+                                Err(err) => {
+                                    log::warn!("failed to store assistant api key: {err:#}");
+                                }
+                            }
+                        });
+                    }
+                })
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+
+        div()
+            .w(px(420.))
             .child(
-                Button::new("termua-settings-assistant-api-key-clear")
-                    .label(t!("Settings.Button.Clear").to_string())
-                    .small()
-                    .ghost()
-                    .on_click({
-                        move |_, window, cx| {
-                            this.update(cx, |this, cx| {
-                                if let Err(err) = crate::keychain::delete_zeroclaw_api_key() {
-                                    log::warn!("failed to delete assistant api key: {err:#}");
-                                }
-                                this.assistant_api_key_input.update(cx, |state, cx| {
-                                    state.set_value("", window, cx);
-                                });
-                            });
-                        }
-                    }),
+                Input::new(&self.assistant_api_key_input)
+                    .cleanable(false)
+                    .suffix(save_button),
             )
             .into_any_element()
     }
