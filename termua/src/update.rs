@@ -145,11 +145,40 @@ mod tests {
 
     use super::*;
 
+    fn sanitize_filename_component(value: &str) -> String {
+        let sanitized: String = value
+            .chars()
+            .map(|c| match c {
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+                c if c.is_control() => '-',
+                c => c,
+            })
+            .collect();
+
+        // Keep the component short to stay well below Windows MAX_PATH.
+        let max_len = 80;
+        let mut sanitized = if sanitized.len() > max_len {
+            sanitized[..max_len].to_string()
+        } else {
+            sanitized
+        };
+        while sanitized.ends_with([' ', '.']) {
+            sanitized.pop();
+        }
+        sanitized
+    }
+
     fn unique_state_path(test_name: &str) -> std::path::PathBuf {
+        let thread_name = std::thread::current()
+            .name()
+            .map(sanitize_filename_component)
+            .unwrap_or_else(|| "test".to_string());
+
         std::env::temp_dir().join(format!(
-            "termua-update-{test_name}-{}-{}.json",
+            "termua-update-{}-{}-{}.json",
+            sanitize_filename_component(test_name),
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            thread_name
         ))
     }
 
