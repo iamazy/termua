@@ -15,7 +15,6 @@ use gpui::{
     SharedString, Styled, Window, div,
 };
 use gpui_common::TermuaIcon;
-use gpui_component::input::InputState;
 use gpui_dock::{DockPlacement, PanelView};
 use gpui_term::{
     Authentication, CursorShape, Event as TerminalEvent, SshOptions, Terminal, TerminalBackend,
@@ -3030,7 +3029,9 @@ fn main_window_pressing_enter_unlocks(cx: &mut gpui::TestAppContext) {
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.update(app, |state, cx| state.set_value("pw", window, cx));
     });
     window_cx.run_until_parked();
@@ -3099,7 +3100,9 @@ fn main_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppContex
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.update(app, |state, cx| state.set_value("bad", window, cx));
     });
     window_cx.run_until_parked();
@@ -3115,7 +3118,9 @@ fn main_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppContex
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to still be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.read(app).value().to_string()
     });
     assert_eq!(
@@ -3214,7 +3219,9 @@ fn main_window_lock_password_input_accepts_text(cx: &mut gpui::TestAppContext) {
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.read(app).value().to_string()
     });
 

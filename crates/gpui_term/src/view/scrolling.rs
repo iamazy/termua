@@ -187,11 +187,10 @@ pub(crate) fn scrollbar_bounds_for_terminal(
     terminal_bounds: Bounds<Pixels>,
     scrollbar_width: Pixels,
 ) -> Bounds<Pixels> {
-    // The terminal bounds describe the character grid. The scrollbar and marker lane starts
-    // immediately after it so terminal characters never render underneath the lane.
+    // Overlay the lane on the terminal's right edge so the character grid can use the full width.
     let w = scrollbar_width.max(Pixels::ZERO);
     Bounds {
-        origin: point(terminal_bounds.right(), terminal_bounds.origin.y),
+        origin: point(terminal_bounds.right() - w, terminal_bounds.origin.y),
         size: size(w, terminal_bounds.size.height),
     }
 }
@@ -1020,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn scrollbar_bounds_for_terminal_returns_dedicated_lane_bounds() {
+    fn scrollbar_bounds_for_terminal_overlays_right_edge() {
         let terminal_bounds = Bounds {
             origin: point(px(10.0), px(20.0)),
             size: size(px(80.0), px(100.0)),
@@ -1028,7 +1027,20 @@ mod tests {
 
         let bounds = scrollbar_bounds_for_terminal(terminal_bounds, px(14.0));
 
-        assert_eq!(bounds.origin, point(px(90.0), px(20.0)));
+        assert_eq!(bounds.origin, point(px(76.0), px(20.0)));
+        assert_eq!(bounds.size, size(px(14.0), px(100.0)));
+    }
+
+    #[test]
+    fn scrollbar_bounds_overlay_fractional_cell_space() {
+        let terminal_bounds = Bounds {
+            origin: point(px(10.0), px(20.0)),
+            size: size(px(83.0), px(100.0)),
+        };
+
+        let bounds = scrollbar_bounds_for_terminal(terminal_bounds, px(14.0));
+
+        assert_eq!(bounds.origin, point(px(79.0), px(20.0)));
         assert_eq!(bounds.size, size(px(14.0), px(100.0)));
     }
 

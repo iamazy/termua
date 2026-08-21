@@ -5,6 +5,7 @@ use gpui::{
     InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels,
     ReadGlobal, Style, Styled, Window, div, fill, point, px, relative, size,
 };
+use gpui_component::scroll::ScrollbarMode;
 use gpui_component::{ActiveTheme, scroll::Scrollbar};
 
 use super::TerminalView;
@@ -202,7 +203,10 @@ impl TerminalView {
                 .bottom_0()
                 .w(SCROLLBAR_WIDTH)
                 .child(
-                    Scrollbar::vertical(&self.terminal_scrollbar_handle).id("terminal-scrollbar"),
+                    Scrollbar::vertical(&self.terminal_scrollbar_handle)
+                        .id("terminal-scrollbar")
+                        .mode(ScrollbarMode::Hover)
+                        .viewport_from_layout(),
                 )
                 .into_any_element(),
         )
@@ -345,7 +349,6 @@ impl TerminalView {
         let panel_border = theme.border.opacity(0.9);
         let line_no_fg = theme.foreground.opacity(0.40);
         let line_no_digits = total_lines.max(1).to_string().len();
-
         let mut body = div()
             .id("terminal-scrollbar-preview")
             .debug_selector(|| "terminal-scrollbar-preview".to_string())

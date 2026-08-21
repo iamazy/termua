@@ -94,9 +94,9 @@ fn compute_terminal_layout_metrics(
     };
 
     let mut size = bounds.size;
-    // Keep the scrollbar/marker lane outside the terminal cell grid so progress, search-match,
-    // and soft-wrap markers never cover actual terminal characters.
-    size.width -= gutter + scrollbar_width;
+    // The scrollbar overlays the right edge, matching Zed's terminal behavior, so it does not
+    // reserve a permanently empty lane beside the character grid.
+    size.width -= gutter;
 
     // Workaround: if the terminal is effectively one column wide, some wide
     // characters can trigger incorrect wrap/damage behavior in the backend.
@@ -3711,7 +3711,7 @@ mod tests {
         let (dimensions, _, _, _, scrollbar_width) =
             compute_terminal_layout_metrics(bounds, px(6.0), px(12.0), true, false, true, 100);
         assert_eq!(scrollbar_width, px(14.0));
-        assert_eq!(dimensions.bounds.size.width, px(272.0));
+        assert_eq!(dimensions.bounds.size.width, px(286.0));
     }
 
     #[test]

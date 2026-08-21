@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use gpui::{App, Context, FocusHandle, Window};
-use gpui_component::input::InputState;
+use gpui_component::input::{InputState, TextareaState};
 use rust_i18n::t;
 
 use super::{
@@ -35,6 +35,17 @@ impl SettingsWindow {
         });
     }
 
+    fn set_textarea_placeholder(
+        input: &gpui::Entity<TextareaState>,
+        placeholder: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        input.update(cx, |state, cx| {
+            state.set_placeholder(placeholder, window, cx);
+        });
+    }
+
     fn sync_assistant_placeholders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         Self::sync_input_placeholders(
             window,
@@ -57,14 +68,16 @@ impl SettingsWindow {
                     t!("Settings.Assistant.TimeoutPlaceholder").to_string(),
                 ),
                 (
-                    self.assistant_extra_headers_input.clone(),
-                    t!("Settings.Assistant.ExtraHeadersPlaceholder").to_string(),
-                ),
-                (
                     self.assistant_api_key_input.clone(),
                     t!("Settings.Assistant.ApiKeyPlaceholder").to_string(),
                 ),
             ],
+        );
+        Self::set_textarea_placeholder(
+            &self.assistant_extra_headers_input,
+            t!("Settings.Assistant.ExtraHeadersPlaceholder").to_string(),
+            window,
+            cx,
         );
     }
 

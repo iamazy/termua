@@ -11,7 +11,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
-    input::Input,
+    input::{Input, Textarea},
     menu::{DropdownMenu, PopupMenuItem},
     select::Select,
     switch::Switch,
@@ -1880,7 +1880,33 @@ impl SettingsWindow {
             "assistant.extra_headers" => Some(
                 div()
                     .w(px(420.))
-                    .child(Input::new(&self.assistant_extra_headers_input).cleanable(true))
+                    .relative()
+                    .child(Textarea::new(&self.assistant_extra_headers_input).pr(px(28.)))
+                    .when(
+                        !self
+                            .assistant_extra_headers_input
+                            .read(cx)
+                            .value()
+                            .is_empty(),
+                        |this| {
+                            this.child(
+                                Button::new("termua-settings-assistant-extra-headers-clear")
+                                    .absolute()
+                                    .right_0()
+                                    .bottom_0()
+                                    .compact()
+                                    .ghost()
+                                    .icon(IconName::Close)
+                                    .tooltip(t!("Settings.Button.Clear").to_string())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.assistant_extra_headers_input
+                                            .update(cx, |state, cx| {
+                                                state.set_value("", window, cx)
+                                            });
+                                    })),
+                            )
+                        },
+                    )
                     .into_any_element(),
             ),
             "assistant.api_key" => Some(self.render_assistant_api_key_control(cx)),

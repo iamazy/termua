@@ -552,7 +552,8 @@ impl SettingsWindow {
                     .min_h_0()
                     .child(
                         Scrollbar::vertical(&self.right_scroll_handle)
-                            .id("termua-settings-right-scrollbar"),
+                            .id("termua-settings-right-scrollbar")
+                            .viewport_from_layout(),
                     ),
             )
     }

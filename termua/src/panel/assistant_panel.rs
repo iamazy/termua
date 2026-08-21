@@ -9,7 +9,7 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
+    input::{Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
     scroll::Scrollbar,
     spinner::Spinner,
@@ -75,7 +75,7 @@ pub struct AssistantPanelView {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     scroll_to_bottom_retry_state: Option<ScrollToBottomRetryState>,
-    prompt_input: gpui::Entity<InputState>,
+    prompt_input: gpui::Entity<TextareaState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -92,7 +92,7 @@ impl Focusable for AssistantPanelView {
 }
 
 fn set_input_placeholder(
-    input: &Entity<InputState>,
+    input: &Entity<TextareaState>,
     placeholder: String,
     window: &mut Window,
     cx: &mut Context<AssistantPanelView>,
@@ -145,7 +145,9 @@ impl AssistantPanelView {
         crate::assistant::ensure_globals(cx);
 
         let prompt_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t!("Assistant.Placeholder.Ask").to_string())
+            TextareaState::new(window, cx)
+                .auto_grow(3, 10)
+                .placeholder(t!("Assistant.Placeholder.Ask").to_string())
         });
         let subs = vec![
             cx.observe(&prompt_input, |_, _, cx| cx.notify()),
@@ -528,8 +530,15 @@ impl AssistantPanelView {
                     .key_context(PROMPT_KEY_CONTEXT)
                     .on_action(cx.listener(Self::send_on_enter))
                     .child(
-                        Input::new(&self.prompt_input).suffix(
-                            h_flex()
+                        div()
+                            .relative()
+                            .child(Textarea::new(&self.prompt_input).pr(px(64.)))
+                            .child(
+                                h_flex()
+                                .absolute()
+                                .right_0()
+                                .top_0()
+                                .bottom_0()
                                 .items_center()
                                 .gap_1()
                                 .child(
@@ -603,7 +612,7 @@ impl AssistantPanelView {
                                                 ),
                                         ),
                                 ),
-                        ),
+                            ),
                     ),
             )
             .into_any_element()
