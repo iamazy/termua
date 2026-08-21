@@ -4876,6 +4876,7 @@ version = "0.1.6"
 dependencies = [
  "env_logger",
  "gpui",
+ "gpui-base",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
