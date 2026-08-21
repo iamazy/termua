@@ -8,7 +8,7 @@ use gpui::{
 };
 use gpui_common::TermuaIcon;
 use gpui_component::{
-    ActiveTheme as _, Icon, Sizable,
+    ActiveTheme as _, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex, orange_500, v_flex,
@@ -144,9 +144,14 @@ fn show_update_dialog(
     let body = t!("Update.AvailableBody").to_string();
     let latest_version = t!("Update.LatestVersion").to_string();
     let do_not_remind = t!("Update.DoNotRemind").to_string();
-    let open_release_page = t!("Update.OpenReleasePage").to_string();
-    let later = t!("Update.Later").to_string();
     let _ = window.update(app, move |root, window, cx| {
+        // The update dialog can open while the main window is not the active
+        // window (for example at startup, or when the background update check
+        // finishes after the user switched away). Without this, the first click
+        // on the dialog only activates the window and is not delivered to the
+        // close button.
+        window.activate_window();
+
         let preference = cx.new(|_| UpdateReminderPreference {
             tag: tag.clone(),
             url: url.clone(),
@@ -155,21 +160,38 @@ fn show_update_dialog(
         });
         root.open_dialog(
             move |dialog, _window, cx| {
-                let release_url = url.clone();
                 let link_url = url.clone();
                 dialog
+                    .close_button(false)
                     .title(
                         h_flex()
+                            .w_full()
                             .items_center()
+                            .justify_between()
                             .gap_2()
-                            .text_sm()
                             .child(
-                                Icon::default()
-                                    .path(TermuaIcon::CircleQuestion)
-                                    .with_size(px(20.))
-                                    .text_color(orange_500()),
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .text_sm()
+                                    .child(
+                                        Icon::default()
+                                            .path(TermuaIcon::CircleQuestion)
+                                            .with_size(px(20.))
+                                            .text_color(orange_500()),
+                                    )
+                                    .child(title.clone()),
                             )
-                            .child(title.clone()),
+                            .child(
+                                Button::new("termua-update-dialog-close")
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::Close)
+                                    .debug_selector(|| "termua-update-dialog-close".to_string())
+                                    .on_click(|_, window, cx| {
+                                        gpui_component::WindowExt::close_dialog(window, cx);
+                                    }),
+                            ),
                     )
                     .child(
                         v_flex()
@@ -206,16 +228,6 @@ fn show_update_dialog(
                             )
                             .child(gpui::div().pt_2().child(preference.clone())),
                     )
-                    .button_props(
-                        gpui_component::dialog::DialogButtonProps::default()
-                            .ok_text(open_release_page.clone())
-                            .cancel_text(later.clone())
-                            .show_cancel(true),
-                    )
-                    .on_ok(move |_, _window, app| {
-                        app.open_url(&release_url);
-                        true
-                    })
             },
             window,
             cx,
@@ -625,14 +637,13 @@ mod tests {
                 .downcast::<gpui_component::Root>()
                 .expect("expected Root window handle")
         });
-        let root_for_initial_draw = root.clone();
         cx.draw(
             gpui::point(gpui::px(0.), gpui::px(0.)),
             gpui::size(
                 gpui::AvailableSpace::Definite(gpui::px(800.)),
                 gpui::AvailableSpace::Definite(gpui::px(600.)),
             ),
-            move |_, _| div().size_full().child(root_for_initial_draw),
+            move |_, _| div().size_full().child(root),
         );
         cx.run_until_parked();
 
