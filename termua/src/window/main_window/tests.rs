@@ -3559,12 +3559,13 @@ fn dock_toggle_buttons_are_hidden_in_termua(cx: &mut gpui::TestAppContext) {
 
 #[gpui::test]
 fn fullscreen_with_terminal_tab_does_not_block_sessions_tree_clicks(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+
     use gpui::{
         App, Context, EventEmitter, FocusHandle, Focusable, IntoElement, Render, Window, div,
     };
     use gpui_component::ElementExt as _;
     use gpui_dock::{DockPlacement, Panel, PanelEvent, PanelView};
-    use std::{cell::RefCell, rc::Rc};
 
     cx.update(|app| {
         gpui_component::init(app);

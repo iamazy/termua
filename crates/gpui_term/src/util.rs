@@ -197,30 +197,29 @@ pub fn apca_contrast(text_color: Hsla, background_color: Hsla) -> f32 {
     }
 
     let sapc;
-    let output_contrast;
 
-    if bg_y_clamped > text_y_clamped {
+    let output_contrast = if bg_y_clamped > text_y_clamped {
         // Normal polarity: dark text on light background
         sapc = (bg_y_clamped.powf(constants.norm_bg) - text_y_clamped.powf(constants.norm_txt))
             * constants.scale_bow;
 
         // Low contrast smooth rollout to prevent polarity reversal
-        output_contrast = if sapc < constants.lo_clip {
+        if sapc < constants.lo_clip {
             0.0
         } else {
             sapc - constants.lo_bow_offset
-        };
+        }
     } else {
         // Reverse polarity: light text on dark background
         sapc = (bg_y_clamped.powf(constants.rev_bg) - text_y_clamped.powf(constants.rev_txt))
             * constants.scale_wob;
 
-        output_contrast = if sapc > -constants.lo_clip {
+        if sapc > -constants.lo_clip {
             0.0
         } else {
             sapc + constants.lo_wob_offset
-        };
-    }
+        }
+    };
 
     // Return Lc (lightness contrast) scaled to percentage
     output_contrast * 100.0
