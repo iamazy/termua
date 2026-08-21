@@ -74,7 +74,7 @@ mod tests {
     };
     use gpui_base::TextSelection;
     use gpui_component::{
-        Root, WindowExt,
+        Root,
         text::{TextView, TextViewState},
     };
 
