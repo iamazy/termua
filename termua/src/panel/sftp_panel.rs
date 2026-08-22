@@ -288,8 +288,7 @@ impl Render for SftpDockPanel {
 
 #[cfg(test)]
 mod tests {
-    use gpui::AppContext as _;
-    use gpui_dock::{Panel as _, PanelInfo};
+    use gpui_dock::PanelInfo;
 
     use super::*;
 

@@ -72,8 +72,9 @@ mod tests {
         AppContext as _, AvailableSpace, Context, InteractiveElement as _, IntoElement, Modifiers,
         MouseButton, ParentElement as _, Render, Styled as _, Window, point, px, size,
     };
+    use gpui_base::TextSelection;
     use gpui_component::{
-        Root, WindowExt as _,
+        Root,
         text::{TextView, TextViewState},
     };
 
@@ -198,7 +199,7 @@ mod tests {
             let _ = window.draw(cx);
         });
 
-        let selected = cx.update(|window, cx| window.selected_text(cx));
+        let selected = cx.update(|window, cx| TextSelection::selected_text(window, cx));
         assert_eq!(selected, "");
     }
 }

@@ -43,7 +43,8 @@ pub(super) fn web_share_start_failed_message(
 ) -> String {
     if error.kind() == std::io::ErrorKind::AddrInUse {
         format!(
-            "Failed to share terminal \"{tab_label}\": port {port} is already in use. Change it in Terminal / Sharing."
+            "Failed to share terminal \"{tab_label}\": port {port} is already in use. Change it \
+             in Terminal / Sharing."
         )
     } else {
         format!("Failed to share terminal \"{tab_label}\": {error}")

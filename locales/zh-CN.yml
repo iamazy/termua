@@ -16,6 +16,7 @@ Menu:
   App:
     Name: "Termua"
     AboutTermua: "关于 Termua"
+    CheckForUpdates: "检查更新"
     OpenSettings: "打开设置"
     Quit: "退出"
   Session:
@@ -28,6 +29,16 @@ Menu:
   Run:
     Name: "运行"
     MultiExecute: "批量执行"
+
+Update:
+  AvailableTitle: "Termua 有可用更新"
+  AvailableBody: "Termua 新版本已经发布，可以前往下载。"
+  LatestVersion: "最新版本"
+  DoNotRemind: "不再提示此版本"
+  OpenReleasePage: "打开发布页面"
+  Later: "稍后"
+  UpToDate: "Termua 已是最新版本。"
+  CheckFailed: "检查更新失败：%{error}"
 
 NewSession:
   WindowTitle:

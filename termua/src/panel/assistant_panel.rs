@@ -9,9 +9,9 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
+    input::{Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
-    scroll::{Scrollbar, ScrollbarShow},
+    scroll::Scrollbar,
     spinner::Spinner,
     text::TextView,
     v_flex,
@@ -75,7 +75,7 @@ pub struct AssistantPanelView {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     scroll_to_bottom_retry_state: Option<ScrollToBottomRetryState>,
-    prompt_input: gpui::Entity<InputState>,
+    prompt_input: gpui::Entity<TextareaState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -92,7 +92,7 @@ impl Focusable for AssistantPanelView {
 }
 
 fn set_input_placeholder(
-    input: &Entity<InputState>,
+    input: &Entity<TextareaState>,
     placeholder: String,
     window: &mut Window,
     cx: &mut Context<AssistantPanelView>,
@@ -145,7 +145,7 @@ impl AssistantPanelView {
         crate::assistant::ensure_globals(cx);
 
         let prompt_input = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
                 .auto_grow(3, 10)
                 .placeholder(t!("Assistant.Placeholder.Ask").to_string())
         });
@@ -530,82 +530,99 @@ impl AssistantPanelView {
                     .key_context(PROMPT_KEY_CONTEXT)
                     .on_action(cx.listener(Self::send_on_enter))
                     .child(
-                        Input::new(&self.prompt_input).suffix(
-                            h_flex()
-                                .items_center()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .debug_selector(|| {
-                                            "termua-assistant-send-dropdown".to_string()
-                                        })
-                                        .child(
-                                            h_flex()
-                                                .items_center()
-                                                .gap_0()
-                                                .child(
-                                                    Button::new("termua-assistant-send")
-                                                        .primary()
-                                                        .compact()
-                                                        .disabled(Self::send_button_disabled(
-                                                            in_flight,
-                                                            assistant_enabled,
-                                                            &prompt_value,
-                                                        ))
-                                                        .rounded_tr(px(0.))
-                                                        .rounded_br(px(0.))
-                                                        .tooltip(if in_flight { "Cancel" } else { "Send" })
-                                                        .debug_selector(|| {
-                                                            "termua-assistant-send-button".to_string()
-                                                        })
-                                                        .icon(
-                                                            Icon::default()
-                                                                .path(if in_flight {
-                                                                    TermuaIcon::Stop
-                                                                } else {
-                                                                    TermuaIcon::Send
-                                                                })
-                                                                .size_4(),
-                                                        )
-                                                        .on_click(cx.listener(|this, _ev, window, cx| {
-                                                            if cx.global::<AssistantState>().in_flight {
-                                                                this.cancel(window, cx);
-                                                            } else {
-                                                                this.send(window, cx);
-                                                            }
-                                                            cx.refresh_windows();
-                                                            window.refresh();
-                                                        })),
-                                                )
-                                                .child(
-                                                    Button::new("termua-assistant-send-menu")
-                                                        .primary()
-                                                        .compact()
-                                                        .w(px(12.))
-                                                        .px(px(0.))
-                                                        .ml(px(-1.))
-                                                        .rounded_tl(px(0.))
-                                                        .rounded_bl(px(0.))
-                                                        .icon(
-                                                            Icon::new(gpui_component::IconName::ChevronDown)
-                                                                .xsmall(),
-                                                        )
-                                                        .dropdown_menu(move |menu: PopupMenu, _window, _cx| {
-                                                            menu.item(
-                                                                PopupMenuItem::new("Include selection")
-                                                                    .checked(attach_selection)
-                                                                    .on_click(|_, window, cx| {
-                                                                        let state = cx.global_mut::<AssistantState>();
-                                                                        state.attach_selection = !state.attach_selection;
-                                                                        cx.refresh_windows();
-                                                                        window.refresh();
-                                                                    }),
-                                                            )
-                                                        }),
-                                                ),
-                                        ),
-                                ),
-                        ),
+                        div()
+                            .relative()
+                            .child(Textarea::new(&self.prompt_input).pr(px(64.)))
+                            .child(self.render_prompt_actions(
+                                &prompt_value,
+                                in_flight,
+                                assistant_enabled,
+                                attach_selection,
+                                cx,
+                            )),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_prompt_actions(
+        &self,
+        prompt: &str,
+        in_flight: bool,
+        assistant_enabled: bool,
+        attach_selection: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        h_flex()
+            .absolute()
+            .right_0()
+            .top_0()
+            .bottom_0()
+            .items_center()
+            .gap_1()
+            .child(
+                div()
+                    .debug_selector(|| "termua-assistant-send-dropdown".to_string())
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_0()
+                            .child(
+                                Button::new("termua-assistant-send")
+                                    .primary()
+                                    .compact()
+                                    .disabled(Self::send_button_disabled(
+                                        in_flight,
+                                        assistant_enabled,
+                                        prompt,
+                                    ))
+                                    .rounded_tr(px(0.))
+                                    .rounded_br(px(0.))
+                                    .tooltip(if in_flight { "Cancel" } else { "Send" })
+                                    .debug_selector(|| "termua-assistant-send-button".to_string())
+                                    .icon(
+                                        Icon::default()
+                                            .path(if in_flight {
+                                                TermuaIcon::Stop
+                                            } else {
+                                                TermuaIcon::Send
+                                            })
+                                            .size_4(),
+                                    )
+                                    .on_click(cx.listener(|this, _ev, window, cx| {
+                                        if cx.global::<AssistantState>().in_flight {
+                                            this.cancel(window, cx);
+                                        } else {
+                                            this.send(window, cx);
+                                        }
+                                        cx.refresh_windows();
+                                        window.refresh();
+                                    })),
+                            )
+                            .child(
+                                Button::new("termua-assistant-send-menu")
+                                    .primary()
+                                    .compact()
+                                    .w(px(12.))
+                                    .px(px(0.))
+                                    .ml(px(-1.))
+                                    .rounded_tl(px(0.))
+                                    .rounded_bl(px(0.))
+                                    .icon(Icon::new(gpui_component::IconName::ChevronDown).xsmall())
+                                    .dropdown_menu(move |menu: PopupMenu, _window, _cx| {
+                                        menu.item(
+                                            PopupMenuItem::new("Include selection")
+                                                .checked(attach_selection)
+                                                .on_click(|_, window, cx| {
+                                                    let state = cx.global_mut::<AssistantState>();
+                                                    state.attach_selection =
+                                                        !state.attach_selection;
+                                                    cx.refresh_windows();
+                                                    window.refresh();
+                                                }),
+                                        )
+                                    }),
+                            ),
                     ),
             )
             .into_any_element()
@@ -655,9 +672,7 @@ impl AssistantPanelView {
                     .h_full()
                     .min_h_0()
                     .child(
-                        Scrollbar::vertical(&self.scroll_handle)
-                            .id("termua-assistant-scrollbar")
-                            .scrollbar_show(ScrollbarShow::Always),
+                        Scrollbar::vertical(&self.scroll_handle).id("termua-assistant-scrollbar"),
                     ),
             )
             .into_any_element()
@@ -1181,7 +1196,8 @@ mod tests {
 
     use super::*;
 
-    fn init_test_app(app: &mut gpui::App) {
+    fn init_test_app(app: &mut gpui::App) -> crate::locale::LocaleLockGuard {
+        let locale_guard = crate::locale::lock();
         gpui_component::init(app);
         gpui_term::init(app);
         crate::settings::set_language(crate::settings::Language::English, app);
@@ -1189,6 +1205,8 @@ mod tests {
             enabled: false,
             ..Default::default()
         });
+
+        locale_guard
     }
 
     #[test]
@@ -1260,7 +1278,7 @@ mod tests {
         let assistant_entity_slot: Rc<RefCell<Option<gpui::Entity<AssistantPanelView>>>> =
             Rc::new(RefCell::new(None));
 
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let slot_for_window = assistant_entity_slot.clone();
         let (root, window_cx) = cx.add_window_view(move |window, cx| {
@@ -1346,7 +1364,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_prompt_renders_options_and_send_buttons(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1377,7 +1395,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_in_flight_card_renders_bot_icon(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1406,7 +1424,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_is_rightmost_and_above_body(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1467,7 +1485,7 @@ mod tests {
     #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn assistant_message_delete_button_removes_only_that_message(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1513,7 +1531,7 @@ mod tests {
     fn assistant_reply_with_multiple_commands_renders_run_button_per_command(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1552,7 +1570,7 @@ mod tests {
     fn assistant_user_messages_render_rerun_button_after_assistant_reply(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1586,7 +1604,7 @@ mod tests {
     fn assistant_user_messages_hide_rerun_button_before_assistant_reply(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));
@@ -1622,7 +1640,7 @@ mod tests {
     fn assistant_only_hides_rerun_for_last_user_message_while_in_flight(
         cx: &mut gpui::TestAppContext,
     ) {
-        cx.update(|app| init_test_app(app));
+        let _locale_guard = cx.update(|app| init_test_app(app));
 
         let (root, window_cx) = cx.add_window_view(|window, cx| {
             let assistant = cx.new(|cx| AssistantPanelView::new(window, cx));

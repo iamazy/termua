@@ -8,7 +8,7 @@ use gpui::{
 use gpui_common::TermuaIcon;
 use gpui_component::{
     IndexPath,
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, TextareaState},
     select::{SearchableVec, SelectEvent, SelectItem, SelectState},
     tree::{TreeItem, TreeState},
 };
@@ -609,8 +609,9 @@ struct AssistantControlsInit {
     assistant_api_url_input: Entity<InputState>,
     assistant_api_path_input: Entity<InputState>,
     assistant_provider_timeout_input: Entity<InputState>,
-    assistant_extra_headers_input: Entity<InputState>,
+    assistant_extra_headers_input: Entity<TextareaState>,
     assistant_api_key_input: Entity<InputState>,
+    assistant_api_key_saved_value: Option<String>,
     assistant_provider_select: Entity<SelectState<SearchableVec<AssistantProviderSelectItem>>>,
     assistant_model_select: Entity<SelectState<SearchableVec<AssistantModelSelectItem>>>,
 }
@@ -806,8 +807,9 @@ pub struct SettingsWindow {
     pub(super) assistant_api_url_input: Entity<InputState>,
     pub(super) assistant_api_path_input: Entity<InputState>,
     pub(super) assistant_provider_timeout_input: Entity<InputState>,
-    pub(super) assistant_extra_headers_input: Entity<InputState>,
+    pub(super) assistant_extra_headers_input: Entity<TextareaState>,
     pub(super) assistant_api_key_input: Entity<InputState>,
+    pub(super) assistant_api_key_saved_value: Option<String>,
     pub(super) assistant_provider_select:
         Entity<SelectState<SearchableVec<AssistantProviderSelectItem>>>,
 
@@ -835,8 +837,23 @@ impl Focusable for SettingsWindow {
 }
 
 impl SettingsWindow {
+    pub(super) fn assistant_api_key_needs_save(current: &str, saved: Option<&str>) -> bool {
+        let current = current.trim();
+        !current.is_empty() && Some(current) != saved.map(str::trim)
+    }
+
     fn set_input_value(
         input: &gpui::Entity<InputState>,
+        value: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = value.to_string();
+        input.update(cx, move |state, cx| state.set_value(&value, window, cx));
+    }
+
+    fn set_textarea_value(
+        input: &gpui::Entity<TextareaState>,
         value: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -913,6 +930,31 @@ impl SettingsWindow {
     fn subscribe_trimmed_input<F, G>(
         &mut self,
         input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        should_handle: G,
+        apply: F,
+    ) where
+        F: Fn(&mut Self, String, &mut Window, &mut Context<Self>) + 'static,
+        G: Fn(&InputEvent) -> bool + 'static,
+    {
+        self._subscriptions.push(cx.subscribe_in(
+            input,
+            window,
+            move |this, input, ev, window, cx| {
+                if !should_handle(ev) {
+                    return;
+                }
+
+                let value = input.read(cx).value().trim().to_string();
+                apply(this, value, window, cx);
+            },
+        ));
+    }
+
+    fn subscribe_trimmed_textarea<F, G>(
+        &mut self,
+        input: &Entity<TextareaState>,
         window: &mut Window,
         cx: &mut Context<Self>,
         should_handle: G,
@@ -1108,15 +1150,14 @@ impl SettingsWindow {
             settings.assistant.provider_timeout_secs,
         );
 
-        let assistant_extra_headers_input = Self::new_configured_input(
-            window,
-            cx,
-            t!("Settings.Assistant.ExtraHeadersPlaceholder").to_string(),
-            |input| input.auto_grow(2, 6),
-        );
+        let assistant_extra_headers_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 6)
+                .placeholder(t!("Settings.Assistant.ExtraHeadersPlaceholder").to_string())
+        });
         if !settings.assistant.extra_headers.is_empty() {
             let s = assistant_headers_to_text(&settings.assistant.extra_headers);
-            Self::set_input_value(&assistant_extra_headers_input, &s, window, cx);
+            Self::set_textarea_value(&assistant_extra_headers_input, &s, window, cx);
         }
 
         let assistant_api_key_input = Self::new_configured_input(
@@ -1125,6 +1166,13 @@ impl SettingsWindow {
             t!("Settings.Assistant.ApiKeyPlaceholder").to_string(),
             |input| input.masked(true),
         );
+        let assistant_api_key_saved_value = crate::keychain::load_zeroclaw_api_key()
+            .ok()
+            .flatten()
+            .filter(|value| !value.trim().is_empty());
+        if let Some(value) = &assistant_api_key_saved_value {
+            Self::set_input_value(&assistant_api_key_input, value, window, cx);
+        }
 
         AssistantControlsInit {
             assistant_temperature_input,
@@ -1133,6 +1181,7 @@ impl SettingsWindow {
             assistant_provider_timeout_input,
             assistant_extra_headers_input,
             assistant_api_key_input,
+            assistant_api_key_saved_value,
             assistant_provider_select,
             assistant_model_select,
         }
@@ -1322,6 +1371,7 @@ impl SettingsWindow {
             assistant_provider_timeout_input,
             assistant_extra_headers_input,
             assistant_api_key_input,
+            assistant_api_key_saved_value,
             assistant_provider_select,
             assistant_model_select,
         } = Self::init_assistant_controls(&settings, window, cx);
@@ -1360,6 +1410,7 @@ impl SettingsWindow {
             assistant_provider_timeout_input,
             assistant_extra_headers_input,
             assistant_api_key_input,
+            assistant_api_key_saved_value,
             assistant_provider_select,
             assistant_model_select,
             assistant_model_fetch_in_flight: false,
@@ -1510,6 +1561,27 @@ impl SettingsWindow {
                 this.save_assistant_settings(window, cx);
             },
         );
+
+        let assistant_api_key_input = self.assistant_api_key_input.clone();
+        self._subscriptions.push(cx.subscribe_in(
+            &assistant_api_key_input,
+            window,
+            move |this, input, event, window, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+
+                let value = input.read(cx).value().trim().to_string();
+                if value.is_empty() {
+                    if let Err(err) = crate::keychain::delete_zeroclaw_api_key() {
+                        log::warn!("failed to delete assistant api key: {err:#}");
+                    }
+                    this.assistant_api_key_saved_value = None;
+                }
+                window.refresh();
+                cx.notify();
+            },
+        ));
     }
 
     fn install_assistant_numeric_input_subscriptions(
@@ -1548,7 +1620,7 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) {
         let assistant_extra_headers_input = self.assistant_extra_headers_input.clone();
-        self.subscribe_trimmed_input(
+        self.subscribe_trimmed_textarea(
             &assistant_extra_headers_input,
             window,
             cx,

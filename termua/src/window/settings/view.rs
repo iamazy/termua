@@ -11,7 +11,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
-    input::Input,
+    input::{Input, Textarea},
     menu::{DropdownMenu, PopupMenuItem},
     select::Select,
     switch::Switch,
@@ -1449,60 +1449,85 @@ impl SettingsWindow {
 
     fn render_assistant_api_key_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity();
-        h_flex()
-            .gap_1()
-            .items_center()
-            .child(
-                div()
-                    .w(px(320.))
-                    .child(Input::new(&self.assistant_api_key_input).cleanable(true)),
-            )
-            .child(
-                Button::new("termua-settings-assistant-api-key-save")
-                    .label(t!("Settings.Button.Save").to_string())
-                    .small()
-                    .on_click({
-                        let this = this.clone();
-                        move |_, window, cx| {
-                            this.update(cx, |this, cx| {
-                                let value =
-                                    this.assistant_api_key_input.read(cx).value().to_string();
-                                let value = value.trim().to_string();
-                                if value.is_empty() {
-                                    return;
-                                }
+        let current_value = self.assistant_api_key_input.read(cx).value().to_string();
+        let needs_save = SettingsWindow::assistant_api_key_needs_save(
+            &current_value,
+            self.assistant_api_key_saved_value.as_deref(),
+        );
+        let save_button = if needs_save {
+            Button::new("termua-settings-assistant-api-key-save")
+                .icon(Icon::new(IconName::Check))
+                .xsmall()
+                .ghost()
+                .tab_stop(false)
+                .text_color(cx.theme().muted_foreground)
+                .on_click({
+                    move |_, window, cx| {
+                        this.update(cx, |this, _cx| {
+                            let value = this
+                                .assistant_api_key_input
+                                .read(_cx)
+                                .value()
+                                .trim()
+                                .to_string();
+                            if value.is_empty() {
+                                return;
+                            }
 
-                                match crate::keychain::store_zeroclaw_api_key(&value) {
-                                    Ok(()) => {
-                                        this.assistant_api_key_input.update(cx, |state, cx| {
-                                            state.set_value("", window, cx);
-                                        });
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to store assistant api key: {err:#}");
-                                    }
+                            match crate::keychain::store_zeroclaw_api_key(&value) {
+                                Ok(()) => {
+                                    this.assistant_api_key_saved_value = Some(value);
+                                    window.refresh();
                                 }
-                            });
-                        }
-                    }),
-            )
+                                Err(err) => {
+                                    log::warn!("failed to store assistant api key: {err:#}");
+                                }
+                            }
+                        });
+                    }
+                })
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+
+        div()
+            .w(px(420.))
             .child(
-                Button::new("termua-settings-assistant-api-key-clear")
-                    .label(t!("Settings.Button.Clear").to_string())
-                    .small()
-                    .ghost()
-                    .on_click({
-                        move |_, window, cx| {
-                            this.update(cx, |this, cx| {
-                                if let Err(err) = crate::keychain::delete_zeroclaw_api_key() {
-                                    log::warn!("failed to delete assistant api key: {err:#}");
-                                }
-                                this.assistant_api_key_input.update(cx, |state, cx| {
-                                    state.set_value("", window, cx);
-                                });
-                            });
-                        }
-                    }),
+                Input::new(&self.assistant_api_key_input)
+                    .cleanable(false)
+                    .suffix(save_button),
+            )
+            .into_any_element()
+    }
+
+    fn render_assistant_extra_headers_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .w(px(420.))
+            .relative()
+            .child(Textarea::new(&self.assistant_extra_headers_input).pr(px(28.)))
+            .when(
+                !self
+                    .assistant_extra_headers_input
+                    .read(cx)
+                    .value()
+                    .is_empty(),
+                |this| {
+                    this.child(
+                        Button::new("termua-settings-assistant-extra-headers-clear")
+                            .absolute()
+                            .right_0()
+                            .bottom_0()
+                            .compact()
+                            .ghost()
+                            .icon(IconName::Close)
+                            .tooltip(t!("Settings.Button.Clear").to_string())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.assistant_extra_headers_input
+                                    .update(cx, |state, cx| state.set_value("", window, cx));
+                            })),
+                    )
+                },
             )
             .into_any_element()
     }
@@ -1877,12 +1902,7 @@ impl SettingsWindow {
                     .child(Input::new(&self.assistant_provider_timeout_input).cleanable(true))
                     .into_any_element(),
             ),
-            "assistant.extra_headers" => Some(
-                div()
-                    .w(px(420.))
-                    .child(Input::new(&self.assistant_extra_headers_input).cleanable(true))
-                    .into_any_element(),
-            ),
+            "assistant.extra_headers" => Some(self.render_assistant_extra_headers_control(cx)),
             "assistant.api_key" => Some(self.render_assistant_api_key_control(cx)),
             _ => None,
         }

@@ -81,4 +81,5 @@ fn init_app(cx: &mut App, settings: &crate::settings::SettingsFile) {
         .unwrap();
 
     cx.global_mut::<TermuaAppState>().main_window = Some(main_window);
+    crate::menu::check_for_updates_startup(cx, main_window);
 }

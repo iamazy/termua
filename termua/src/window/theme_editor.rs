@@ -482,22 +482,27 @@ impl Render for ThemeEditor {
                             .child(div().w(px(200.)).child(t!("ThemeEditor.Mode").to_string()))
                             .child(
                                 div()
+                                    .id("termua-theme-editor-mode-switch-hitbox")
                                     .debug_selector(|| {
                                         "termua-theme-editor-mode-switch".to_string()
                                     })
+                                    .on_mouse_down(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(|this, _event, window, cx| {
+                                            let next_dark = !this.edited_config.mode.is_dark();
+                                            this.edited_config.mode = if next_dark {
+                                                gpui_component::ThemeMode::Dark
+                                            } else {
+                                                gpui_component::ThemeMode::Light
+                                            };
+                                            this.apply_preview(window, cx);
+                                        }),
+                                    )
                                     .child(
                                         Switch::new("termua-theme-editor-mode-switch")
                                             .small()
                                             .checked(self.edited_config.mode.is_dark())
-                                            .label(t!("ThemeEditor.Dark").to_string())
-                                            .on_click(cx.listener(|this, checked, window, cx| {
-                                                this.edited_config.mode = if *checked {
-                                                    gpui_component::ThemeMode::Dark
-                                                } else {
-                                                    gpui_component::ThemeMode::Light
-                                                };
-                                                this.apply_preview(window, cx);
-                                            })),
+                                            .label(t!("ThemeEditor.Dark").to_string()),
                                     ),
                             ),
                     ),

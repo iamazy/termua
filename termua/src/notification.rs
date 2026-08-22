@@ -156,8 +156,15 @@ pub fn notify_app(
 
     let message: SharedString = message.into();
     app.global_mut::<NotifyState>().push(kind, message.clone());
-    push_toast_in_window_with_app(kind.as_notification(message), window, app);
-    app.refresh_windows();
+    let notification = kind.as_notification(message);
+
+    // Defer the `Root` update so this is safe even when called from inside a
+    // `WindowHandle::<Root>::update` closure (where `Root` is already leased
+    // and a synchronous `Root::update` would panic with a double lease).
+    window.defer(app, move |window, app| {
+        push_toast_in_window_with_app(notification, window, app);
+        app.refresh_windows();
+    });
 }
 
 pub fn notify<T>(

@@ -16,6 +16,7 @@ Menu:
   App:
     Name: "Termua"
     AboutTermua: "About Termua"
+    CheckForUpdates: "Check for updates"
     OpenSettings: "Open Settings"
     Quit: "Quit"
   Session:
@@ -28,6 +29,16 @@ Menu:
   Run:
     Name: "Run"
     MultiExecute: "Multi Execute"
+
+Update:
+  AvailableTitle: "Termua update available"
+  AvailableBody: "A newer version of Termua is ready to download."
+  LatestVersion: "Latest version"
+  DoNotRemind: "Do not remind me about this version again"
+  OpenReleasePage: "Open release page"
+  Later: "Later"
+  UpToDate: "Termua is up to date."
+  CheckFailed: "Unable to check for updates: %{error}"
 
 NewSession:
   WindowTitle:

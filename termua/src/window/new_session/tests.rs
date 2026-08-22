@@ -1489,6 +1489,9 @@ fn edit_session_does_not_render_connect_button(cx: &mut gpui::TestAppContext) {
 
 #[test]
 fn edit_session_window_titles_include_protocol() {
+    let _guard = crate::locale::lock();
+    crate::locale::set_locale("en");
+
     assert_eq!(
         NewSessionWindow::window_title(SessionEditorMode::Edit { session_id: 1 }, Protocol::Shell),
         "Edit Session (Shell)"

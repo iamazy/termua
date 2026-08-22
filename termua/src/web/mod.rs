@@ -961,7 +961,7 @@ mod tests {
             let mut socket = connect_authenticated(&server).await;
             assert_eq!(server.client_count(), 1);
             socket.close(None).await.unwrap();
-            for _ in 0..20 {
+            for _ in 0..100 {
                 if server.client_count() == 0 {
                     break;
                 }
@@ -1463,7 +1463,12 @@ mod tests {
                 .send(Message::Text(r#"{"type":"activity"}"#.into()))
                 .await
                 .unwrap();
-            smol::Timer::after(Duration::from_millis(10)).await;
+            for _ in 0..100 {
+                if !server.is_inactive_for(Duration::from_millis(500)) {
+                    break;
+                }
+                smol::Timer::after(Duration::from_millis(10)).await;
+            }
 
             assert!(!server.is_inactive_for(Duration::from_millis(500)));
         });

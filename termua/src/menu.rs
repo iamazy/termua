@@ -2,7 +2,17 @@
 
 use std::{collections::HashMap, env, process::Command};
 
-use gpui::{App, KeyBinding, Menu, MenuItem, actions};
+use gpui::{
+    App, AppContext, InteractiveElement, KeyBinding, Menu, MenuItem, ParentElement, Styled,
+    actions, px, relative,
+};
+use gpui_common::TermuaIcon;
+use gpui_component::{
+    ActiveTheme as _, Icon, IconName, Sizable,
+    button::{Button, ButtonVariants},
+    checkbox::Checkbox,
+    h_flex, orange_500, v_flex,
+};
 use gpui_term::TerminalType;
 use rust_i18n::t;
 
@@ -30,7 +40,8 @@ actions!(
         ToggleMessagesSidebar,
         ToggleAssistantSidebar,
         ToggleMultiExec,
-        PlayCast
+        PlayCast,
+        CheckForUpdates
     ]
 );
 
@@ -46,6 +57,217 @@ pub(crate) fn register(cx: &mut App) {
     cx.on_action(toggle_assistant_sidebar);
     cx.on_action(toggle_multi_exec);
     cx.on_action(play_cast);
+    cx.on_action(check_for_updates);
+}
+
+fn update_window(cx: &mut App) -> Option<gpui::WindowHandle<gpui_component::Root>> {
+    cx.active_window()
+        .and_then(|window| window.downcast::<gpui_component::Root>())
+        .or_else(|| {
+            cx.try_global::<TermuaAppState>()
+                .and_then(|state| state.main_window)
+        })
+}
+
+fn check_for_updates(_: &CheckForUpdates, cx: &mut App) {
+    let window = update_window(cx);
+    let Some(window) = window else {
+        log::warn!("CheckForUpdates: no application window is available");
+        return;
+    };
+    let background = cx.background_executor().clone();
+    cx.spawn(async move |cx| {
+        let result = background
+            .spawn(async { crate::update::check_latest() })
+            .await;
+        let _ = cx.update(|app| {
+            let (kind, message) = match result {
+                Ok(crate::update::CheckResult::UpdateAvailable { tag, url }) => {
+                    show_update_dialog(window, &tag, &url, app);
+                    return;
+                }
+                Ok(crate::update::CheckResult::UpToDate) => (
+                    crate::notification::MessageKind::Success,
+                    t!("Update.UpToDate").to_string(),
+                ),
+                Err(error) => (
+                    crate::notification::MessageKind::Error,
+                    t!("Update.CheckFailed", error = error).to_string(),
+                ),
+            };
+            window
+                .update(app, |_, window, app| {
+                    crate::notification::notify_app(kind, message, window, app);
+                })
+                .ok();
+        });
+    })
+    .detach();
+}
+
+pub(crate) fn check_for_updates_startup(
+    cx: &mut App,
+    window: gpui::WindowHandle<gpui_component::Root>,
+) {
+    if let Some(crate::update::CheckResult::UpdateAvailable { tag, url }) =
+        crate::update::load_startup_update()
+    {
+        show_update_dialog(window, &tag, &url, cx);
+    }
+
+    let background = cx.background_executor().clone();
+    background
+        .spawn(async {
+            match crate::update::check_latest() {
+                Ok(result) => {
+                    if let Err(error) = crate::update::persist_startup_result(&result) {
+                        log::warn!("failed to save startup update check result: {error:#}");
+                    }
+                }
+                Err(error) => {
+                    log::warn!("startup update check failed: {error:#}");
+                }
+            }
+        })
+        .detach();
+}
+
+fn show_update_dialog(
+    window: gpui::WindowHandle<gpui_component::Root>,
+    tag: &str,
+    url: &str,
+    app: &mut App,
+) {
+    let tag = tag.to_string();
+    let url = url.to_string();
+    let title = t!("Update.AvailableTitle").to_string();
+    let body = t!("Update.AvailableBody").to_string();
+    let latest_version = t!("Update.LatestVersion").to_string();
+    let do_not_remind = t!("Update.DoNotRemind").to_string();
+    let _ = window.update(app, move |root, window, cx| {
+        // The update dialog can open while the main window is not the active
+        // window (for example at startup, or when the background update check
+        // finishes after the user switched away). Without this, the first click
+        // on the dialog only activates the window and is not delivered to the
+        // close button.
+        window.activate_window();
+
+        let preference = cx.new(|_| UpdateReminderPreference {
+            tag: tag.clone(),
+            url: url.clone(),
+            label: do_not_remind.clone(),
+            suppressed: false,
+        });
+        root.open_dialog(
+            move |dialog, _window, cx| {
+                let link_url = url.clone();
+                dialog
+                    .close_button(false)
+                    .title(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .text_sm()
+                                    .child(
+                                        Icon::default()
+                                            .path(TermuaIcon::CircleQuestion)
+                                            .with_size(px(20.))
+                                            .text_color(orange_500()),
+                                    )
+                                    .child(title.clone()),
+                            )
+                            .child(
+                                Button::new("termua-update-dialog-close")
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::Close)
+                                    .debug_selector(|| "termua-update-dialog-close".to_string())
+                                    .on_click(|_, window, cx| {
+                                        gpui_component::WindowExt::close_dialog(window, cx);
+                                    }),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .pt_2()
+                            .min_w(px(420.))
+                            .gap_4()
+                            .text_sm()
+                            .child(gpui::div().child(body.clone()))
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .items_center()
+                                    .justify_between()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .p_3()
+                                    .child(
+                                        gpui::div().text_xs().child(format!("{latest_version}:")),
+                                    )
+                                    .child(
+                                        Button::new("termua-update-version-link")
+                                            .small()
+                                            .compact()
+                                            .link()
+                                            .label(tag.clone())
+                                            .debug_selector(|| {
+                                                "termua-update-version-link".to_string()
+                                            })
+                                            .on_click(move |_, _, app| {
+                                                app.open_url(&link_url);
+                                            }),
+                                    ),
+                            )
+                            .child(gpui::div().pt_2().child(preference.clone())),
+                    )
+            },
+            window,
+            cx,
+        );
+    });
+}
+
+struct UpdateReminderPreference {
+    tag: String,
+    url: String,
+    label: String,
+    suppressed: bool,
+}
+
+impl gpui::Render for UpdateReminderPreference {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        Checkbox::new("termua-update-do-not-remind")
+            .xsmall()
+            .checked(self.suppressed)
+            .child(
+                gpui::div()
+                    .line_height(relative(1.2))
+                    .child(self.label.clone()),
+            )
+            .on_click(cx.listener(|this, checked, _window, cx| {
+                this.suppressed = *checked;
+                if let Err(error) = crate::update::set_startup_update_suppressed(
+                    &this.tag,
+                    &this.url,
+                    this.suppressed,
+                ) {
+                    log::warn!("failed to save update reminder preference: {error:#}");
+                }
+                cx.notify();
+            }))
+    }
 }
 
 fn quit(_: &Quit, cx: &mut App) {
@@ -280,6 +502,8 @@ pub(crate) fn build_menus(multi_exec_enabled: bool) -> Vec<Menu> {
             MenuItem::action(t!("Menu.App.AboutTermua").to_string(), OpenAbout),
             MenuItem::action(t!("Menu.App.OpenSettings").to_string(), OpenSettings),
             MenuItem::separator(),
+            MenuItem::action(t!("Menu.App.CheckForUpdates").to_string(), CheckForUpdates),
+            MenuItem::separator(),
             MenuItem::action(t!("Menu.App.Quit").to_string(), Quit),
         ]),
         Menu::new(t!("Menu.Session.Name").to_string()).items(vec![
@@ -380,9 +604,60 @@ fn snapshot_item(item: &MenuItem) -> MenuSnapshotItem {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AsKeystroke, MenuItem, div};
+    use gpui::{AppContext, AsKeystroke, MenuItem, Render, div};
+    use gpui_component::WindowExt;
 
     use super::*;
+
+    struct UpdateDialogTestView;
+
+    impl Render for UpdateDialogTestView {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn update_dialog_opens_without_reentering_root_update(cx: &mut gpui::TestAppContext) {
+        let _guard = crate::locale::lock();
+        crate::locale::set_locale("en");
+
+        cx.update(gpui_component::init);
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|_| UpdateDialogTestView);
+            gpui_component::Root::new(view, window, cx)
+        });
+        let window = cx.update(|window, _app| {
+            window
+                .window_handle()
+                .downcast::<gpui_component::Root>()
+                .expect("expected Root window handle")
+        });
+        cx.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(
+                gpui::AvailableSpace::Definite(gpui::px(800.)),
+                gpui::AvailableSpace::Definite(gpui::px(600.)),
+            ),
+            move |_, _| div().size_full().child(root),
+        );
+        cx.run_until_parked();
+
+        cx.cx
+            .update(|app| show_update_dialog(window, "v0.1.5", "https://example.com/release", app));
+        cx.run_until_parked();
+
+        cx.update(|window, app| {
+            assert!(
+                window.has_active_dialog(app),
+                "expected update dialog to be active"
+            );
+        });
+    }
 
     #[test]
     fn menu_labels_follow_the_active_locale() {
@@ -409,8 +684,8 @@ mod tests {
         assert!(!menus.is_empty());
         assert_eq!(menus[0].name.as_ref(), "Termua");
 
-        // Termua menu: About Termua, Open Settings, <separator>, Quit
-        assert_eq!(menus[0].items.len(), 4);
+        // Termua menu: About, Settings, <separator>, Check for updates, <separator>, Quit
+        assert_eq!(menus[0].items.len(), 6);
         match &menus[0].items[0] {
             MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "About Termua"),
             _ => panic!("expected first Termua menu item to be an Action"),
@@ -421,6 +696,11 @@ mod tests {
         }
         assert!(matches!(menus[0].items[2], MenuItem::Separator));
         match &menus[0].items[3] {
+            MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Check for updates"),
+            _ => panic!("expected fourth Termua menu item to be an Action"),
+        }
+        assert!(matches!(menus[0].items[4], MenuItem::Separator));
+        match &menus[0].items[5] {
             MenuItem::Action { name, .. } => assert_eq!(name.as_ref(), "Quit"),
             _ => panic!("expected Quit to be an Action"),
         }
@@ -583,7 +863,7 @@ mod tests {
             panic!("expected menus to exist");
         };
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_en.items.first() else {
-            panic!("expected first Termua menu item to be an Action");
+            panic!("expected first Termua menu item to be an action");
         };
         assert_eq!(name, "About Termua");
 
@@ -594,7 +874,7 @@ mod tests {
             panic!("expected menus to exist");
         };
         let Some(MenuSnapshotItem::Action { name, .. }) = termua_menu_zh.items.first() else {
-            panic!("expected first Termua menu item to be an Action");
+            panic!("expected first Termua menu item to be an action");
         };
         assert_eq!(name, "关于 Termua");
     }

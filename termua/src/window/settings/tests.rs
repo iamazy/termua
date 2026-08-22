@@ -1,11 +1,7 @@
 use std::time::Duration;
 
 use gpui::{AppContext, Entity, ParentElement, Render, Styled, VisualTestContext, div};
-use gpui_component::{
-    ActiveTheme, WindowExt,
-    input::{InputEvent, InputState},
-    select::SearchableVec,
-};
+use gpui_component::{ActiveTheme, WindowExt, input::InputEvent, select::SearchableVec};
 use rust_i18n::t;
 
 use super::{
@@ -85,6 +81,23 @@ fn search_matches_case_insensitively_on_title_and_keywords() {
     assert!(!results.is_empty());
     assert!(results.iter().any(|r| r.id == "terminal.font_family"));
     assert!(results.iter().any(|r| r.id == "terminal.font_size"));
+}
+
+#[test]
+fn assistant_api_key_change_state_tracks_empty_and_unsaved_values() {
+    assert!(!SettingsWindow::assistant_api_key_needs_save(
+        "",
+        Some("secret")
+    ));
+    assert!(!SettingsWindow::assistant_api_key_needs_save(
+        "secret",
+        Some("secret")
+    ));
+    assert!(SettingsWindow::assistant_api_key_needs_save(
+        "changed",
+        Some("secret")
+    ));
+    assert!(SettingsWindow::assistant_api_key_needs_save("secret", None));
 }
 
 #[test]
@@ -458,16 +471,18 @@ fn web_sharing_port_is_saved_only_by_its_save_button(cx: &mut gpui::TestAppConte
         .expect("web sharing port input should exist");
     cx.simulate_click(input_bounds.center(), gpui::Modifiers::none());
     cx.update(|window, app| {
-        let input: Entity<InputState> = window
+        let input = window
             .focused_input(app)
+            .and_then(|input| input.as_input().cloned())
             .expect("web sharing port input should be focused");
         input.update(app, |state, cx| state.set_value("", window, cx));
     });
 
     cx.simulate_input("9");
     let first_digit = cx.update(|window, app| {
-        let input: Entity<InputState> = window
+        let input = window
             .focused_input(app)
+            .and_then(|input| input.as_input().cloned())
             .expect("web sharing port input should remain focused");
         input.read(app).value().to_string()
     });
@@ -662,7 +677,9 @@ fn settings_window_lock_password_input_accepts_text(cx: &mut gpui::TestAppContex
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.read(app).value().to_string()
     });
 
@@ -737,7 +754,9 @@ fn settings_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppCo
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.update(app, |state, cx| state.set_value("bad", window, cx));
     });
     cx.run_until_parked();
@@ -748,7 +767,9 @@ fn settings_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppCo
         let Some(input) = window.focused_input(app) else {
             panic!("expected lock password input to still be focused");
         };
-        let input: gpui::Entity<InputState> = input;
+        let input = input
+            .as_input()
+            .expect("lock password should use InputState");
         input.read(app).value().to_string()
     });
 
@@ -961,15 +982,6 @@ fn disabling_assistant_shows_zeroclaw_shutdown_dialog_buttons(cx: &mut gpui::Tes
             "expected disable assistant click to open a dialog"
         );
     });
-    let root_for_redraw = root.clone();
-    cx.draw(
-        gpui::point(gpui::px(0.), gpui::px(0.)),
-        gpui::size(
-            gpui::AvailableSpace::Definite(gpui::px(900.)),
-            gpui::AvailableSpace::Definite(gpui::px(700.)),
-        ),
-        move |_, _| div().size_full().child(root_for_redraw),
-    );
     cx.run_until_parked();
 
     assert!(
@@ -1159,13 +1171,16 @@ fn theme_editor_preview_restores_theme_on_close(cx: &mut gpui::TestAppContext) {
         let Some(input) = window.focused_input(app) else {
             panic!("expected background input to be focused");
         };
-        input.update(app, |state, cx| {
-            state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter {
-                secondary: false,
-                shift: false,
+        input
+            .as_input()
+            .expect("theme input should use InputState")
+            .update(app, |state, cx| {
+                state.set_value("#000000ff", window, cx);
+                cx.emit(InputEvent::PressEnter {
+                    secondary: false,
+                    shift: false,
+                });
             });
-        });
     });
     cx.run_until_parked();
 
@@ -1273,13 +1288,16 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         let Some(input) = window.focused_input(app) else {
             panic!("expected background input to be focused");
         };
-        input.update(app, |state, cx| {
-            state.set_value("#000000ff", window, cx);
-            cx.emit(InputEvent::PressEnter {
-                secondary: false,
-                shift: false,
+        input
+            .as_input()
+            .expect("theme input should use InputState")
+            .update(app, |state, cx| {
+                state.set_value("#000000ff", window, cx);
+                cx.emit(InputEvent::PressEnter {
+                    secondary: false,
+                    shift: false,
+                });
             });
-        });
     });
     cx.run_until_parked();
 
@@ -1294,13 +1312,16 @@ fn theme_editor_preserves_previous_changes_across_fields(cx: &mut gpui::TestAppC
         let Some(input) = window.focused_input(app) else {
             panic!("expected muted input to be focused");
         };
-        input.update(app, |state, cx| {
-            state.set_value("#ffffff", window, cx);
-            cx.emit(InputEvent::PressEnter {
-                secondary: false,
-                shift: false,
+        input
+            .as_input()
+            .expect("theme input should use InputState")
+            .update(app, |state, cx| {
+                state.set_value("#ffffff", window, cx);
+                cx.emit(InputEvent::PressEnter {
+                    secondary: false,
+                    shift: false,
+                });
             });
-        });
     });
     cx.run_until_parked();
 
@@ -1708,7 +1729,10 @@ fn theme_editor_save_writes_a_theme_file(cx: &mut gpui::TestAppContext) {
         let Some(input) = window.focused_input(app) else {
             panic!("expected name input to be focused");
         };
-        input.update(app, |state, cx| state.set_value("My Theme", window, cx));
+        input
+            .as_input()
+            .expect("theme input should use InputState")
+            .update(app, |state, cx| state.set_value("My Theme", window, cx));
     });
     cx.run_until_parked();
 

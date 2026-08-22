@@ -19,6 +19,7 @@ rust-i18n.workspace = true
 env_logger.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 gpui_platform = { workspace = true, features = ["wayland", "x11"] }
+gpui-base.workspace = true
 gpui-component-assets.workspace = true
 
 [lints]
