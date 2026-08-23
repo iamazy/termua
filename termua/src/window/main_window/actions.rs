@@ -133,20 +133,41 @@ impl TermuaWindow {
             gpui_component::Root::update(window, app, |root, window, cx| {
                 root.open_dialog(
                     move |dialog, _window, _app| {
+                        let cancel_button = Button::new("termua-quit-confirm-cancel")
+                            .label(t!("MainWindow.QuitConfirm.Button.Cancel").to_string())
+                            .debug_selector(|| "termua-quit-confirm-cancel".to_string());
+                        let quit_button = Button::new("termua-quit-confirm-quit")
+                            .label(t!("MainWindow.QuitConfirm.Button.Quit").to_string())
+                            .primary()
+                            .debug_selector(|| "termua-quit-confirm-quit".to_string());
+
                         dialog
-                            .title(t!("MainWindow.QuitConfirm.Title").to_string())
-                            .child(
-                                div()
-                                    .debug_selector(|| "termua-quit-confirm-body".to_string())
-                                    .child(t!("MainWindow.QuitConfirm.Body").to_string()),
-                            )
-                            .button_props(
-                                gpui_component::dialog::DialogButtonProps::default()
-                                    .ok_text(t!("MainWindow.QuitConfirm.Button.Quit").to_string())
-                                    .cancel_text(
-                                        t!("MainWindow.QuitConfirm.Button.Cancel").to_string(),
+                            .title(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        Icon::default()
+                                            .path(TermuaIcon::AlertCircle)
+                                            .text_color(_app.theme().warning),
                                     )
-                                    .show_cancel(true),
+                                    .child(t!("MainWindow.QuitConfirm.Title").to_string()),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_3()
+                                    .items_start()
+                                    .debug_selector(|| "termua-quit-confirm-body".to_string())
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .child(t!("MainWindow.QuitConfirm.Body").to_string()),
+                                    ),
+                            )
+                            .footer(
+                                DialogFooter::new()
+                                    .child(DialogClose::new().child(cancel_button))
+                                    .child(DialogAction::new().child(quit_button)),
                             )
                             .on_ok(|_, _window, app| {
                                 app.quit();

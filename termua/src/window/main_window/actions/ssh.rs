@@ -8,7 +8,7 @@ use gpui_common::TermuaIcon;
 use gpui_component::{
     Icon,
     button::{Button, ButtonVariants},
-    dialog::DialogFooter,
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex, v_flex,
 };
 use gpui_dock::{DockPlacement, PanelView};
@@ -50,16 +50,22 @@ impl TermuaWindow {
                 move |dialog, _window, app| {
                     let decision_tx_ok = decision_tx.clone();
                     let decision_tx_cancel = decision_tx.clone();
+                    let reject_button = Button::new("termua-ssh-host-verify-reject")
+                        .label(t!("SshHostVerify.Button.Reject").to_string())
+                        .debug_selector(|| "termua-ssh-host-verify-reject".to_string());
+                    let trust_button = Button::new("termua-ssh-host-verify-trust")
+                        .label(t!("SshHostVerify.Button.TrustContinue").to_string())
+                        .primary()
+                        .debug_selector(|| "termua-ssh-host-verify-trust".to_string());
 
                     dialog
                         .title(Self::ssh_host_verification_dialog_title(app))
                         .w(px(720.))
                         .child(Self::ssh_host_verification_dialog_body(&target, &message))
-                        .button_props(
-                            gpui_component::dialog::DialogButtonProps::default()
-                                .ok_text(t!("SshHostVerify.Button.TrustContinue").to_string())
-                                .cancel_text(t!("SshHostVerify.Button.Reject").to_string())
-                                .show_cancel(true),
+                        .footer(
+                            DialogFooter::new()
+                                .child(DialogClose::new().child(reject_button))
+                                .child(DialogAction::new().child(trust_button)),
                         )
                         .on_ok(move |_, _window, _app| {
                             let _ = decision_tx_ok.try_send(true);
