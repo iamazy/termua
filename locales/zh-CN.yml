@@ -448,6 +448,9 @@ Settings:
       language:
         Title: "语言"
         Description: "选择应用界面语言。"
+      menu_auto_collapse:
+        Title: "自动折叠菜单"
+        Description: "是否自动折叠菜单。"
     terminal:
       default_backend:
         Title: "默认后端"
