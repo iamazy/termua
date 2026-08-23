@@ -4,6 +4,11 @@ use bitflags::bitflags;
 
 rust_i18n::i18n!("../../locales");
 
+#[derive(Clone, Copy, Default)]
+pub(crate) struct TerminalSelectionOwner(pub(crate) Option<gpui::EntityId>);
+
+impl gpui::Global for TerminalSelectionOwner {}
+
 mod backends;
 mod builder;
 pub mod cast;

@@ -91,6 +91,12 @@ impl TerminalView {
                 // Hovering a visible terminal should make it the active input target. The
                 // terminal view only receives this event when it is the topmost hit element, so
                 // covered terminals cannot steal focus from the panel above them.
+                if cx
+                    .try_global::<crate::TerminalSelectionOwner>()
+                    .is_some_and(|owner| owner.0.is_some())
+                {
+                    return;
+                }
                 window.focus(&this.focus_handle, cx);
             }))
     }
