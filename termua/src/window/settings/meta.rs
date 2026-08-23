@@ -81,7 +81,7 @@ static ALL_SETTINGS_META: &[SettingMeta] = &[
     SettingMeta {
         id: "appearance.menu_auto_collapse",
         title: "Auto-collapse menu",
-        description: "Collapse the application menu to the Menu button when it is inactive.",
+        description: "Whether to automatically hide the application menu.",
         keywords: &["appearance", "menu", "menubar", "collapse", "fold"],
         section: SettingsNavSection::Appearance,
         page: SettingsPage::AppearanceMenu,
