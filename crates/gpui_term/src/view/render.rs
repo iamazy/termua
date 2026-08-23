@@ -87,6 +87,12 @@ impl TerminalView {
             .on_action(cx.listener(TerminalView::stop_cast_recording))
             .on_action(cx.listener(TerminalView::toggle_cast_recording))
             .on_key_down(cx.listener(Self::key_down))
+            .on_mouse_move(cx.listener(|this, _, window, cx| {
+                // Hovering a visible terminal should make it the active input target. The
+                // terminal view only receives this event when it is the topmost hit element, so
+                // covered terminals cannot steal focus from the panel above them.
+                window.focus(&this.focus_handle, cx);
+            }))
     }
 
     fn terminal_view_root_mouse_handlers(
