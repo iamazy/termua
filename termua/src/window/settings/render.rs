@@ -400,6 +400,7 @@ impl SettingsWindow {
     ) -> AnyElement {
         match page {
             SettingsPage::AppearanceTheme => self.render_appearance_theme_page_heading(heading, cx),
+            SettingsPage::AppearanceMenu => div().child(heading).into_any_element(),
             _ => self.render_simple_page_heading(heading, cx),
         }
     }

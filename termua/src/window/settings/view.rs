@@ -56,6 +56,7 @@ macro_rules! settings_supported_id_matches {
                 | "lock_screen.timeout_secs"
                 | "appearance.theme"
                 | "appearance.language"
+                | "appearance.menu_auto_collapse"
                 | "appearance.light_theme"
                 | "appearance.dark_theme"
                 | "terminal.default_backend"
@@ -1587,6 +1588,15 @@ impl SettingsWindow {
         match id {
             "appearance.theme" => Some(self.render_appearance_theme_control(cx)),
             "appearance.language" => Some(self.render_appearance_language_control(cx)),
+            "appearance.menu_auto_collapse" => Some(self.render_bool_switch(
+                "settings-appearance-menu-auto-collapse",
+                self.settings.appearance.menu_auto_collapse,
+                |this, checked, window, cx| {
+                    this.settings.appearance.menu_auto_collapse = checked;
+                    this.apply_and_save(window, cx);
+                },
+                cx,
+            )),
             "appearance.light_theme" => {
                 Some(self.render_theme_dropdown(ThemeDropdownKind::Light, window, cx))
             }

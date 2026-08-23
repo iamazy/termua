@@ -382,6 +382,7 @@ Settings:
   Appearance:
     Theme: "主题"
     Language: "语言"
+    Menu: "菜单"
   Terminal:
     Terminal: "终端"
     Behavior: "行为"

@@ -79,6 +79,14 @@ static ALL_SETTINGS_META: &[SettingMeta] = &[
         page: SettingsPage::AppearanceLanguage,
     },
     SettingMeta {
+        id: "appearance.menu_auto_collapse",
+        title: "Auto-collapse menu",
+        description: "Collapse the application menu to the Menu button when it is inactive.",
+        keywords: &["appearance", "menu", "menubar", "collapse", "fold"],
+        section: SettingsNavSection::Appearance,
+        page: SettingsPage::AppearanceMenu,
+    },
+    SettingMeta {
         id: "terminal.default_backend",
         title: "Default backend",
         description: "Choose the default terminal backend.",

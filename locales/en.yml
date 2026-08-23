@@ -382,6 +382,7 @@ Settings:
   Appearance:
     Theme: "Theme"
     Language: "Language"
+    Menu: "Menu"
   Terminal:
     Terminal: "Terminal"
     Behavior: "Behavior"

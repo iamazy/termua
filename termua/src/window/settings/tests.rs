@@ -2366,6 +2366,7 @@ fn setting_metadata_covers_all_controls() {
     assert!(ids.contains("appearance.light_theme"));
     assert!(ids.contains("appearance.dark_theme"));
     assert!(ids.contains("appearance.language"));
+    assert!(ids.contains("appearance.menu_auto_collapse"));
 
     // Terminal / Font
     assert!(ids.contains("terminal.font_family"));
@@ -2452,7 +2453,7 @@ fn sidebar_nav_specs_match_settings_nav_requirements() {
         .iter()
         .find(|group| group.section == SettingsNavSection::Appearance)
         .expect("expected Appearance group");
-    assert_eq!(appearance.items.len(), 2);
+    assert_eq!(appearance.items.len(), 3);
     assert!(
         appearance
             .items
@@ -2464,6 +2465,12 @@ fn sidebar_nav_specs_match_settings_nav_requirements() {
             .items
             .iter()
             .any(|item| item.page == SettingsPage::AppearanceLanguage)
+    );
+    assert!(
+        appearance
+            .items
+            .iter()
+            .any(|item| item.page == SettingsPage::AppearanceMenu)
     );
 
     assert!(
