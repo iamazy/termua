@@ -157,6 +157,7 @@ Footbar:
     MultiExecute: "批量执行"
     Messages: "通知"
     Assistant: "助手"
+    ThemeToggle: "切换深色/浅色主题"
     Lock: "锁屏"
     LockUnsupported: "锁屏（不支持）"
     LockDisabled: "锁屏（已禁用）"

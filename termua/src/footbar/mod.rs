@@ -246,6 +246,14 @@ impl FootbarView {
         }
     }
 
+    fn theme_toggle_icon(is_dark: bool) -> TermuaIcon {
+        if is_dark {
+            TermuaIcon::Sun
+        } else {
+            TermuaIcon::Moon
+        }
+    }
+
     fn set_transfers_open(&mut self, open: bool, cx: &mut Context<Self>) {
         self.transfers_open = open;
         cx.notify();
@@ -281,6 +289,7 @@ impl FootbarView {
         assistant_enabled: bool,
         assistant_selected: bool,
         backend: Option<TerminalType>,
+        is_dark: bool,
     ) -> gpui::AnyElement {
         h_flex()
             .items_center()
@@ -288,6 +297,23 @@ impl FootbarView {
             .when_some(backend, |this, backend| {
                 this.child(Self::render_backend_indicator(backend))
             })
+            .child(
+                Button::new("termua-footbar-theme-toggle-button")
+                    .xsmall()
+                    .compact()
+                    .ghost()
+                    .icon(Icon::default().path(Self::theme_toggle_icon(is_dark)))
+                    .tooltip(t!("Footbar.Tooltip.ThemeToggle").to_string())
+                    .debug_selector(|| "termua-footbar-theme-toggle".to_string())
+                    .on_click(|_, window, cx| {
+                        let next = if cx.theme().mode.is_dark() {
+                            crate::settings::ThemeMode::Light
+                        } else {
+                            crate::settings::ThemeMode::Dark
+                        };
+                        crate::settings::set_theme_mode(next, Some(window), cx);
+                    }),
+            )
             .child(
                 Button::new("termua-footbar-issues-link")
                     .xsmall()
@@ -440,6 +466,7 @@ impl Render for FootbarView {
         let web_share_count = cx.global::<WebShareIndicator>().count();
 
         let backend = cx.global::<FocusedTerminalBackendState>().backend();
+        let is_dark = cx.theme().mode.is_dark();
         let left_controls = self.render_controls_left(sessions_visible);
         let right_controls = self.render_controls_right(
             enabled,
@@ -450,6 +477,7 @@ impl Render for FootbarView {
             assistant_enabled,
             assistant_selected,
             backend,
+            is_dark,
         );
 
         div()
@@ -533,6 +561,12 @@ mod tests {
     fn footbar_multi_exec_icon_paths_match_spec() {
         assert_eq!(FootbarView::multi_exec_icon_path(false), TermuaIcon::Dice1);
         assert_eq!(FootbarView::multi_exec_icon_path(true), TermuaIcon::Dice4);
+    }
+
+    #[test]
+    fn footbar_theme_toggle_icon_matches_current_mode() {
+        assert_eq!(FootbarView::theme_toggle_icon(true), TermuaIcon::Sun);
+        assert_eq!(FootbarView::theme_toggle_icon(false), TermuaIcon::Moon);
     }
 
     #[gpui::test]
