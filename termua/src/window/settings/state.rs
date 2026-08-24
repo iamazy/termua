@@ -122,6 +122,7 @@ impl TerminalKeybinding {
 pub enum SettingsPage {
     AppearanceTheme,
     AppearanceLanguage,
+    AppearanceMenu,
     Terminal,
     TerminalFont,
     TerminalKeyBindings,
@@ -169,6 +170,16 @@ const SETTINGS_PAGE_SPECS: &[SettingsPageSpec] = &[
         page: SettingsPage::AppearanceLanguage,
         nav_item_id: "nav.page.appearance.language",
         heading_key: "Settings.Appearance.Language",
+        hint_key: None,
+        is_sidebar_item: true,
+    },
+    #[cfg(not(target_os = "macos"))]
+    SettingsPageSpec {
+        section: SettingsNavSection::Appearance,
+        item_label_key: "Settings.Appearance.Menu",
+        page: SettingsPage::AppearanceMenu,
+        nav_item_id: "nav.page.appearance.menu",
+        heading_key: "Settings.Appearance.Menu",
         hint_key: None,
         is_sidebar_item: true,
     },
@@ -346,6 +357,7 @@ fn nav_item_sort_key(page: SettingsPage) -> &'static str {
     match page {
         SettingsPage::AppearanceTheme => "Theme",
         SettingsPage::AppearanceLanguage => "Language",
+        SettingsPage::AppearanceMenu => "Menu",
         SettingsPage::Terminal => "Terminal",
         SettingsPage::TerminalFont => "Font",
         SettingsPage::TerminalKeyBindings => "Key Bindings",

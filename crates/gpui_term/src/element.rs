@@ -558,6 +558,17 @@ impl InteractiveElement for TerminalElement {
 impl StatefulInteractiveElement for TerminalElement {}
 
 impl TerminalElement {
+    fn owns_selection_drag(terminal_view: &Entity<TerminalView>, cx: &App) -> bool {
+        cx.try_global::<crate::TerminalSelectionOwner>()
+            .is_some_and(|owner| owner.0 == Some(terminal_view.entity_id()))
+    }
+
+    fn clear_selection_drag_owner(terminal_view: &Entity<TerminalView>, cx: &mut App) {
+        if Self::owns_selection_drag(terminal_view, cx) {
+            cx.set_global(crate::TerminalSelectionOwner(None));
+        }
+    }
+
     pub fn new(
         terminal: Entity<Terminal>,
         terminal_view: Entity<TerminalView>,
@@ -693,6 +704,9 @@ impl TerminalElement {
         terminal_view.update(cx, |view: &mut TerminalView, _| {
             view.set_mouse_left_down_in_terminal(true);
         });
+        cx.set_global(crate::TerminalSelectionOwner(Some(
+            terminal_view.entity_id(),
+        )));
 
         let scroll_top = terminal_view.read(cx).scroll_top();
         terminal.update(cx, |terminal, cx| {
@@ -759,6 +773,7 @@ impl TerminalElement {
             );
             cx.notify();
         });
+        Self::clear_selection_drag_owner(terminal_view, cx);
 
         true
     }
@@ -774,6 +789,10 @@ impl TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        if !Self::owns_selection_drag(terminal_view, cx) {
+            return;
+        }
+
         // If the drag started in this terminal view, keep updating the selection even if the
         // cursor leaves the terminal hitbox (or focus changes).
         if !e.dragging()
@@ -943,6 +962,7 @@ impl TerminalElement {
                 });
 
                 if was_scrollbar_dragging {
+                    Self::clear_selection_drag_owner(&terminal_view, cx);
                     terminal_view.update(cx, |_, view_cx| view_cx.notify());
                     return;
                 }
@@ -951,6 +971,7 @@ impl TerminalElement {
                     terminal.mouse_up(e, cx);
                     cx.notify();
                 });
+                Self::clear_selection_drag_owner(&terminal_view, cx);
             }
         });
     }
@@ -983,6 +1004,7 @@ impl TerminalElement {
                 });
 
                 if was_scrollbar_dragging {
+                    Self::clear_selection_drag_owner(&terminal_view, cx);
                     terminal_view.update(cx, |_, view_cx| view_cx.notify());
                     return;
                 }
@@ -991,6 +1013,7 @@ impl TerminalElement {
                     terminal.mouse_up(e, cx);
                     cx.notify();
                 });
+                Self::clear_selection_drag_owner(&terminal_view, cx);
             }
         });
     }

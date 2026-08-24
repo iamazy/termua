@@ -13,7 +13,7 @@ use gpui_component::{
 };
 use rust_i18n::t;
 
-use crate::state::MenuBarState;
+use crate::{auto_collapse, state::MenuBarState};
 
 const CONTEXT: &str = "FoldableAppMenuBar";
 
@@ -237,7 +237,15 @@ impl FoldableAppMenuBar {
         window.prevent_default();
         cx.stop_propagation();
 
-        self.state.on_fold_click();
+        if auto_collapse(cx) {
+            self.state.on_fold_click();
+        } else if self.state.selected_ix == Some(0) {
+            // With a permanently expanded menubar, clicking the first menu toggles only its
+            // popup; the menubar itself must remain visible.
+            self.state.selected_ix = None;
+        } else {
+            self.state.selected_ix = Some(0);
+        }
         self.set_selected_index(self.state.selected_ix, window, cx);
     }
 
@@ -246,7 +254,7 @@ impl FoldableAppMenuBar {
             return;
         }
         // Don't expand/open from hover when folded.
-        if !self.state.expanded {
+        if !auto_collapse(cx) || !self.state.expanded {
             return;
         }
         // Switch from other top-level menus back to the fold/app menu when the menubar is active.
@@ -313,6 +321,12 @@ impl Render for FoldableAppMenuBar {
         }
 
         self.sync_menus_from_app(window, cx);
+
+        if !auto_collapse(cx) {
+            self.state.expanded = true;
+        } else if self.state.selected_ix.is_none() {
+            self.state.expanded = false;
+        }
 
         let fold_name: SharedString = self
             .fold_menu

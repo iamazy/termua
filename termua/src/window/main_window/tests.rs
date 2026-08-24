@@ -1337,6 +1337,16 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
         window_cx.debug_bounds("termua-quit-confirm-body").is_some(),
         "expected quit confirmation dialog when tabs are open"
     );
+    assert!(
+        window_cx
+            .debug_bounds("termua-quit-confirm-cancel")
+            .is_some(),
+        "expected quit confirmation dialog to render a Cancel button"
+    );
+    assert!(
+        window_cx.debug_bounds("termua-quit-confirm-quit").is_some(),
+        "expected quit confirmation dialog to render a Quit button"
+    );
 }
 
 #[cfg_attr(target_os = "macos", ignore)]

@@ -99,7 +99,7 @@ macro_rules! settings_supported_id_matches {
                 | "assistant.provider_timeout_secs"
                 | "assistant.extra_headers"
                 | "assistant.api_key"
-        )
+        ) || (cfg!(not(target_os = "macos")) && $id == "appearance.menu_auto_collapse")
     };
 }
 
@@ -1587,6 +1587,15 @@ impl SettingsWindow {
         match id {
             "appearance.theme" => Some(self.render_appearance_theme_control(cx)),
             "appearance.language" => Some(self.render_appearance_language_control(cx)),
+            "appearance.menu_auto_collapse" => Some(self.render_bool_switch(
+                "settings-appearance-menu-auto-collapse",
+                self.settings.appearance.menu_auto_collapse,
+                |this, checked, window, cx| {
+                    this.settings.appearance.menu_auto_collapse = checked;
+                    this.apply_and_save(window, cx);
+                },
+                cx,
+            )),
             "appearance.light_theme" => {
                 Some(self.render_theme_dropdown(ThemeDropdownKind::Light, window, cx))
             }

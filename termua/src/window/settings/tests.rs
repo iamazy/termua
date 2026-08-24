@@ -2366,6 +2366,8 @@ fn setting_metadata_covers_all_controls() {
     assert!(ids.contains("appearance.light_theme"));
     assert!(ids.contains("appearance.dark_theme"));
     assert!(ids.contains("appearance.language"));
+    #[cfg(not(target_os = "macos"))]
+    assert!(ids.contains("appearance.menu_auto_collapse"));
 
     // Terminal / Font
     assert!(ids.contains("terminal.font_family"));
@@ -2452,6 +2454,9 @@ fn sidebar_nav_specs_match_settings_nav_requirements() {
         .iter()
         .find(|group| group.section == SettingsNavSection::Appearance)
         .expect("expected Appearance group");
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(appearance.items.len(), 3);
+    #[cfg(target_os = "macos")]
     assert_eq!(appearance.items.len(), 2);
     assert!(
         appearance
@@ -2464,6 +2469,20 @@ fn sidebar_nav_specs_match_settings_nav_requirements() {
             .items
             .iter()
             .any(|item| item.page == SettingsPage::AppearanceLanguage)
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert!(
+        appearance
+            .items
+            .iter()
+            .any(|item| item.page == SettingsPage::AppearanceMenu)
+    );
+    #[cfg(target_os = "macos")]
+    assert!(
+        !appearance
+            .items
+            .iter()
+            .any(|item| item.page == SettingsPage::AppearanceMenu)
     );
 
     assert!(

@@ -142,7 +142,7 @@ where
     language
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppearanceSettings {
     pub theme: ThemeMode,
@@ -151,6 +151,20 @@ pub struct AppearanceSettings {
     pub light_theme: Option<String>,
     /// Name of the selected dark theme config (from ThemeRegistry). None = registry default.
     pub dark_theme: Option<String>,
+    /// Whether the in-window application menu collapses to the menu icon.
+    pub menu_auto_collapse: bool,
+}
+
+impl Default for AppearanceSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeMode::default(),
+            language: Language::default(),
+            light_theme: None,
+            dark_theme: None,
+            menu_auto_collapse: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -740,6 +754,7 @@ impl SettingsFile {
 
         set_language(self.appearance.language, cx);
         set_theme_mode(self.appearance.theme, window, cx);
+        menubar::set_auto_collapse(self.appearance.menu_auto_collapse, cx);
     }
 
     pub fn apply_assistant_settings(&self, cx: &mut App) {
@@ -1100,6 +1115,7 @@ mod tests {
         let settings = SettingsFile::load_from_str_lenient("{}").unwrap();
         assert_eq!(settings.terminal.copy_on_select, true);
         assert_eq!(settings.terminal.option_as_meta, false);
+        assert!(settings.appearance.menu_auto_collapse);
         assert_eq!(settings.terminal.ligatures_enabled(), true);
     }
 

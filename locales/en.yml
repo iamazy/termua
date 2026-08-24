@@ -382,6 +382,7 @@ Settings:
   Appearance:
     Theme: "Theme"
     Language: "Language"
+    Menu: "Menu"
   Terminal:
     Terminal: "Terminal"
     Behavior: "Behavior"
@@ -447,6 +448,9 @@ Settings:
       language:
         Title: "Language"
         Description: "Choose the application UI language."
+      menu_auto_collapse:
+        Title: "Auto-Collapse Menu"
+        Description: "Whether to automatically collapse the application menu."
     terminal:
       default_backend:
         Title: "Default backend"

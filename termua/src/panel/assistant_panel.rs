@@ -8,6 +8,7 @@ use gpui_common::TermuaIcon;
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
     input::{Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
@@ -1038,19 +1039,27 @@ impl AssistantPanelView {
         cx: &mut Context<gpui_component::Root>,
     ) {
         root.open_dialog(
-            move |dialog, _window, _app| {
+            move |dialog, _window, app| {
+                let cancel_button = Button::new("termua-assistant-run-command-cancel")
+                    .label(t!("Assistant.Dialog.RunInTerminalCancel").to_string())
+                    .debug_selector(|| "termua-assistant-run-command-cancel".to_string());
+                let run_button = Button::new("termua-assistant-run-command-run")
+                    .label(t!("Assistant.Dialog.RunInTerminalOk").to_string())
+                    .primary()
+                    .debug_selector(|| "termua-assistant-run-command-run".to_string());
+
                 dialog
                     .title(t!("Assistant.Dialog.RunInTerminalTitle").to_string())
                     .w(px(720.))
                     .child(Self::run_command_dialog_body(
                         target_label.clone(),
                         &command,
+                        app,
                     ))
-                    .button_props(
-                        gpui_component::dialog::DialogButtonProps::default()
-                            .ok_text(t!("Assistant.Dialog.RunInTerminalOk").to_string())
-                            .cancel_text(t!("Assistant.Dialog.RunInTerminalCancel").to_string())
-                            .show_cancel(true),
+                    .footer(
+                        DialogFooter::new()
+                            .child(DialogClose::new().child(cancel_button))
+                            .child(DialogAction::new().child(run_button)),
                     )
                     .on_ok({
                         let this = this.clone();
@@ -1073,15 +1082,25 @@ impl AssistantPanelView {
         );
     }
 
-    fn run_command_dialog_body(target_label: String, command: &str) -> AnyElement {
+    fn run_command_dialog_body(target_label: String, command: &str, app: &App) -> AnyElement {
         let command_md = format!("```sh\n{command}\n```");
+        let field_label_color = app.theme().muted_foreground;
+        let card_border = app.theme().border.opacity(0.8);
+        let card_background = app.theme().border.opacity(0.12);
+
         v_flex()
-            .gap_2()
+            .pt_2()
+            .gap_4()
             .child(
                 h_flex()
-                    .gap_2()
-                    .items_start()
-                    .child(div().child(t!("Assistant.Label.Target").to_string()))
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(field_label_color)
+                            .child(t!("Assistant.Label.Target").to_string()),
+                    )
                     .child(
                         div().min_w_0().child(
                             TextView::markdown("termua-assistant-run-target", target_label)
@@ -1090,15 +1109,27 @@ impl AssistantPanelView {
                     ),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_start()
-                    .child(div().child(t!("Assistant.Label.Command").to_string()))
+                v_flex()
+                    .gap_1()
                     .child(
-                        div().min_w_0().child(
-                            TextView::markdown("termua-assistant-run-command", command_md)
-                                .selectable(true),
-                        ),
+                        div()
+                            .text_xs()
+                            .text_color(field_label_color)
+                            .child(t!("Assistant.Label.Command").to_string()),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .p_3()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(card_border)
+                            .bg(card_background)
+                            .child(
+                                TextView::markdown("termua-assistant-run-command", command_md)
+                                    .selectable(true),
+                            ),
                     ),
             )
             .into_any_element()

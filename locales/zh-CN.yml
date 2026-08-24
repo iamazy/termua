@@ -382,6 +382,7 @@ Settings:
   Appearance:
     Theme: "主题"
     Language: "语言"
+    Menu: "菜单"
   Terminal:
     Terminal: "终端"
     Behavior: "行为"
@@ -447,6 +448,9 @@ Settings:
       language:
         Title: "语言"
         Description: "选择应用界面语言。"
+      menu_auto_collapse:
+        Title: "自动折叠菜单"
+        Description: "是否自动折叠菜单。"
     terminal:
       default_backend:
         Title: "默认后端"
