@@ -78,6 +78,7 @@ static ALL_SETTINGS_META: &[SettingMeta] = &[
         section: SettingsNavSection::Appearance,
         page: SettingsPage::AppearanceLanguage,
     },
+    #[cfg(not(target_os = "macos"))]
     SettingMeta {
         id: "appearance.menu_auto_collapse",
         title: "Auto-collapse menu",

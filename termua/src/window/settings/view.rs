@@ -56,7 +56,6 @@ macro_rules! settings_supported_id_matches {
                 | "lock_screen.timeout_secs"
                 | "appearance.theme"
                 | "appearance.language"
-                | "appearance.menu_auto_collapse"
                 | "appearance.light_theme"
                 | "appearance.dark_theme"
                 | "terminal.default_backend"
@@ -100,7 +99,7 @@ macro_rules! settings_supported_id_matches {
                 | "assistant.provider_timeout_secs"
                 | "assistant.extra_headers"
                 | "assistant.api_key"
-        )
+        ) || (cfg!(not(target_os = "macos")) && $id == "appearance.menu_auto_collapse")
     };
 }
 

@@ -173,6 +173,7 @@ const SETTINGS_PAGE_SPECS: &[SettingsPageSpec] = &[
         hint_key: None,
         is_sidebar_item: true,
     },
+    #[cfg(not(target_os = "macos"))]
     SettingsPageSpec {
         section: SettingsNavSection::Appearance,
         item_label_key: "Settings.Appearance.Menu",
