@@ -68,9 +68,11 @@ impl MenubarTitleBar {
 mod tests {
     use std::sync::Mutex;
 
+    #[cfg(not(target_os = "macos"))]
+    use gpui::AppContext as _;
     use gpui::{
-        AppContext as _, AvailableSpace, Context, InteractiveElement as _, IntoElement,
-        ParentElement as _, Render, Styled as _, Window, point, px, size,
+        AvailableSpace, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+        Styled as _, Window, point, px, size,
     };
     #[cfg(not(target_os = "macos"))]
     use gpui_base::TextSelection;
