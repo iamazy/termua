@@ -83,12 +83,13 @@ vte = { version = "0.15", default-features = false }
 windows = "0.62"
 windows-sys = "0.62"
 
-# gpui dependencies
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed" }
-gpui-base = { git = "https://github.com/longbridge/gpui-component.git" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component.git" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git" }
+# GPUI Kit components pin this GPUI snapshot; upgrade these dependencies together.
+# Keep the existing crate names via aliases so application imports stay stable.
+gpui = { package = "gpui-pre", version = "=0.3.6" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.6", features = ["font-kit", "runtime_shaders"] }
+gpui-base = "=0.6.6"
+gpui-component = "=0.6.6"
+gpui-component-assets = { package = "gpui-kit-assets", version = "=0.6.6" }
 
 # termua dependencies
 alacritty_terminal = { path = "crates/alacritty_terminal" }
@@ -108,9 +109,6 @@ wezterm-ssh = { path = "crates/wezterm-ssh" }
 wezterm-surface = { git = "https://github.com/wezterm/wezterm.git" }
 wezterm-term = { git = "https://github.com/wezterm/wezterm.git" }
 wezterm-uds = { git = "https://github.com/wezterm/wezterm.git" }
-
-[patch.crates-io]
-gpui-component-macros = { git = "https://github.com/longbridge/gpui-component.git" }
 
 [profile.release]
 strip = true

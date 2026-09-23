@@ -24,6 +24,9 @@ actions!(gpui_dock_tiles, [Undo, Redo]);
 const MINIMUM_SIZE: Size<Pixels> = size(px(100.), px(100.));
 const DRAG_BAR_HEIGHT: Pixels = px(30.);
 const HANDLE_SIZE: Pixels = px(5.0);
+// Preserve the tile defaults removed from gpui-component's shared theme.
+const TILE_GRID_SIZE: Pixels = px(8.);
+const TILE_RADIUS: Pixels = px(0.);
 
 #[derive(Clone, PartialEq, Debug)]
 struct TileChange {
@@ -383,7 +386,7 @@ impl Tiles {
         let mut new_origin = self.dragging_initial_bounds.origin + delta;
 
         // Apply magnetic snap before boundary checks
-        let snap_threshold = cx.theme().tile_grid_size;
+        let snap_threshold = TILE_GRID_SIZE;
         let dragging_bounds = Bounds {
             origin: new_origin,
             size: self.dragging_initial_bounds.size,
@@ -1041,7 +1044,7 @@ impl Tiles {
             // More 1px to account for the border width when 2 panels are too close
             .w(item.bounds.size.width + px(1.))
             .h(item.bounds.size.height + px(1.))
-            .rounded(cx.theme().tile_radius)
+            .rounded(TILE_RADIUS)
             .child(h_flex().overflow_hidden().size_full().child(panel_view))
             .children(self.render_resize_handles(window, cx, entity_id, &item))
             .child(self.render_drag_bar(window, cx, entity_id, &item))
@@ -1135,8 +1138,8 @@ impl Tiles {
 }
 
 #[inline]
-fn round_to_nearest_ten(value: Pixels, cx: &App) -> Pixels {
-    (value / cx.theme().tile_grid_size).round() * cx.theme().tile_grid_size
+fn round_to_nearest_ten(value: Pixels, _cx: &App) -> Pixels {
+    (value / TILE_GRID_SIZE).round() * TILE_GRID_SIZE
 }
 
 #[inline]
@@ -1175,7 +1178,7 @@ impl Render for Tiles {
 
         div()
             .relative()
-            .bg(cx.theme().tiles)
+            .bg(cx.theme().background)
             .child(
                 div()
                     .id("tiles")
