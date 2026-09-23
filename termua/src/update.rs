@@ -122,11 +122,13 @@ fn highest_release_tag(body: &str) -> Option<String> {
 }
 
 pub(crate) fn check_latest() -> anyhow::Result<CheckResult> {
-    let response = ureq::get(RELEASES_API_URL)
-        .set("User-Agent", concat!("termua/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(10))
+    let mut response = ureq::get(RELEASES_API_URL)
+        .header("User-Agent", concat!("termua/", env!("CARGO_PKG_VERSION")))
+        .config()
+        .timeout_global(Some(Duration::from_secs(10)))
+        .build()
         .call()?;
-    let body = response.into_string()?;
+    let body = response.body_mut().read_to_string()?;
     let tag = highest_release_tag(&body)
         .ok_or_else(|| anyhow::anyhow!("GitHub response has no versioned release tag"))?;
     if is_newer_version(env!("CARGO_PKG_VERSION"), &tag) {

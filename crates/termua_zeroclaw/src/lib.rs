@@ -301,22 +301,23 @@ impl Client {
             .context("API key is required to fetch models")?;
 
         let timeout_secs = options.provider_timeout_secs.unwrap_or(30);
-        let agent = ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(timeout_secs))
-            .build();
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(timeout_secs)))
+            .build()
+            .into();
 
         let models_url = models_url_from_base(&api_url)?;
         let mut req = agent
             .get(models_url.as_str())
-            .set("accept", "application/json")
-            .set("authorization", &format!("Bearer {api_key}"));
+            .header("accept", "application/json")
+            .header("authorization", &format!("Bearer {api_key}"));
 
         for (k, v) in options.extra_headers.iter() {
-            req = req.set(k, v);
+            req = req.header(k, v);
         }
 
-        let resp = req.call().context("fetch /models")?;
-        let v: serde_json::Value = resp.into_json().context("parse /models json")?;
+        let mut resp = req.call().context("fetch /models")?;
+        let v: serde_json::Value = resp.body_mut().read_json().context("parse /models json")?;
 
         fn extract_ids(arr: &[serde_json::Value]) -> Vec<String> {
             let mut out = Vec::new();
@@ -452,10 +453,10 @@ impl Client {
         let mut base = endpoint_base_url(endpoint);
         base.push_str("health");
 
-        let resp = ureq::get(&base).set("accept", "application/json").call();
+        let resp = ureq::get(&base).header("accept", "application/json").call();
         match resp {
             Ok(r) => Ok(r.status() == 200),
-            Err(ureq::Error::Status(code, _)) => Ok(code == 200),
+            Err(ureq::Error::StatusCode(_)) => Ok(false),
             Err(err) => Err(anyhow::anyhow!(err)),
         }
     }
@@ -467,7 +468,7 @@ impl Client {
         base.push_str("admin/shutdown");
 
         let resp = ureq::post(&base)
-            .set("accept", "application/json")
+            .header("accept", "application/json")
             .send_json(serde_json::json!({}))
             .context("POST /admin/shutdown")?;
         if resp.status() != 200 {
@@ -499,7 +500,7 @@ impl Client {
                     return;
                 };
                 rt.block_on(async move {
-                    let _ = zeroclaw::gateway::run_gateway(&host, port, config).await;
+                    let _ = zeroclaw::gateway::run_gateway(&host, port, config, None).await;
                 });
             })
             .context("spawn zeroclaw gateway thread")?;
