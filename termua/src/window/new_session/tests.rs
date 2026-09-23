@@ -625,7 +625,6 @@ fn new_session_ssh_renders_password_input(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_session_window_is_wrapped_in_gpui_component_root(cx: &mut gpui::TestAppContext) {
     let handle = {
@@ -1998,7 +1997,6 @@ fn new_local_connect_persists_edited_and_deleted_terminal_env_rows(cx: &mut gpui
     assert_eq!(env_value("TERMUA_SHELL"), Some(expected_shell.as_str()));
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_persist(
     cx: &mut gpui::TestAppContext,
@@ -2101,7 +2099,6 @@ fn new_local_connect_with_empty_label_and_group_enqueues_sidebar_reload_after_pe
     assert_eq!(sessions[0].label, expected_label);
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn new_local_persist_error_is_shown_in_sessions_sidebar(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {

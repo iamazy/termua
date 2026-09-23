@@ -995,7 +995,6 @@ mod tests {
         (termua, window_cx)
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn saved_serial_session_open_failure_includes_edit_hint(cx: &mut gpui::TestAppContext) {
         init_test_app(cx);
@@ -1037,7 +1036,6 @@ mod tests {
         });
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn ad_hoc_serial_open_failure_omits_saved_session_edit_hint(cx: &mut gpui::TestAppContext) {
         init_test_app(cx);

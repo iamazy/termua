@@ -671,7 +671,6 @@ pub(super) mod scrollbar_preview_tests {
         }
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn scrollbar_preview_is_not_obscured_by_footer_bar(cx: &mut gpui::TestAppContext) {
         cx.update(|app| {

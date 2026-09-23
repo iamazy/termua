@@ -1165,7 +1165,6 @@ mod suggestion_selection_tests {
         assert_eq!(state.selected, None);
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn enter_does_not_accept_suggestion_when_unselected(cx: &mut gpui::TestAppContext) {
         use std::cell::RefCell;
@@ -1239,7 +1238,6 @@ mod suggestion_selection_tests {
         );
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn accept_suggestion_at_index_works_without_selection(cx: &mut gpui::TestAppContext) {
         use std::cell::RefCell;
@@ -1310,7 +1308,6 @@ mod suggestion_selection_tests {
         assert!(!still_open, "accept should close suggestions");
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn focus_out_closes_suggestions(cx: &mut gpui::TestAppContext) {
         use std::cell::RefCell;
@@ -1563,7 +1560,6 @@ mod suggestion_acceptance_shell_agnostic_tests {
         content
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn accept_selected_suggestion_allows_shell_prompt_decorations_after_cursor(
         cx: &mut gpui::TestAppContext,
@@ -1624,7 +1620,6 @@ mod suggestion_acceptance_shell_agnostic_tests {
         assert!(!still_open, "accept should close suggestions");
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn accept_selected_suggestion_falls_back_when_prompt_prefix_changes(
         cx: &mut gpui::TestAppContext,
@@ -1692,7 +1687,6 @@ mod prompt_context_tests {
 
     use super::{scrollbar::scrollbar_preview_tests::PreviewBackend, *};
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn prompt_context_snapshots_content_and_cursor_line_id(cx: &mut gpui::TestAppContext) {
         cx.update(|app| {
@@ -1740,7 +1734,6 @@ mod ime_state_tests {
 
     use super::{scrollbar::scrollbar_preview_tests::PreviewBackend, *};
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn marked_text_range_defaults_to_utf16_length_when_platform_does_not_supply_range(
         cx: &mut gpui::TestAppContext,
@@ -1775,7 +1768,6 @@ mod ime_state_tests {
         });
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn empty_marked_text_clears_ime_state(cx: &mut gpui::TestAppContext) {
         cx.update(crate::init);
@@ -1993,7 +1985,6 @@ mod snippet_placeholder_key_down_tests {
         }
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
     #[gpui::test]
     fn typing_replaces_selected_snippet_placeholder(cx: &mut gpui::TestAppContext) {
         use std::{cell::RefCell, rc::Rc};

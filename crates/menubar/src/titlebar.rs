@@ -69,10 +69,12 @@ mod tests {
     use std::sync::Mutex;
 
     use gpui::{
-        AppContext as _, AvailableSpace, Context, InteractiveElement as _, IntoElement, Modifiers,
-        MouseButton, ParentElement as _, Render, Styled as _, Window, point, px, size,
+        AppContext as _, AvailableSpace, Context, InteractiveElement as _, IntoElement,
+        ParentElement as _, Render, Styled as _, Window, point, px, size,
     };
+    #[cfg(not(target_os = "macos"))]
     use gpui_base::TextSelection;
+    #[cfg(not(target_os = "macos"))]
     use gpui_component::{
         Root,
         text::{TextView, TextViewState},
@@ -94,10 +96,12 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     struct SelectableContentTestView {
         text: gpui::Entity<TextViewState>,
     }
 
+    #[cfg(not(target_os = "macos"))]
     impl SelectableContentTestView {
         fn new(cx: &mut Context<Self>) -> Self {
             Self {
@@ -106,6 +110,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     impl Render for SelectableContentTestView {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             gpui::div()
@@ -163,9 +168,13 @@ mod tests {
         }
     }
 
-    #[cfg_attr(target_os = "macos", ignore)]
+    // The in-window menubar's selection-suppression handler is only installed on
+    // Linux/Windows; macOS uses the native menubar instead.
+    #[cfg(not(target_os = "macos"))]
     #[gpui::test]
     fn dragging_titlebar_does_not_start_text_selection(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton};
+
         let _env_guard = MACOS_ENV_LOCK.lock().unwrap();
 
         cx.update(|app| {

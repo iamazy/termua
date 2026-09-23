@@ -1030,7 +1030,6 @@ fn web_share_idle_timeout_uses_configured_minutes() {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -1113,7 +1112,6 @@ fn ssh_host_key_mismatch_dialog_renders_label_prefixes(cx: &mut gpui::TestAppCon
     }
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -1184,7 +1182,6 @@ fn web_control_request_dialog_renders_source_and_security_notice(cx: &mut gpui::
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn request_quit_without_open_tabs_does_not_open_confirmation_dialog(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -1232,7 +1229,6 @@ fn request_quit_without_open_tabs_does_not_open_confirmation_dialog(cx: &mut gpu
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -1349,7 +1345,6 @@ fn request_quit_with_open_tabs_requires_confirmation(cx: &mut gpui::TestAppConte
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn menu_quit_with_open_tabs_opens_confirmation_dialog_without_panicking(
     cx: &mut gpui::TestAppContext,
@@ -1674,7 +1669,6 @@ fn recorder_terminal_view_enables_context_menu(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
-#[cfg_attr(target_os = "macos", ignore)]
 fn recorder_terminal_view_supports_copy_and_select_all_shortcuts(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
 
@@ -1864,7 +1858,6 @@ fn main_window_renders_lock_overlay_when_locked(cx: &mut gpui::TestAppContext) {
     assert!(window.debug_bounds("termua-lock-password-input").is_some());
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -1972,7 +1965,6 @@ fn closing_terminal_tab_stops_its_web_share(cx: &mut gpui::TestAppContext) {
     });
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn dock_layout_change_cleans_share_without_a_terminal_tab(cx: &mut gpui::TestAppContext) {
     cx.update(|app| {
@@ -2061,7 +2053,6 @@ fn web_line_numbers_follow_current_terminal_setting(cx: &mut gpui::TestAppContex
     });
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2207,7 +2198,6 @@ fn close_terminal_event_closes_local_terminal_tab(cx: &mut gpui::TestAppContext)
     });
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn exited_ssh_terminal_closes_on_second_ctrl_d(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2353,7 +2343,6 @@ fn exited_ssh_terminal_closes_on_second_ctrl_d(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn close_terminal_event_keeps_recorder_tab_open(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2466,7 +2455,6 @@ fn close_terminal_event_keeps_recorder_tab_open(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn exited_recorder_tab_closes_on_ctrl_d(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2583,7 +2571,6 @@ fn exited_recorder_tab_closes_on_ctrl_d(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn active_ssh_terminal_does_not_close_on_first_ctrl_d(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2772,7 +2759,6 @@ fn sftp_events_are_recorded_in_message_center(cx: &mut gpui::TestAppContext) {
     assert!(recorded, "expected SFTP message to be recorded");
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn terminal_toast_events_are_recorded_in_message_center(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
@@ -2977,7 +2963,6 @@ fn sftp_upload_per_file_progress_creates_multiple_transfer_tasks(cx: &mut gpui::
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn main_window_pressing_enter_unlocks(cx: &mut gpui::TestAppContext) {
     use std::sync::Arc;
@@ -3049,7 +3034,6 @@ fn main_window_pressing_enter_unlocks(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn main_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppContext) {
     use std::sync::Arc;
@@ -3134,7 +3118,6 @@ fn main_window_incorrect_password_clears_lock_input(cx: &mut gpui::TestAppContex
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn main_window_focuses_lock_input_on_lock(cx: &mut gpui::TestAppContext) {
     use gpui_component::WindowExt;
@@ -3176,7 +3159,6 @@ fn main_window_focuses_lock_input_on_lock(cx: &mut gpui::TestAppContext) {
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn main_window_lock_password_input_accepts_text(cx: &mut gpui::TestAppContext) {
     use gpui_component::WindowExt;
@@ -3918,7 +3900,6 @@ fn dock_tab_move_buttons_render_when_tabs_overflow(cx: &mut gpui::TestAppContext
     );
 }
 
-#[cfg_attr(target_os = "macos", ignore)]
 #[gpui::test]
 fn ssh_sessions_with_missing_password_show_a_notification(cx: &mut gpui::TestAppContext) {
     use std::{cell::RefCell, rc::Rc};
