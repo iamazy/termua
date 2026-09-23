@@ -8,9 +8,9 @@ license.workspace = true
 anyhow.workspace = true
 
 tokio = { version = "1.50", features = ["rt", "time", "io-util", "net", "sync", "fs"] }
-zeroclaw = { package = "zeroclawlabs", version = "0.5.7", default-features = false }
+zeroclaw = { package = "zeroclawlabs", version = "0.6.9", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
-ureq = { version = "2.12", default-features = true, features = ["tls", "json"] }
+ureq.workspace = true
 sysinfo.workspace = true

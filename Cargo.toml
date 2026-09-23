@@ -26,9 +26,9 @@ keywords = ["terminal", "gpui"]
 
 [workspace.dependencies]
 anyhow = "1"
-async-tungstenite = "0.34"
+async-tungstenite = "0.35"
 atomic-write-file = "0.3"
-base64 = "0.22"
+base64 = "0.23"
 bitflags = "2"
 camino = "1"
 core-text = "=22.0.0"
@@ -40,7 +40,7 @@ futures = "0.3"
 gethostname = "1.1"
 hex = { version = "0.4", features = ["std"] }
 home = "0.5"
-itertools = "0.14"
+itertools = "0.15"
 libc = "0.2"
 libssh-rs = "0.3.6"
 log = "0.4"
@@ -53,6 +53,7 @@ polling = "3"
 rand = "0.10"
 regex = "1"
 regex-automata = "0.4"
+# Keep aligned with zeroclawlabs: libsqlite3-sys permits only one linked version.
 rusqlite = { version = "0.37", features = ["bundled"] }
 rust-i18n = "4.0.0"
 rust-embed = "8"
@@ -77,18 +78,19 @@ thiserror = "2"
 unicode-width = "0.2"
 url = "2"
 urlencoding = "2"
-ureq = { version = "2.12", default-features = true, features = ["tls", "json"] }
+ureq = { version = "3.4", features = ["json"] }
 unicode-segmentation = "1.12.0"
 vte = { version = "0.15", default-features = false }
 windows = "0.62"
-windows-sys = "0.62"
+windows-sys = "0.61"
 
-# gpui dependencies
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed" }
-gpui-base = { git = "https://github.com/longbridge/gpui-component.git" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component.git" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git" }
+# GPUI Kit components pin this GPUI snapshot; upgrade these dependencies together.
+# Keep the existing crate names via aliases so application imports stay stable.
+gpui = { package = "gpui-pre", version = "=0.3.6" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.6", features = ["font-kit", "runtime_shaders"] }
+gpui-base = "=0.6.6"
+gpui-component = "=0.6.6"
+gpui-component-assets = { package = "gpui-kit-assets", version = "=0.6.6" }
 
 # termua dependencies
 alacritty_terminal = { path = "crates/alacritty_terminal" }
@@ -108,9 +110,6 @@ wezterm-ssh = { path = "crates/wezterm-ssh" }
 wezterm-surface = { git = "https://github.com/wezterm/wezterm.git" }
 wezterm-term = { git = "https://github.com/wezterm/wezterm.git" }
 wezterm-uds = { git = "https://github.com/wezterm/wezterm.git" }
-
-[patch.crates-io]
-gpui-component-macros = { git = "https://github.com/longbridge/gpui-component.git" }
 
 [profile.release]
 strip = true

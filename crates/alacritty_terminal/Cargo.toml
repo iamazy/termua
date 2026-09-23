@@ -15,7 +15,7 @@ default = ["serde"]
 serde = ["dep:serde", "bitflags/serde", "vte/serde"]
 
 [dependencies]
-base64 = "0.22.0"
+base64 = "0.23"
 bitflags = "2.4.1"
 home = "0.5.5"
 libc = "0.2"
@@ -35,7 +35,7 @@ signal-hook = "0.4.3"
 [target.'cfg(windows)'.dependencies]
 piper = "0.2.1"
 miow = "0.6.0"
-windows-sys = { version = "0.59.0", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
     "Win32_Foundation",
     "Win32_Security",

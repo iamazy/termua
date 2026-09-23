@@ -157,6 +157,7 @@ Footbar:
     MultiExecute: "Multi Execute"
     Messages: "Messages"
     Assistant: "Assistant"
+    ThemeToggle: "Toggle dark/light theme"
     Lock: "Lock"
     LockUnsupported: "Lock (unsupported)"
     LockDisabled: "Lock (disabled)"
